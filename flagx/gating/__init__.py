@@ -1,5 +1,5 @@
 
-from .flowsom import SomClassifier
+from .som_classifier import SomClassifier
 
 __all__ = ["SomClassifier"]
 
