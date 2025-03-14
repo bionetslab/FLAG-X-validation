@@ -127,7 +127,7 @@ class FlowDataManager:
             raise ValueError("'new_verbosity' must be an integer >= 0")
         self._verbosity = new_verbosity
 
-    ####################################################################################################################
+    # ### load_data_files_to_anndata() #################################################################################
     def load_data_files_to_anndata(self):
 
         # If no filetype is passed, determine from ending of 1st file
@@ -183,6 +183,7 @@ class FlowDataManager:
             data_file_type = "unknown"
         return data_file_type
 
+    # check_sample_sizes() #############################################################################################
     def check_sample_sizes(
             self,
             out_filename: Union[str, None] = None,
@@ -239,6 +240,7 @@ class FlowDataManager:
 
         return df
 
+    # ### align_channel_names(), check_og_channel_names_df() ###########################################################
     def align_channel_names(
             self,
             reference_channel_names: Union[int, dict, None] = None,
@@ -367,6 +369,7 @@ class FlowDataManager:
                     msg += f'# ### Name: {value}, Count: {count}\n'
                 warnings.warn(msg, UserWarning)
 
+    # ### sample_wise_preprocessing() ##################################################################################
     def sample_wise_preprocessing(
             self,
             flavour: Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'] = 'arcsinh',
@@ -418,7 +421,7 @@ class FlowDataManager:
 
         for d in data_list:
             if load_data:
-                dummydata = sc.read_h5ad(os.path.join(file_path, data_list[0]))
+                dummydata = sc.read_h5ad(os.path.join(file_path, d))
             else:
                 dummydata = d
 
@@ -434,7 +437,7 @@ class FlowDataManager:
                 trafo_fct(adata=dummydata)
 
             if load_data:
-                dummydata.write_h5ad(os.path.join(file_path, data_list[0]))
+                dummydata.write_h5ad(os.path.join(file_path, d))
                 del dummydata
 
         if not inplace:
@@ -446,6 +449,7 @@ class FlowDataManager:
         x = np.log10(x, out=np.full(x.shape, np.log(cutoff), dtype=float), where=(x > cutoff))
         adata.X = x
 
+    # ### perform_data_split() #########################################################################################
     def perform_data_split(
             self,
             data_split: Union[Tuple[float, float], Tuple[float, float, float], pd.DataFrame] = (0.75, 0.25),
@@ -574,13 +578,13 @@ class FlowDataManager:
 
         df.to_csv(os.path.join(filepath, filename), index=False)
 
-    def create_data_loader(
+    # ### get_data_loader() ############################################################################################
+    def get_data_loader(
             self,
             data_set: Literal['train', 'val', 'test', 'all'],
             channels: Union[Sequence[int], Sequence[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
-            balance: bool = False,
             label_layer_key: Union[str, None] = None,
             batch_size: int = -1,
             shuffle: bool = True,
@@ -611,13 +615,12 @@ class FlowDataManager:
         else:
             data_list = []
 
-        out = FlowDataManager.create_data_loader_worker(
+        out = FlowDataManager.get_data_loader_worker(
             data_list=data_list,
             save_path=self._save_path,
             channels=channels,
             layer_key=layer_key,
             label_key=label_key,
-            balance=balance,
             label_layer_key=label_layer_key,
             batch_size=batch_size,
             shuffle=shuffle,
@@ -631,13 +634,12 @@ class FlowDataManager:
         return out
 
     @staticmethod
-    def create_data_loader_worker(
+    def get_data_loader_worker(
             data_list: Union[Sequence[str], Sequence[sc.AnnData]],
             save_path: Union[str, None] = None,  # Where data was saved and where .npy files are to be saved if 'on_disk' is True
             channels: Union[Sequence[int], Sequence[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
-            balance: bool = False,
             label_layer_key: Union[str, None] = None,
             batch_size: int = -1,
             shuffle: bool = True,
@@ -655,7 +657,7 @@ class FlowDataManager:
                 "If 'data_list' is a list of filenames 'save_path' (= dir where files are stored) cannot be None"
             )
 
-        if load_data and on_disk is True:
+        if on_disk and save_path is None:
             raise ValueError(
                 "If 'on_disk' is True 'save_path' (= dir where the dataloader data file is stored) cannot be None"
             )
@@ -675,15 +677,6 @@ class FlowDataManager:
             label_array = FlowDataManager._get_numpy_label_vector(
                 data_list=data_list, label_key=label_key, layer_key=label_layer_key, data_path=save_path
             )
-            if balance:
-                os_strategy, us_strategy = FlowDataManager._create_sampling_strategies(
-                    y=label_array,
-                    verbosity=verbosity
-                )
-                rus = RandomUnderSampler(random_state=0, sampling_strategy=us_strategy)
-                data_array, label_array = rus.fit_resample(data_array, label_array)
-                ros = RandomOverSampler(random_state=0, sampling_strategy=os_strategy)
-                data_array, label_array = ros.fit_resample(data_array, label_array)
 
             data_array = np.concatenate((data_array, np.expand_dims(label_array, axis=1)), axis=1)
 
@@ -795,6 +788,44 @@ class FlowDataManager:
                     raise ValueError("'label_key' not found in .obs or .var_names")
         return labels
 
+    # ### over_under_sample_data_list() ################################################################################
+    def sample_wise_stratified_downsampling(
+            self
+    ):
+        # Todo
+        return
+
+    @staticmethod
+    def sample_wise_stratified_downsampling_worker(
+            sampling_strategy: str,
+            data_list: Union[Sequence[str], Sequence[sc.AnnData]],
+            data_path: Union[str, None] = None,  # Where data should be loaded from if data_list is list of filenames
+            save_path: Union[str, None] = None, # Where data is saved to if data_list is list of filenames
+
+    ) -> Union[Sequence[str], Sequence[sc.AnnData]]:
+
+        load_data = isinstance(data_list[0], str)
+
+        if load_data and data_path is None:
+            raise ValueError(
+                "If 'data_list' is a list of filenames 'data_path' (= dir where files are stored) cannot be None"
+            )
+
+        if load_data and save_path is None:
+            save_path = data_path
+            warnings.warn("'save_path' is None, saving to 'data_path', original data may be overwritten.", UserWarning)
+
+        for d in data_list:
+            if load_data:
+                dummydata = sc.read_h5ad(os.path.join(data_path, d))
+            else:
+                dummydata = d
+
+
+        return
+
+
+    # ### ##############################################################################################################
     @staticmethod
     def _create_sampling_strategies(
             y: np.ndarray,
@@ -823,6 +854,7 @@ class FlowDataManager:
 
         return us_dict, ds_dict
 
+    # ### check_class_balance() ########################################################################################
     @staticmethod
     def check_class_balance(
             data_loader: DataLoader,
@@ -895,6 +927,7 @@ class FlowDataManager:
                 plt.tight_layout()
                 plt.savefig(os.path.join(save_path, filename_plot))
 
+    # ### data_list_to_numpy() #########################################################################################
     @staticmethod
     def datalist_to_numpy(
             data_list: Union[Sequence[str], Sequence[sc.AnnData]],
@@ -917,7 +950,7 @@ class FlowDataManager:
 
         if not sample_wise:
             # Create dataloader
-            dl = FlowDataManager.create_data_loader_worker(
+            dl = FlowDataManager.get_data_loader_worker(
                 data_list=data_list,
                 save_path=save_path,
                 channels=channels,
@@ -962,7 +995,7 @@ class FlowDataManager:
 
                 # Create dataloader for just the current sample
                 dummy_data_list = [d, ]
-                dummy_data_loader = FlowDataManager.create_data_loader_worker(
+                dummy_data_loader = FlowDataManager.get_data_loader_worker(
                     data_list=dummy_data_list,
                     save_path=save_path,
                     layer_key=layer_key,
@@ -995,6 +1028,7 @@ class FlowDataManager:
             df['new_sample_name'] = new_sample_names
             df.to_csv(os.path.join(save_path, f'sample_names_mapping{filename_suffix}.csv'))
 
+    # ### relabel_data() ###############################################################################################
     def relabel_data(
             self,
             data_set: Literal['train', 'val', 'test', 'all'],
