@@ -825,35 +825,6 @@ class FlowDataManager:
         return
 
 
-    # ### ##############################################################################################################
-    @staticmethod
-    def _create_sampling_strategies(
-            y: np.ndarray,
-            verbosity: int = 0,
-    ) -> Tuple[dict, dict]:
-        y_series = pd.Series(y)
-        count_series = y_series.value_counts()
-        count_array = count_series.values
-
-        median = floor(np.median(count_array))
-        mad = np.median(np.abs(count_array - median))
-        upper = int(median + mad)
-        lower = int(median - mad)
-
-        if verbosity >= 1:
-            print(f'# ### Class counts have: median: {median}, mad: {mad}, '
-                    f'up-sampling to median - mad = {lower}, down-sampling to median + mad = {upper}')
-
-        ds_dict = {}
-        us_dict = {}
-        for idx, val in count_series.items():
-            if val <= lower:
-                us_dict[idx] = lower
-            if val >= upper:
-                ds_dict[idx] = upper
-
-        return us_dict, ds_dict
-
     # ### check_class_balance() ########################################################################################
     @staticmethod
     def check_class_balance(
