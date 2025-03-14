@@ -18,33 +18,57 @@ from imblearn.over_sampling import RandomOverSampler
 from .flowdataset import FlowDataset
 from .flowdataloader import FlowDataLoader
 
+# Todo:
+#  - Add documentation
+#  - Add downsampling/balancing functionality -> save ds in separate data list
+
 class FlowDataManager:
     def __init__(
             self,
-            data_file_names: Sequence[str],
+            data_file_names: List[str],
             data_file_type: Union[Literal['fcs', 'csv'], None] = None,
             data_file_path: Union[str, None] = None,
             save_path: Union[str, None] = None,
             memory_saving: bool = False,
             verbosity: int = 0,
     ):
-        # ### Load data into Anndata all other functions should be called separately
+        # ### Check input format
+        if not isinstance(data_file_names, list) or any(not isinstance(x, str) for x in data_file_names):
+            raise TypeError("'data_file_names' must be a list of strings")
+        if not len(data_file_names) >= 1:
+            raise ValueError("'data_file_names' must have at least one entry")
+
+        if data_file_type not in ['fcs', 'csv', None]:
+            raise ValueError("'data_file_type' must be either 'fcs', 'csv', or None")
+
+        if not isinstance(data_file_path, (str, type(None))):
+            raise TypeError("'data_file_path' must be a string or None")
+
+        if not isinstance(save_path, (str, type(None))):
+            raise TypeError("'save_path' must be a string or None")
+
+        if not isinstance(memory_saving, bool):
+            raise ValueError("'memory_saving' must be a boolean value")
+
+        if not isinstance(verbosity, int) or verbosity < 0:
+            raise ValueError("'verbosity' must be an integer >= 0")
+
 
         # ### Set path variables for data loading and storage
-        self.data_file_names = data_file_names  # List of filenames that should be loaded
-        self.data_file_type = data_file_type  # If None guessed from file endings, assume all have same type
-        self.invalid_files = []  # Files that are not .fcs or .csv
+        self._data_file_names = data_file_names  # List of filenames that should be loaded
+        self._data_file_type = data_file_type  # If None guessed from file ending of 1st filename, assume all have same type
 
-        self.data_file_path = data_file_path if data_file_path is not None else os.getcwd()  # Path to .fcs/.csv
-        self.save_path = save_path if save_path is not None else os.path.join(os.getcwd(), 'data_handling') # Path to save any results to
-        os.makedirs(self.save_path, exist_ok=True)
+        self._data_file_path = data_file_path if data_file_path is not None else os.getcwd()  # Path to .fcs/.csv
+        self._save_path = save_path if save_path is not None else os.path.join(os.getcwd(), 'data_handling') # Path to save any results to
+        os.makedirs(self._save_path, exist_ok=True)
         
-        self.memory_saving = memory_saving  # Whether to load and save to disk (.h5ad) one by one
+        self._memory_saving = memory_saving  # Whether to load and save to disk (.h5ad) one by one
 
-        self.verbosity = verbosity
+        self._verbosity = verbosity
 
         # When load_data_files_to_anndata() was called
-        self.anndata_list_ = None  # Either list of AnnData or list of .h5ad filenames
+        self.invalid_files_ = None  # Files that are not .fcs or .csv
+        self.anndata_list_ = None  # Either list of AnnData or list of .h5ad filenames (stored at save_path)
 
         # When check_sample_sizes() was called
         self.sample_sizes_ = None
@@ -57,65 +81,107 @@ class FlowDataManager:
         self.test_data_ = None
         self.val_data_ = None
 
+    # ### Add attributes as immutable properties #######################################################################
+    @property
+    def data_file_names(self):
+        """Read-only property for data file names."""
+        return self._data_file_names
 
+    @property
+    def data_file_type(self):
+        """Read-only property for data file type."""
+        return self._data_file_type
+
+    @property
+    def data_file_path(self):
+        """Read-only property for data file path."""
+        return self._data_file_path
+
+    @property
+    def save_path(self):
+        """Mutable property for save path."""
+        return self._save_path
+
+    @save_path.setter
+    def save_path(self, new_path: str):
+        """Allows updating the save path and ensures the directory exists."""
+        if not isinstance(new_path, str):
+            raise TypeError("'new_path' must be a string")
+        self._save_path = new_path
+        os.makedirs(self._save_path, exist_ok=True)  # Ensure the new path exists
+
+    @property
+    def memory_saving(self):
+        """Read-only property for memory saving."""
+        return self._memory_saving
+
+    @property
+    def verbosity(self):
+        """Mutable property for save path."""
+        return self._verbosity
+
+    @verbosity.setter
+    def verbosity(self, new_verbosity: int):
+        """Allows updating the verbosity level."""
+        if not isinstance(new_verbosity, int) or new_verbosity < 0:
+            raise ValueError("'new_verbosity' must be an integer >= 0")
+        self._verbosity = new_verbosity
+
+    ####################################################################################################################
     def load_data_files_to_anndata(self):
-        # ### Load AnnData objects into memory and store in list
-        anndata_list = []
-        if not self.memory_saving:
-            for fn in self.data_file_names:
-                if self.data_file_type is None:
-                    if fn.endswith('.fcs'):
-                        self.data_file_type = 'fcs'
-                    elif fn.endswith('.csv'):
-                        self.data_file_type = 'csv'
-                    else:
-                        warnings.warn(f"Skipping invalid file: '{fn}'. Not a CSV or FCS file.", UserWarning)
-                        self.invalid_files.append(fn)
-                        continue
 
-                if self.data_file_type == 'fcs':
-                    adata = pm.io.read_fcs(os.path.join(self.data_file_path, fn))
-                elif self.data_file_type == 'csv':
-                    df = pd.read_csv(os.path.join(self.data_file_path, fn))
-                    adata = sc.AnnData(X=df.to_numpy())
-                    adata.var_names = df.columns.copy()
-                else:
-                    warnings.warn(f"Skipping invalid file: '{fn}'. Not a CSV or FCS file.", UserWarning)
-                    self.invalid_files.append(fn)
-                    continue
+        # If no filetype is passed, determine from ending of 1st file
+        if self._data_file_type is None:
+            self._data_file_type = FlowDataManager._determine_filetype(filename=self._data_file_names[0])
 
-                adata.uns['filename'] = fn
-                anndata_list.append(adata)
-        # ### Load AnnData objects one by one and save them to disk
-        else:
-            for fn in self.data_file_names:
-                if self.data_file_type is None:
-                    if fn.endswith('.fcs'):
-                        self.data_file_type = 'fcs'
-                    elif fn.endswith('.csv'):
-                        self.data_file_type = 'csv'
-                    else:
-                        warnings.warn(f"Skipping invalid file: '{fn}'. Not a CSV or FCS file.", UserWarning)
-                        self.invalid_files.append(fn)
-                        continue
-                if self.data_file_type == 'fcs':
-                    adata = pm.io.read_fcs(os.path.join(self.data_file_path, fn))
-                elif self.data_file_type == 'csv':
-                    df = pd.read_csv(os.path.join(self.data_file_path, fn))
-                    adata = sc.AnnData(X=df.to_numpy())
-                    adata.var_names = df.columns.copy()
-                else:
-                    warnings.warn(f"Skipping invalid file: '{fn}'. Not a CSV or FCS file.", UserWarning)
-                    self.invalid_files.append(fn)
-                    continue
+            if self._data_file_type == "unknown":
+                raise ValueError(f"Unsupported or unknown file type for {self._data_file_names[0]}. "
+                                 f"Cannot use it as reference. Please remove it from 'data_filenames''")
 
-                adata.uns['filename'] = fn
+        # Initialize list for saving anndatas (or their filenames) and invalid filenames
+        self.invalid_files_ = []
+        self.anndata_list_ = []
+
+        for fn in self._data_file_names:
+
+            # Check the filetype of the input file
+            ft = FlowDataManager._determine_filetype(filename=fn)
+            if ft != self._data_file_type:
+                warnings.warn(
+                    f"Skipping invalid file '{fn}'. It is of type '{ft}' but should be '{self._data_file_type}'.",
+                    UserWarning
+                )
+                self.invalid_files_.append(fn)
+                continue
+
+            # Load data file to anndata
+            if self._data_file_type == 'fcs':  # data_file_type is fcs
+                adata = pm.io.read_fcs(os.path.join(self._data_file_path, fn))
+            else: # data_file_type is csv
+                df = pd.read_csv(os.path.join(self._data_file_path, fn))
+                adata = sc.AnnData(X=df.to_numpy())
+                adata.var_names = df.columns.copy()
+
+            # Annotate filename in uns of anndata
+            adata.uns['filename'] = fn
+
+            if not self._memory_saving:  # Keep all anndata objects in memory
+                self.anndata_list_.append(adata)
+            else:  # Save to .h5ad and store filename
                 ad_fn = fn[:-4] + '.h5ad'
-                adata.write_h5ad(filename=Path(os.path.join(self.save_path, ad_fn)))
-                anndata_list.append(ad_fn)
+                adata.write_h5ad(filename=Path(os.path.join(self._save_path, ad_fn)))
+                self.anndata_list_.append(ad_fn)
                 del adata
 
-        self.anndata_list_ = anndata_list
+    @staticmethod
+    def _determine_filetype(filename: str) -> str:
+        if filename.endswith(".fcs"):
+            data_file_type = "fcs"
+        elif filename.endswith(".csv"):
+            data_file_type = "csv"
+        else:
+            data_file_type = "unknown"
+        return data_file_type
 
     def check_sample_sizes(
             self,
@@ -123,10 +189,10 @@ class FlowDataManager:
     ):
         self.sample_sizes_ = FlowDataManager.check_sample_sizes_worker(
             data_list=self.anndata_list_,
-            file_path=self.save_path,
-            save_path=self.save_path,
+            file_path=self._save_path,
+            save_path=self._save_path,
             out_filename=out_filename,
-            verbosity=self.verbosity,
+            verbosity=self._verbosity,
         )
 
     @staticmethod
@@ -182,8 +248,8 @@ class FlowDataManager:
             data_list=self.anndata_list_,  # Work on anndata_list
             reference=reference_channel_names,  # Int = idx of anndata_list or dict: {og_cn: new_cn}, None = 1st entry of list as reference
             inplace=True,  # Work inplace, change anndata_list
-            file_path=self.save_path,  # If .h5ad files need to be loaded
-            save_path=self.save_path,  # Where to save log_df to
+            file_path=self._save_path,  # If .h5ad files need to be loaded
+            save_path=self._save_path,  # Where to save log_df to
             out_filename=out_filename,  # Filename for log df, None then no saving
         )
         self.og_channel_names_ = log_df
@@ -310,7 +376,7 @@ class FlowDataManager:
         FlowDataManager.sample_wise_preprocessing_worker(
             data_list=self.anndata_list_,
             flavour=flavour,
-            file_path=self.save_path,
+            file_path=self._save_path,
             inplace=True,
             save_raw_to_layer=save_raw_to_layer,
             **kwargs
@@ -391,9 +457,9 @@ class FlowDataManager:
             data_list=self.anndata_list_,
             data_split=data_split,
             save=save,
-            save_path=self.save_path,
+            save_path=self._save_path,
             save_filename='data_split.csv',
-            verbosity=self.verbosity,
+            verbosity=self._verbosity,
             **kwargs
         )
 
@@ -547,7 +613,7 @@ class FlowDataManager:
 
         out = FlowDataManager.create_data_loader_worker(
             data_list=data_list,
-            save_path=self.save_path,
+            save_path=self._save_path,
             channels=channels,
             layer_key=layer_key,
             label_key=label_key,
@@ -558,7 +624,7 @@ class FlowDataManager:
             return_data_loader=return_data_loader,
             on_disk=on_disk,
             filename=filename,
-            verbosity=self.verbosity,
+            verbosity=self._verbosity,
             **kwargs,
         )
 
@@ -963,7 +1029,7 @@ class FlowDataManager:
             label_layer_key=label_layer_key,
             new_label_key=new_label_key,
             inplace=True,
-            data_path=self.save_path
+            data_path=self._save_path
         )
 
     @staticmethod
