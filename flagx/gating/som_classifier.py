@@ -368,7 +368,8 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             channel_names_X_raw: Union[List[str], None] = None,
             keep_X: bool = False,
             val_range: Union[Tuple[float, float], None] = (0.0, 2**20),
-            keep_unscaled: bool = False,
+            save_unscaled_data: bool = False,
+            scale_X_raw_channels: Union[List[str], None] = None,
             sample_ids: Union[List[int], None] = None,
             compute_umap: bool = False,
             umap_kwargs: Union[Dict, None] = None,
@@ -382,6 +383,8 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         # - X: pass or annotate channel names
         # - X, X_raw: keep only X_raw, if channel names passed use, if df use columns, else annotate
         # - X, X_raw, keep_X: keep X, X_raw, if channel names passed use, if df use columns, else annotate (for both)
+
+        # - All channels that are not in channel_names_X_raw are scaled
 
         # Check whether the SOM classifier was fitted
         check_is_fitted(self, 'is_fitted_')
@@ -465,20 +468,37 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
         # Scale all entries of the data matrix to a given interval
         if val_range is not None:
-            scaled_data = SomClassifier._scale_column_wise(x=fcs_df.to_numpy(), val_range=val_range)
-            if keep_unscaled:
+            if X_raw is not None: # Raw data should not be scaled, except for certain channels
+                if scale_X_raw_channels is None:
+                    scale_X_raw_channels = []
+
+                scale_bool = ~fcs_df.columns.isin(
+                    [c for c in channel_names_X_raw if c not in scale_X_raw_channels]
+                )
+
+            else:  # No X_raw, scale everything
+                scale_bool = np.ones(fcs_df.shape[1]).astype(bool)
+
+            scaled_data = SomClassifier._scale_column_wise(x=fcs_df.loc[:, scale_bool].to_numpy(), val_range=val_range)
+
+            if save_unscaled_data:
+                # Create df with scaled data, mark channels as scaled
                 scaled_df = pd.DataFrame(
                     data=scaled_data,
                     index=fcs_df.index,
-                    columns=[f'{col}_scaled' for col in fcs_df.columns.tolist()],
+                    columns=[f'{col}_scaled' for i, col in enumerate(fcs_df.columns.tolist()) if scale_bool[i]],
                 )
+                # Concatenate with original df
                 fcs_df = pd.concat([fcs_df, scaled_df], axis=1)
             else:
-                fcs_df = pd.DataFrame(
+                # Create df with scaled data, keep original channel names
+                scaled_df = pd.DataFrame(
                     data=scaled_data,
                     index=fcs_df.index,
-                    columns=fcs_df.columns,
+                    columns=fcs_df.columns[scale_bool],
                 )
+                # Concatenate with part of original df that was not scaled
+                fcs_df = pd.concat([fcs_df.loc[:, ~scale_bool], scaled_df], axis=1)
 
         # Save to .fcs or .csv format
         if save_mode != 'no_save':
@@ -488,6 +508,12 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             if save_mode == 'fcs':
                 if filename is None:
                     filename = 'som.fcs'
+
+                # Define meta dict
+                if fcs_metadata_dict is None:
+                    fcs_metadata_dict = {}
+                fcs_metadata_dict.update({f"P{i}R": str(val_range[1]) for i in range(1, fcs_df.shape[1] + 1)})
+
                 with open(os.path.join(save_path, filename), 'wb') as f:
                     flowio.create_fcs(
                         file_handle=f,
