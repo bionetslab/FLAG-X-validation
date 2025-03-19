@@ -745,48 +745,103 @@ class FlowDataManager:
 
     # ### over_under_sample_data_list() ################################################################################
     def sample_wise_stratified_downsampling(
-            self
-    ):
-        # Todo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        return
-
-    @staticmethod
-    def sample_wise_stratified_downsampling_worker(
-            sampling_strategy: str,
-            data_list: Union[Sequence[str], Sequence[sc.AnnData]],
-            data_path: Union[str, None] = None,  # Where data should be loaded from if data_list is list of filenames
-            save_path: Union[str, None] = None, # Where data is saved to if data_list is list of filenames
+            self,
+            data_set: Literal['train', 'val', 'test', 'all'],
+            fraction: float,
+            stratified: bool = False,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
+    ) -> None:
 
-    ) -> Union[Sequence[str], Sequence[sc.AnnData]]:
+        if data_set not in {'all', 'train', 'test', 'val'}:
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
 
-        # Todo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        if data_set == 'all':
+            data_list = self.anndata_list_
+        elif data_set == 'train':
+            data_list = self.train_data_
+        elif data_set == 'test':
+            data_list = self.test_data_
+        else:  # data_set == 'val'
+            try:
+                data_list = self.val_data_
+            except NameError:
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all"',
+                        UserWarning
+                    )
+                return
 
-        load_data = isinstance(data_list[0], str)
+        # Downsample selected data list inplace, if og is to be kept use the worker
+        FlowDataManager.sample_wise_downsampling_worker(
+            data_list=data_list,
+            fraction=fraction,
+            stratified=stratified,
+            label_key=label_key,
+            label_layer_key=label_layer_key,
+            inplace=True,
+        )
 
-        if load_data and data_path is None:
-            raise ValueError(
-                "If 'data_list' is a list of filenames 'data_path' (= dir where files are stored) cannot be None"
-            )
+    @staticmethod
+    def sample_wise_downsampling_worker(
+            data_list: List[sc.AnnData],
+            fraction: float,
+            stratified: bool = False,
+            label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
+            label_layer_key: Union[str, None] = None,
+            inplace : bool = False,
+    ) -> Union[Sequence[sc.AnnData], None]:
 
-        if load_data and save_path is None:
-            save_path = data_path
-            warnings.warn("'save_path' is None, saving to 'data_path', original data may be overwritten.", UserWarning)
+        if fraction < 0 or fraction > 1:
+            raise ValueError("'fraction' must be between 0 and 1")
 
-        for d in data_list:
-            if load_data:
-                dummydata = sc.read_h5ad(os.path.join(data_path, d))
-            else:
-                dummydata = d
+        if stratified and label_key is None:
+            raise ValueError("'stratified' is True but 'label_key' is None. Need labels for stratification.")
 
-            dummydata = None
+        if not inplace:
+            data_list = copy.deepcopy(data_list)
 
-            if load_data:
-                dummydata.write_h5ad(os.path.join(save_path, d))
-                del dummydata
+        for i, adata in enumerate(data_list):
+            # Get labels (by column index, column name, obs key)
+            labels = FlowDataManager._get_labels(adata=adata, label_key=label_key, layer_key=label_layer_key)
+            # Get bool indicating which events to keep
+            ds_bool = FlowDataManager._get_downsampling_bool(y=labels, fraction=fraction, stratified=stratified)
+            # Update data_list
+            data_list[i] = adata[ds_bool, :].copy()
 
-        return
+        if not inplace:
+            return data_list
+
+    @staticmethod
+    def _get_downsampling_bool(y: np.ndarray, fraction: float, stratified: bool = False) -> np.ndarray:
+
+        keep_mask = np.zeros_like(y, dtype=bool)
+
+        if stratified:
+
+            unique_labels, counts = np.unique(y, return_counts=True)
+
+            for label, count in zip(unique_labels, counts):
+                # Get indices where y == label
+                label_indices = np.where(y == label)[0]
+                # Keep fraction events with label, at least one
+                num_events_to_keep = max(1, int(np.round(count * fraction)))
+                # Choose num_events_to_keep random events with label
+                selected_indices = np.random.choice(label_indices, num_events_to_keep, replace=False)
+                # Set mask to True for selected events
+                keep_mask[selected_indices] = True
+
+        else:
+            num_samples = y.shape[0]
+            num_samples_to_keep = max(1, int(np.round(num_samples * fraction)))
+
+            selected_indices = np.random.choice(np.arange(num_samples), num_samples_to_keep, replace=False)
+
+            keep_mask[selected_indices] = True
+
+        return keep_mask
 
     # ### check_class_balance() ########################################################################################
     @staticmethod
