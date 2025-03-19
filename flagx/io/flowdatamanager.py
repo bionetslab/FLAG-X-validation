@@ -25,7 +25,7 @@ class FlowDataManager:
             data_file_type: Union[Literal['fcs', 'csv'], None] = None,
             data_file_path: Union[str, None] = None,
             save_path: Union[str, None] = None,
-            verbosity: int = 0,
+            verbosity: int = 1,  # 0 = silent, 1 = warnings, 2 = info
     ):
         # ### Check input format
         if not isinstance(data_file_names, list) or any(not isinstance(x, str) for x in data_file_names):
@@ -132,10 +132,12 @@ class FlowDataManager:
             # Check the filetype of the input file
             ft = FlowDataManager._determine_filetype(filename=fn)
             if ft != self._data_file_type:
-                warnings.warn(
-                    f"Skipping invalid file '{fn}'. It is of type '{ft}' but should be '{self._data_file_type}'.",
-                    UserWarning
-                )
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        f"Skipping invalid file '{fn}'. "
+                        f"It is of type '{ft}' but should be '{self._data_file_type}'.",
+                        UserWarning
+                    )
                 self.invalid_files_.append(fn)
                 continue
 
@@ -202,7 +204,7 @@ class FlowDataManager:
         if out_filename is not None and save_path is not None:
             df.to_csv(os.path.join(save_path, out_filename))
 
-        if verbosity >= 1:
+        if verbosity >= 2:
             print(f'# ### Sample sizes:\n{df}')
 
         return df
@@ -310,6 +312,8 @@ class FlowDataManager:
                 for value, count in value_counts.items():
                     msg += f'# ### Name: {value}, Count: {count}\n'
                 warnings.warn(msg, UserWarning)
+            else:
+                print('# ### Channel names are consistent across samples\n')
 
     # ### sample_wise_preprocessing() ##################################################################################
     def sample_wise_preprocessing(
@@ -487,7 +491,7 @@ class FlowDataManager:
                     test_data.append(d)
 
             if len(val_data) == 0:
-                if verbosity >= 1:
+                if verbosity >= 2:
                     print('# ### The passed data_split dataframe did not include validation data')
                 return train_data, test_data
             else:
@@ -548,10 +552,12 @@ class FlowDataManager:
             try:
                 data_list = self.val_data_
             except NameError:
-                warnings.warn(
-                    'No validation set was created when splitting the data. Options are "train", "test", "all"',
-                    UserWarning
-                )
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all"',
+                        UserWarning
+                    )
                 return
         else:
             data_list = []
@@ -568,6 +574,7 @@ class FlowDataManager:
             on_disk=on_disk,
             save_path=self._save_path,
             filename_np=filename_np,
+            verbosity=self._verbosity,
             **kwargs,
         )
 
@@ -586,6 +593,7 @@ class FlowDataManager:
             on_disk: bool = False,
             save_path: Union[str, None] = None,  # Where .npy files are saved if 'on_disk' is True
             filename_np: Union[str, None] = None,  # Filename of numpy data file if 'on_disk' is True
+            verbosity: int = 1,
             **kwargs
     ) -> DataLoader:
 
@@ -611,6 +619,7 @@ class FlowDataManager:
                 data_list=data_list,
                 label_key=label_key,
                 layer_key=label_layer_key,
+                verbosity=verbosity,
             )
 
             data_array = np.concatenate((data_array, np.expand_dims(label_array, axis=1)), axis=1)
@@ -679,6 +688,7 @@ class FlowDataManager:
             data_list: List[sc.AnnData],
             label_key: Union[int, str, None],
             layer_key: Union[str, None] = None,
+            verbosity: int = 1,
     ) -> np.ndarray:
 
         # Get labels from each anndata in data_list
@@ -689,7 +699,8 @@ class FlowDataManager:
                 FlowDataManager._get_labels(
                     adata=adata,
                     label_key=label_key,
-                    layer_key=layer_key
+                    layer_key=layer_key,
+                    verbosity=verbosity,
                 )
             )
 
@@ -702,6 +713,7 @@ class FlowDataManager:
             adata: sc.AnnData,
             label_key: Union[str, int],
             layer_key: Union[str, None] = None,
+            verbosity: int = 1,
     ) -> np.ndarray:
 
         # Label key is index of data matrix
@@ -723,7 +735,8 @@ class FlowDataManager:
                 else:
                     labels = adata.layers[layer_key][:, label_idx].copy()
             except KeyError:
-                warnings.warn(f"'label_key' not found in .var_names, trying .obs")
+                if verbosity >= 1:
+                    warnings.warn(f"'label_key' not found in .var_names, trying .obs")
                 try:
                     labels = adata.obs[label_key].to_numpy().copy()
                 except KeyError:
@@ -785,7 +798,7 @@ class FlowDataManager:
             filename_df: Union[str, None] = None,
             filename_plot: Union[str, None] = None,
             ax: Union[plt.Axes, None] = None,
-            verbosity: int = 0,
+            verbosity: int = 1,
     ):
         label_array = np.array([])
         for _, y in data_loader:
@@ -794,7 +807,7 @@ class FlowDataManager:
         class_counts = label_series.value_counts()
         class_fracs = label_series.value_counts(normalize=True)
 
-        if verbosity >= 1:
+        if verbosity >= 2:
             print(f'# ### Absolute counts for the labels:\n{class_counts}')
             print(f'# ### Relative frequencies for the labels:\n{class_fracs}')
 
@@ -961,10 +974,12 @@ class FlowDataManager:
             try:
                 data_list = self.val_data_
             except NameError:
-                warnings.warn(
-                    'No validation set was created when splitting the data. Options are "train", "test", "all"',
-                    UserWarning
-                )
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all"',
+                        UserWarning
+                    )
                 return
         else:
             raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
