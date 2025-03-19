@@ -21,6 +21,7 @@ from .flowdataloader import FlowDataLoader
 # Todo:
 #  - Add documentation
 #  - Add downsampling/balancing functionality -> save ds in separate data list
+#  - Remove memory saving option
 
 class FlowDataManager:
     def __init__(
@@ -158,7 +159,7 @@ class FlowDataManager:
             if self._data_file_type == 'fcs':  # data_file_type is fcs
                 adata = pm.io.read_fcs(os.path.join(self._data_file_path, fn))
             else: # data_file_type is csv
-                df = pd.read_csv(os.path.join(self._data_file_path, fn))
+                df = pd.read_csv(os.path.join(self._data_file_path, fn), dtype=np.float32)
                 adata = sc.AnnData(X=df.to_numpy())
                 adata.var_names = df.columns.copy()
 
@@ -308,6 +309,10 @@ class FlowDataManager:
 
                 if save_path is not None:
                     fn = data_list[i]
+                    # If not inplace change filename such that original datafile is not overwritten
+                    if not inplace:
+                        fn = 'channels_aligned_' + fn
+                        data_list[i] = fn
                     fldata.write_h5ad(Path(os.path.join(save_path, fn)))
                 del fldata
 
@@ -419,7 +424,7 @@ class FlowDataManager:
                 )
             trafo_fct = kwargs.pop('preprocessing_method')
 
-        for d in data_list:
+        for i, d in enumerate(data_list):
             if load_data:
                 dummydata = sc.read_h5ad(os.path.join(file_path, d))
             else:
@@ -437,6 +442,10 @@ class FlowDataManager:
                 trafo_fct(adata=dummydata)
 
             if load_data:
+                # If not inplace change filename such that original datafile is not overwritten
+                if not inplace:
+                    d = 'preprocessed_' + d
+                    data_list[i] = d
                 dummydata.write_h5ad(os.path.join(file_path, d))
                 del dummydata
 
@@ -792,7 +801,7 @@ class FlowDataManager:
     def sample_wise_stratified_downsampling(
             self
     ):
-        # Todo
+        # Todo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         return
 
     @staticmethod
@@ -801,8 +810,12 @@ class FlowDataManager:
             data_list: Union[Sequence[str], Sequence[sc.AnnData]],
             data_path: Union[str, None] = None,  # Where data should be loaded from if data_list is list of filenames
             save_path: Union[str, None] = None, # Where data is saved to if data_list is list of filenames
+            label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
+            label_layer_key: Union[str, None] = None,
 
     ) -> Union[Sequence[str], Sequence[sc.AnnData]]:
+
+        # Todo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         load_data = isinstance(data_list[0], str)
 
@@ -821,9 +834,13 @@ class FlowDataManager:
             else:
                 dummydata = d
 
+            dummydata = None
+
+            if load_data:
+                dummydata.write_h5ad(os.path.join(save_path, d))
+                del dummydata
 
         return
-
 
     # ### check_class_balance() ########################################################################################
     @staticmethod
