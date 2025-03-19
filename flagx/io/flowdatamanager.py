@@ -10,7 +10,7 @@ import warnings
 
 from typing import Sequence, Tuple, Union, Literal, List, Dict, Any
 from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from .flowdataset import FlowDataset
 from .flowdataloader import FlowDataLoader
 
