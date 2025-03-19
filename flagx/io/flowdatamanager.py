@@ -21,7 +21,6 @@ from .flowdataloader import FlowDataLoader
 # Todo:
 #  - Add documentation
 #  - Add downsampling/balancing functionality -> save ds in separate data list
-#  - Remove memory saving option
 
 class FlowDataManager:
     def __init__(
@@ -30,7 +29,6 @@ class FlowDataManager:
             data_file_type: Union[Literal['fcs', 'csv'], None] = None,
             data_file_path: Union[str, None] = None,
             save_path: Union[str, None] = None,
-            memory_saving: bool = False,
             verbosity: int = 0,
     ):
         # ### Check input format
@@ -48,9 +46,6 @@ class FlowDataManager:
         if not isinstance(save_path, (str, type(None))):
             raise TypeError("'save_path' must be a string or None")
 
-        if not isinstance(memory_saving, bool):
-            raise ValueError("'memory_saving' must be a boolean value")
-
         if not isinstance(verbosity, int) or verbosity < 0:
             raise ValueError("'verbosity' must be an integer >= 0")
 
@@ -62,8 +57,6 @@ class FlowDataManager:
         self._data_file_path = data_file_path if data_file_path is not None else os.getcwd()  # Path to .fcs/.csv
         self._save_path = save_path if save_path is not None else os.path.join(os.getcwd(), 'data_handling') # Path to save any results to
         os.makedirs(self._save_path, exist_ok=True)
-        
-        self._memory_saving = memory_saving  # Whether to load and save to disk (.h5ad) one by one
 
         self._verbosity = verbosity
 
@@ -110,11 +103,6 @@ class FlowDataManager:
             raise TypeError("'new_path' must be a string")
         self._save_path = new_path
         os.makedirs(self._save_path, exist_ok=True)  # Ensure the new path exists
-
-    @property
-    def memory_saving(self):
-        """Read-only property for memory saving."""
-        return self._memory_saving
 
     @property
     def verbosity(self):
@@ -166,13 +154,7 @@ class FlowDataManager:
             # Annotate filename in uns of anndata
             adata.uns['filename'] = fn
 
-            if not self._memory_saving:  # Keep all anndata objects in memory
-                self.anndata_list_.append(adata)
-            else:  # Save to .h5ad and store filename
-                ad_fn = fn[:-4] + '.h5ad'
-                adata.write_h5ad(filename=Path(os.path.join(self._save_path, ad_fn)))
-                self.anndata_list_.append(ad_fn)
-                del adata
+            self.anndata_list_.append(adata)
 
     @staticmethod
     def _determine_filetype(filename: str) -> str:
@@ -191,7 +173,6 @@ class FlowDataManager:
     ):
         self.sample_sizes_ = FlowDataManager.check_sample_sizes_worker(
             data_list=self.anndata_list_,
-            file_path=self._save_path,
             save_path=self._save_path,
             out_filename=out_filename,
             verbosity=self._verbosity,
@@ -199,27 +180,16 @@ class FlowDataManager:
 
     @staticmethod
     def check_sample_sizes_worker(
-            data_list: Union[Sequence[sc.AnnData], Sequence[str]],
-            file_path: Union[str, None] = None,
+            data_list: List[sc.AnnData],
             save_path: Union[str, None] = None,
             out_filename: Union[str, None] = None,
             verbosity: int = 0,
-    ):
-
-        # ### Set flag whether to load data or not
-        # (depending on list of AnnData objects or filenames of .h5ad files being passed)
-        load_data = isinstance(data_list[0], str)
+    ) -> pd.DataFrame:
 
         # ### Inspect the number of samples and their sample size
         sn = []
         ss = []
-        for i in range(len(data_list)):
-            if load_data:
-                # Load AnnData object, change channel names, save again
-                fldata = sc.read_h5ad(os.path.join(file_path, data_list[i]))
-            else:
-                fldata = data_list[i]
-
+        for fldata in data_list:
             sn.append(fldata.uns['filename'])
             ss.append(fldata.X.shape[0])
 
@@ -245,29 +215,27 @@ class FlowDataManager:
     def align_channel_names(
             self,
             reference_channel_names: Union[int, dict, None] = None,
-            out_filename: Union[str, None] = None,
+            filename_log_df: Union[str, None] = None,
     ) -> None:
         log_df = FlowDataManager.align_channel_names_worker(
             data_list=self.anndata_list_,  # Work on anndata_list
             reference=reference_channel_names,  # Int = idx of anndata_list or dict: {og_cn: new_cn}, None = 1st entry of list as reference
             inplace=True,  # Work inplace, change anndata_list
-            file_path=self._save_path,  # If .h5ad files need to be loaded
+            filename_log_df=filename_log_df,  # Filename for log df, None then no saving
             save_path=self._save_path,  # Where to save log_df to
-            out_filename=out_filename,  # Filename for log df, None then no saving
         )
         self.og_channel_names_ = log_df
         self.check_og_channel_names_df()
 
     @staticmethod
     def align_channel_names_worker(
-            data_list: Union[Sequence[sc.AnnData], Sequence[str]],
+            data_list: List[sc.AnnData],
             reference: Union[int, dict],  # Either int for which file to use as reference or a
             # dictionary with possible_name: reference_name
             inplace: bool = False,
-            file_path: Union[str, None] = None,
-            save_path: Union[str, None] = None,
-            out_filename: Union[str, None] = None,
-    ) -> Union[Tuple[Union[Sequence[sc.AnnData], Sequence[str]], pd.DataFrame], pd.DataFrame]:
+            filename_log_df: Union[str, None] = None,  # Filename for log df, None then no saving
+            save_path: Union[str, None] = None,  # Where to save log_df to, None then cwd
+    ) -> Union[Tuple[List[sc.AnnData], pd.DataFrame], pd.DataFrame]:
         # ### Function to unify the channel names across multiple fcs data objects,
         # assumes the same number of channels for all
 
@@ -275,59 +243,32 @@ class FlowDataManager:
         if not inplace:
             data_list = copy.deepcopy(data_list)
 
-        # ### Set flag whether to load data or not
-        # (depending on list of AnnData objects or filenames of .h5ad files being passed)
-        load_data = isinstance(data_list[0], str)
-
         # ### If idx to reference anndata / file is passed use it to create list of reference channel names
         if isinstance(reference, int):
-            if load_data:
-                # Load anndata object into memory create list of channel names
-                fcdata = sc.read_h5ad(os.path.join(file_path, data_list[reference]))
-                reference = fcdata.var_names.values.tolist()
-                del fcdata
-            else:
-                # Create list of channel names on the basis of selected AnnData object
-                reference = data_list[reference].var_names.values.tolist()
+            # Create list of channel names on the basis of selected AnnData object
+            reference = data_list[reference].var_names.values.tolist()
 
         # ### Create dataframe to store the original channel names
-        if load_data:
-            fcdata = sc.read_h5ad(os.path.join(file_path, data_list[0]))
-            log_df = pd.DataFrame(columns=['filename'] + list(range(1, fcdata.n_vars + 1)))
-            del fcdata
-        else:
-            log_df = pd.DataFrame(columns=['filename'] + list(range(1, data_list[0].n_vars + 1)))
+        log_df = pd.DataFrame(columns=['filename'] + list(range(1, data_list[0].n_vars + 1)))
 
         # ### Iterate over individual fcs samples and change their channel names
-        for i in range(len(data_list)):
-            if load_data:
-                # Load AnnData object, change channel names, save again
-                fldata = sc.read_h5ad(os.path.join(file_path, data_list[i]))
-                fldata, log_df = FlowDataManager._align_channel_names_helper(
-                    adata=fldata, reference=reference, log_df=log_df)
-                log_df.loc[log_df.index[-1], 'filename'] = data_list[i]
+        for adata in data_list:
 
-                if save_path is not None:
-                    fn = data_list[i]
-                    # If not inplace change filename such that original datafile is not overwritten
-                    if not inplace:
-                        fn = 'channels_aligned_' + fn
-                        data_list[i] = fn
-                    fldata.write_h5ad(Path(os.path.join(save_path, fn)))
-                del fldata
+            # Change channel names of AnnData object
+            _, log_df = FlowDataManager._align_channel_names_helper(
+                adata=adata,
+                reference=reference,
+                log_df=log_df
+            )
 
-            else:
-                # Change channel names of AnnData object
-                _, log_df = FlowDataManager._align_channel_names_helper(
-                    adata=data_list[i], reference=reference, log_df=log_df)
+            # Add filename key always exists in .uns since it is added in load_data_files_to_anndata()
+            log_df.loc[log_df.index[-1], 'filename'] = adata.uns['filename']
 
-                try:
-                    log_df.loc[log_df.index[-1], 'filename'] = data_list[i].uns['filename']
-                except KeyError:
-                    warnings.warn('# ### Key "filename" does not exist in .uns of the AnnData object', UserWarning)
+        if save_path is None:
+            save_path = os.getcwd()
 
-        if out_filename is not None and save_path is not None:
-            log_df.to_csv(os.path.join(save_path, out_filename))
+        if filename_log_df is not None:
+            log_df.to_csv(os.path.join(save_path, filename_log_df))
 
         if not inplace:
             return data_list, log_df
@@ -337,7 +278,7 @@ class FlowDataManager:
     @staticmethod
     def _align_channel_names_helper(
             adata: sc.AnnData,
-            reference: Union[List[str], dict],
+            reference: Union[List[str], Dict],
             log_df: pd.DataFrame
     ) -> Tuple[sc.AnnData, pd.DataFrame]:
 
@@ -384,7 +325,6 @@ class FlowDataManager:
         FlowDataManager.sample_wise_preprocessing_worker(
             data_list=self.anndata_list_,
             flavour=flavour,
-            file_path=self._save_path,
             inplace=True,
             save_raw_to_layer=save_raw_to_layer,
             **kwargs
@@ -392,13 +332,12 @@ class FlowDataManager:
 
     @staticmethod
     def sample_wise_preprocessing_worker(
-            data_list: Union[Sequence[sc.AnnData], Sequence[str]],
-            flavour: Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'],
-            file_path: Union[str, None] = None,  # Only necessary if .h5ad is to be loaded
+            data_list: List[sc.AnnData],
+            flavour: Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'],  # custom must work inplace
             inplace: bool = False,
-            save_raw_to_layer: Union[str, None] = None,  # Key for layer where raw data is to be stored
+            save_raw_to_layer: Union[str, None] = None,  # Key for layer where raw data is stored, if None no storage
             **kwargs,
-    ) -> Union[Sequence[sc.AnnData], Sequence[str], None]:
+    ) -> Union[List[sc.AnnData], None]:
 
         if flavour not in {'logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'}:
             raise ValueError(
@@ -406,8 +345,6 @@ class FlowDataManager:
 
         if not inplace:
             data_list = copy.deepcopy(data_list)
-
-        load_data = isinstance(data_list[0], str)
 
         if flavour == 'logicle':
             trafo_fct = pm.tl.normalize_logicle
@@ -424,30 +361,17 @@ class FlowDataManager:
                 )
             trafo_fct = kwargs.pop('preprocessing_method')
 
-        for i, d in enumerate(data_list):
-            if load_data:
-                dummydata = sc.read_h5ad(os.path.join(file_path, d))
-            else:
-                dummydata = d
+        for adata in data_list:
 
             # Store unprocessed data matrix in layer
-            if save_raw_to_layer is None:
-                dummydata.layers['original'] = dummydata.X.copy()
-            else:
-                dummydata.layers[save_raw_to_layer] = dummydata.X.copy()
+            if save_raw_to_layer is not None:
+                adata.layers[save_raw_to_layer] = adata.X.copy()
 
+            # Apply transformation
             if kwargs:
-                trafo_fct(adata=dummydata, **kwargs)
+                trafo_fct(adata=adata, **kwargs)
             else:
-                trafo_fct(adata=dummydata)
-
-            if load_data:
-                # If not inplace change filename such that original datafile is not overwritten
-                if not inplace:
-                    d = 'preprocessed_' + d
-                    data_list[i] = d
-                dummydata.write_h5ad(os.path.join(file_path, d))
-                del dummydata
+                trafo_fct(adata=adata)
 
         if not inplace:
             return data_list
@@ -462,16 +386,15 @@ class FlowDataManager:
     def perform_data_split(
             self,
             data_split: Union[Tuple[float, float], Tuple[float, float, float], pd.DataFrame] = (0.75, 0.25),
-            save: bool = False,
+            filename_data_split: Union[str, None] = None,
             **kwargs,
     ) -> None:
 
         dummy_data_split = FlowDataManager.perform_data_split_worker(
             data_list=self.anndata_list_,
             data_split=data_split,
-            save=save,
+            filename_data_split=filename_data_split,
             save_path=self._save_path,
-            save_filename='data_split.csv',
             verbosity=self._verbosity,
             **kwargs
         )
@@ -483,11 +406,10 @@ class FlowDataManager:
 
     @staticmethod
     def perform_data_split_worker(
-            data_list: Union[Sequence[str], Sequence[sc.AnnData]],
+            data_list: List[sc.AnnData],
             data_split: Union[Tuple[float, float], Tuple[float, float, float], pd.DataFrame],
-            save: bool = False,
+            filename_data_split: Union[str, None] = None,
             save_path: Union[str, None] = None,
-            save_filename: Union[str, None] = None,
             verbosity: int = 0,
             **kwargs  # kwargs for sklearn are: random_state, shuffle, stratify
     ) -> Tuple[Union[Sequence[str], Sequence[sc.AnnData]], ...]:
@@ -496,48 +418,78 @@ class FlowDataManager:
         if not isinstance(data_split, pd.DataFrame):
             if len(data_split) not in {2, 3}:
                 raise ValueError(
-                    "'data_split' must be tuple or triple corresponding with fractions for train- (val-) and test-data")
+                    "'data_split' must be tuple or triple corresponding to fractions for train- (val-) and test-data")
 
             if sum(data_split) != 1 or any(x < 0 for x in data_split):
                 raise ValueError(
                     'The train-(val-)test-split must be passed as a tuple of non negative decimals that sum to one')
 
+            if save_path is None:
+                save_path = os.getcwd()
+
             if len(data_split) == 2:
+                # Split into train and test set
                 train_data, test_data = train_test_split(
-                    data_list, test_size=data_split[1], train_size=data_split[0], **kwargs)
-                if save:
-                    save_kwargs = {'filename': save_filename, 'filepath': save_path}
-                    FlowDataManager._save_data_split_helper(data_tuple=(train_data, test_data), save_kwargs=save_kwargs)
+                    data_list,
+                    test_size=data_split[1],
+                    train_size=data_split[0],
+                    **kwargs
+                )
+
+                # Save data split to .csv (filename and train, test information)
+                if filename_data_split is not None:
+                    FlowDataManager._save_data_split_helper(
+                        data_tuple=(train_data, test_data),
+                        filename_data_split=filename_data_split,
+                        save_path=save_path,
+                    )
+
                 return train_data, test_data
+
             else:
+                # Split into train and val-test set
                 perc_val_test_data = data_split[1] + data_split[2]
                 train_data, val_test_data = train_test_split(
-                    data_list, test_size=perc_val_test_data, train_size=data_split[0], **kwargs)
+                    data_list,
+                    test_size=perc_val_test_data,
+                    train_size=data_split[0], **kwargs
+                )
+
+                # Split val-test data into val and test set
                 val_data, test_data = train_test_split(
-                    val_test_data, test_size=data_split[2] / perc_val_test_data,
-                    train_size=data_split[1] / perc_val_test_data, **kwargs)
-                if save:
-                    save_kwargs = {'filename': save_filename, 'filepath': save_path}
+                    val_test_data,
+                    test_size=data_split[2] / perc_val_test_data,
+                    train_size=data_split[1] / perc_val_test_data,
+                    **kwargs
+                )
+
+                # Save data split to .csv (filename and train, val, test information)
+                if filename_data_split is not None:
                     FlowDataManager._save_data_split_helper(
-                        data_tuple=(train_data, val_data, test_data), save_kwargs=save_kwargs)
+                        data_tuple=(train_data, val_data, test_data),
+                        filename_data_split=filename_data_split,
+                        save_path=save_path,
+                    )
+
                 return train_data, val_data, test_data
+
         # Split according to previously saved dataframe
         else:
             # 'data_list' is list of AnnData with filename annotated in .uns
             train_data = []
             val_data = []
             test_data = []
+
+            # Iterate over the data-split dataframe
             for d in data_list:
-                if isinstance(data_list[0], sc.AnnData):
-                    mode = data_split.loc[d.uns['filename'][:-4], 'mode']
-                else:
-                    mode = data_split.loc[d[:-5], 'mode']
+                mode = data_split.loc[d.uns['filename'], 'mode']
                 if mode == 'train':
                     train_data.append(d)
                 elif mode == 'val':
                     val_data.append(d)
                 else:
                     test_data.append(d)
+
             if len(val_data) == 0:
                 if verbosity >= 1:
                     print('# ### The passed data_split dataframe did not include validation data')
@@ -547,45 +499,29 @@ class FlowDataManager:
 
     @staticmethod
     def _save_data_split_helper(
-            data_tuple: Tuple[Union[Sequence[str], Sequence[sc.AnnData]], ...],
-            save_kwargs: Dict,
+            data_tuple: Tuple[List[sc.AnnData], ...],
+            filename_data_split: Union[str, None] = None,
+            save_path: Union[str, None] = None,
     ):
-
-        filename = save_kwargs.get('filename', None)
-        if filename is None:
-            'data_split.csv'
-
-        filepath = save_kwargs.get('filepath', None)
-        if filepath is None:
-            filepath = os.getcwd()
-
-        is_anndata = isinstance(data_tuple[0][0], sc.AnnData)
-        fns = []
-        modes = []
-
-        def append_filenames_and_modes(
-                data_list: Sequence[Union[sc.AnnData, str]],
-                m: str,
-                is_ad: bool):
-            for d in data_list:
-                if is_ad:
-                    fns.append(d.uns['filename'][:-4])  # fn.fcs -> append fn
-                else:
-                    fns.append(d[:-5])  # fn.h5ad -> append fn
-                modes.append(m)
 
         # Define modes based on the length of data_tuple
         mode_labels = ['train', 'val', 'test'] if len(data_tuple) == 3 else ['train', 'test']
 
-        for i, mode in enumerate(mode_labels):
-            append_filenames_and_modes(data_list=data_tuple[i], m=mode, is_ad=is_anndata)
+        # Append the filename and the respective mode to lists, modes are: (train, val, test)
+        fns = []
+        modes = []
+        for data_list, mode in zip(data_tuple, mode_labels):
+            for adata in data_list:
+                fns.append(adata.uns['filename'])
+                modes.append(mode)
 
+        # Create dataframe and save
         df = pd.DataFrame({
             'filename': fns,
             'mode': modes
         })
 
-        df.to_csv(os.path.join(filepath, filename), index=False)
+        df.to_csv(os.path.join(save_path, filename_data_split))
 
     # ### get_data_loader() ############################################################################################
     def get_data_loader(
@@ -599,7 +535,7 @@ class FlowDataManager:
             shuffle: bool = True,
             return_data_loader: Literal['np_array', 'torch_tensor'] = 'np_array',
             on_disk: bool = False,
-            filename: str = 'data.npy',
+            filename_np: Union[str, None] = None,  # Filename of numpy data file if 'on_disk' is True
             **kwargs,
     ) -> Union[DataLoader, None]:
 
@@ -626,7 +562,6 @@ class FlowDataManager:
 
         out = FlowDataManager.get_data_loader_worker(
             data_list=data_list,
-            save_path=self._save_path,
             channels=channels,
             layer_key=layer_key,
             label_key=label_key,
@@ -635,8 +570,8 @@ class FlowDataManager:
             shuffle=shuffle,
             return_data_loader=return_data_loader,
             on_disk=on_disk,
-            filename=filename,
-            verbosity=self._verbosity,
+            save_path=self._save_path,
+            filename_np=filename_np,
             **kwargs,
         )
 
@@ -644,8 +579,7 @@ class FlowDataManager:
 
     @staticmethod
     def get_data_loader_worker(
-            data_list: Union[Sequence[str], Sequence[sc.AnnData]],
-            save_path: Union[str, None] = None,  # Where data was saved and where .npy files are to be saved if 'on_disk' is True
+            data_list: List[sc.AnnData],
             channels: Union[Sequence[int], Sequence[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
@@ -654,54 +588,68 @@ class FlowDataManager:
             shuffle: bool = True,
             return_data_loader: Literal['np_array', 'torch_tensor'] = 'np_array',
             on_disk: bool = False,
-            filename: str = 'data.npy',
-            verbosity: int = 0,
+            save_path: Union[str, None] = None,  # Where .npy files are saved if 'on_disk' is True
+            filename_np: Union[str, None] = None,  # Filename of numpy data file if 'on_disk' is True
             **kwargs
     ) -> DataLoader:
-
-        load_data = isinstance(data_list[0], str)
-
-        if load_data and save_path is None:
-            raise ValueError(
-                "If 'data_list' is a list of filenames 'save_path' (= dir where files are stored) cannot be None"
-            )
 
         if on_disk and save_path is None:
             raise ValueError(
                 "If 'on_disk' is True 'save_path' (= dir where the dataloader data file is stored) cannot be None"
             )
 
-        # Set all channels as data
+        # Set all channels as data if none are specified
         if channels is None:
-            if isinstance(data_list[0], str):
-                channels = list(range(sc.read_h5ad(os.path.join(save_path, data_list[0])).n_vars))
-            else:
                 channels = list(range(data_list[0].n_vars))
 
+        # Get single data matrix (concatenated from all samples)
         data_array = FlowDataManager._get_numpy_data_matrix(
-            data_list=data_list, channels=channels, layer_key=layer_key, data_path=save_path
+            data_list=data_list,
+            channels=channels,
+            layer_key=layer_key,
         )
 
+        # Add labels as last columns of data matrix
         if label_key is not None:
             label_array = FlowDataManager._get_numpy_label_vector(
-                data_list=data_list, label_key=label_key, layer_key=label_layer_key, data_path=save_path
+                data_list=data_list,
+                label_key=label_key,
+                layer_key=label_layer_key,
             )
 
             data_array = np.concatenate((data_array, np.expand_dims(label_array, axis=1)), axis=1)
 
+        # Save data array to disk
         if on_disk:
-            np.save(os.path.join(save_path, filename), data_array)
 
+            if save_path is None:
+                save_path = os.getcwd()
+
+            if filename_np is None:
+                filename_np = 'data.npy'
+
+            np.save(os.path.join(save_path, filename_np), data_array)
+
+        # Instantiate FlowDataset
         ds = FlowDataset(
-            data=os.path.join(save_path, filename) if on_disk else data_array, on_disk=on_disk,
-            includes_labels=True if label_key is not None else False
+            data=os.path.join(save_path, filename_np) if on_disk else data_array,
+            on_disk=on_disk,
+            includes_labels=True if label_key is not None else False,  # Assume labels in last column
         )
 
+        # Set batch size to all data if batch_size == -1
         if batch_size == -1:
             batch_size = len(ds)
 
-        flow_dataloader = FlowDataLoader(dataset=ds, batch_size=batch_size, shuffle=shuffle, **kwargs)
+        # Instantiate the FlowDataLoader
+        flow_dataloader = FlowDataLoader(
+            dataset=ds,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            **kwargs
+        )
 
+        # Get Dataloader that returns np arrays or pytorch tensors
         if return_data_loader == 'np_array':
             out = flow_dataloader.pytorch_np_dataloader
         else:
@@ -711,60 +659,45 @@ class FlowDataManager:
 
     @staticmethod
     def _get_numpy_data_matrix(
-            data_list: Union[Sequence[sc.AnnData], Sequence[str]],
+            data_list: List[sc.AnnData],
             channels: Union[Sequence[int], Sequence[str]],
             layer_key: Union[str, None] = None,
-            data_path: Union[str, None] = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
 
-        load_data = isinstance(data_list[0], str)
+        # Get data matrix from each anndata in data_list
+        arrays = []
+        for adata in data_list[1:]:
 
-        array = data_list[0]
-        if load_data:
-            array = sc.read_h5ad(os.path.join(data_path, array))
-        # Get data matrix from anndata
-        if layer_key is None:
-            array = array[:, channels].X.copy()
-        else:
-            array = array[:, channels].layers[layer_key].copy()
-
-        for d in data_list[1:]:
-            if load_data:
-                d = sc.read_h5ad(os.path.join(data_path, d))
             if layer_key is None:
-                x = d[:, channels].X.copy()
+                arrays.append(adata[:, channels].X.copy())
             else:
-                x = d[:, channels].layers[layer_key].copy()
-            if load_data:
-                del d
+                arrays.append(adata[:, channels].layers[layer_key].copy())
 
-            array = np.concatenate((array, x), axis=0)
+        # Concatenate to single data matrix
+        array = np.concatenate(arrays, axis=0)
 
         return array
 
     @staticmethod
     def _get_numpy_label_vector(
-            data_list: Union[Sequence[sc.AnnData], Sequence[str]],
+            data_list: List[sc.AnnData],
             label_key: Union[int, str, None],
             layer_key: Union[str, None] = None,
-            data_path: Union[str, None] = None
     ) -> np.ndarray:
 
-        load_data = isinstance(data_list[0], str)
+        # Get labels from each anndata in data_list
+        labels = []
+        for adata in data_list:
 
-        label_array = data_list[0]
-        if load_data:
-            label_array = sc.read_h5ad(os.path.join(data_path, label_array))
+            labels.append(
+                FlowDataManager._get_labels(
+                    adata=adata,
+                    label_key=label_key,
+                    layer_key=layer_key
+                )
+            )
 
-        label_array = FlowDataManager._get_labels(adata=label_array, label_key=label_key, layer_key=layer_key)
-
-        for d in data_list[1:]:
-            if load_data:
-                d = sc.read_h5ad(os.path.join(data_path, d))
-            l = FlowDataManager._get_labels(adata=d, label_key=label_key, layer_key=layer_key)
-            if load_data:
-                del d
-            label_array = np.concatenate((label_array, l), axis=0)
+        label_array = np.concatenate(labels, axis=0)
 
         return label_array
 
@@ -774,6 +707,8 @@ class FlowDataManager:
             label_key: Union[str, int],
             layer_key: Union[str, None] = None,
     ) -> np.ndarray:
+
+        # Label key is index of data matrix
         if isinstance(label_key, int):
             try:
                 if layer_key is None:
@@ -782,6 +717,8 @@ class FlowDataManager:
                     labels = adata.layers[layer_key][:, label_key].copy()
             except IndexError:
                 raise ValueError("'label_key' index is out of bounds in .X/.layers[layer_key] matrix")
+
+        # Label key is var name or obs key
         else:
             try:
                 label_idx = adata.var_names.get_loc(label_key)
@@ -792,7 +729,7 @@ class FlowDataManager:
             except KeyError:
                 warnings.warn(f"'label_key' not found in .var_names, trying .obs")
                 try:
-                    labels = adata.obs[label_key].copy()
+                    labels = adata.obs[label_key].to_numpy().copy()
                 except KeyError:
                     raise ValueError("'label_key' not found in .obs or .var_names")
         return labels
@@ -915,14 +852,13 @@ class FlowDataManager:
                 plt.tight_layout()
                 plt.savefig(os.path.join(save_path, filename_plot))
 
-    # ### data_list_to_numpy() #########################################################################################
+    # ### data_list_to_numpy_files() #########################################################################################
     @staticmethod
-    def datalist_to_numpy(
-            data_list: Union[Sequence[str], Sequence[sc.AnnData]],
+    def datalist_to_numpy_files(
+            data_list: List[sc.AnnData],
             sample_wise: bool = False,
             save_path: Union[str, None] = None,
             filename_suffix: Union[str, None] = None,
-            data_path: Union[str, None] = None,  # If anndata are to be loaded
             channels: Union[Sequence[int], Sequence[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
@@ -936,20 +872,21 @@ class FlowDataManager:
         if filename_suffix is None:
             filename_suffix = ''
 
+        # Save all data in one data matrix
         if not sample_wise:
             # Create dataloader
             dl = FlowDataManager.get_data_loader_worker(
                 data_list=data_list,
-                save_path=save_path,
                 channels=channels,
                 layer_key=layer_key,
                 label_key=label_key,
                 label_layer_key=label_layer_key,
-                shuffle=shuffle,
                 batch_size=-1,  # Return one matrix with all events
+                shuffle=shuffle,
                 return_data_loader='np_array',
-                on_disk=False,
-                verbosity=0,
+                on_disk=False,  # No saving of np file on disk
+                save_path=None,
+                filename_np=None,
             )
 
             if label_key is not None:
@@ -960,56 +897,48 @@ class FlowDataManager:
 
             np.save(os.path.join(save_path, f'x{filename_suffix}.npy'), x.astype(float))
 
+        # Save data in sample-wise data matrices
         else:
-
-            # Check whether data needs to be loaded
-            load_data = isinstance(data_list[0], str)
-            if load_data and save_path is None:
-                raise ValueError(
-                    "If 'data_list' is a list of filenames 'save_path' (= dir where files are stored) cannot be None"
-                )
 
             og_sample_names = [''] * len(data_list)
             new_sample_names = [''] * len(data_list)
 
-            for i, d in enumerate(data_list):
+            for i, adata in enumerate(data_list):
 
-                # Load the anndata if necessary
-                if load_data:
-                    d = sc.read_h5ad(os.path.join(data_path, d))
+                # Save old and new filenames to list
+                og_sample_names[i] = adata.uns['filename']
 
-                og_sample_names[i] = d.uns['filename']
-                new_sample_names[i] = f'sample_{str(i).zfill(2)}.npy'
+                new_fn = f'sample_{str(i).zfill(2)}{filename_suffix}.npy'
+                new_sample_names[i] = new_fn
 
                 # Create dataloader for just the current sample
-                dummy_data_list = [d, ]
+                dummy_data_list = [adata, ]
                 dummy_data_loader = FlowDataManager.get_data_loader_worker(
                     data_list=dummy_data_list,
-                    save_path=save_path,
+                    channels=channels,
                     layer_key=layer_key,
                     label_key=label_key,
                     label_layer_key=label_layer_key,
-                    shuffle=shuffle,
-                    channels=channels,
                     batch_size=-1,
+                    shuffle=shuffle,
                     return_data_loader='np_array',
                     on_disk=False,
-                    verbosity=0,
+                    save_path=None,
+                    filename_np=None,
                 )
 
                 if label_key is not None:
                     x, y = next(iter(dummy_data_loader))
                     np.save(
-                        os.path.join(save_path, f'y{filename_suffix}_sample_{str(i).zfill(2)}.npy'),
-                        y.astype(int))
+                        os.path.join(save_path, 'y_' + new_fn),
+                        y.astype(int)
+                    )
                 else:
                     x = next(iter(dummy_data_loader))
                 np.save(
-                    os.path.join(save_path, f'x{filename_suffix}_sample_{str(i).zfill(2)}.npy'),
-                    x.astype(float))
-
-                if load_data:
-                    del d
+                    os.path.join(save_path, 'x_' + new_fn),
+                    x.astype(float)
+                )
 
             df = pd.DataFrame()
             df['og_sample_name'] = og_sample_names
@@ -1051,36 +980,23 @@ class FlowDataManager:
             label_layer_key=label_layer_key,
             new_label_key=new_label_key,
             inplace=True,
-            data_path=self._save_path
         )
 
     @staticmethod
     def relabel_data_worker(
-            data_list: Union[List[str], List[sc.AnnData]],
+            data_list: List[sc.AnnData],
             old_to_new_label_mapping: Dict[Any, Any],  # Dict mapping old labels to new
             label_key: Union[int, str],
             label_layer_key: Union[str, None] = None,
             new_label_key: str = 'new_labels',  # New labels always added to .obs, this way no conflict with prepr
             inplace: bool = False,
-            data_path: Union[str, None] = None,  # If anndata are to be loaded
-    ) -> Union[Union[List[str], List[sc.AnnData]], None]:
+    ) -> Union[List[sc.AnnData], None]:
 
         # Copy data_list if not inplace
         if not inplace:
             data_list = copy.deepcopy(data_list)
 
-        # Check whether data needs to be loaded
-        load_data = isinstance(data_list[0], str)
-        if load_data and data_path is None:
-            raise ValueError(
-                "If 'data_list' is a list of filenames 'save_path' (= dir where files are stored) cannot be None"
-            )
-
         for i, adata in enumerate(data_list):
-
-            # Load the anndata if necessary
-            if load_data:
-                adata = sc.read_h5ad(os.path.join(data_path, adata))
 
             # Get labels (by column index, column name, obs key)
             labels = FlowDataManager._get_labels(adata=adata, label_key=label_key, layer_key=label_layer_key)
@@ -1091,17 +1007,6 @@ class FlowDataManager:
 
             # Add new labels to .obs
             adata.obs[new_label_key] = new_labels
-
-            # Save relabeled and add filename to data_list
-            if load_data:
-                if inplace:
-                    ad_fn = adata.uns['filename'][:-4] + '.h5ad'
-                else:
-                    ad_fn = 'relabeled_' + adata.uns['filename'][:-4] + '.h5ad'
-
-                adata.write_h5ad(filename=Path(os.path.join(data_path, ad_fn)))
-                data_list[i] = ad_fn
-                del adata
 
         return None if inplace else data_list
 
