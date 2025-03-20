@@ -119,6 +119,10 @@ class FlowDataManager:
     # ### load_data_files_to_anndata() #################################################################################
     def load_data_files_to_anndata(self):
 
+        # Note: Fcd data is stored as float32 according to the Flow Cytometry Standard
+        # - read_fcs() loads as float32
+        # - read in .csv also as float32
+
         # If no filetype is passed, determine from ending of 1st file
         if self._data_file_type is None:
             self._data_file_type = FlowDataManager._determine_filetype(filename=self._data_file_names[0])
@@ -1009,6 +1013,7 @@ class FlowDataManager:
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
             shuffle: bool = True,
+            precision: Literal['16bit', '32bit', '64bit'] = '32bit',
     ):
 
         if data_set == 'all':
@@ -1041,6 +1046,7 @@ class FlowDataManager:
             label_key=label_key,
             label_layer_key=label_layer_key,
             shuffle=shuffle,
+            precision=precision,
         )
 
     @staticmethod
@@ -1054,7 +1060,24 @@ class FlowDataManager:
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
             shuffle: bool = True,
+            precision: Literal['16bit', '32bit', '64bit'] = '32bit',
     ):
+
+        if precision == '16bit':
+            float_prec = np.float16
+            int_prec = np.int16
+
+        elif precision == '32bit':
+            float_prec = np.float32
+            int_prec = np.int32
+
+        elif precision == '64bit':
+            float_prec = np.float64
+            int_prec = np.int64
+
+        else:
+            raise ValueError("'precision' must be '16bit', '32bit', '64bit'")
+
 
         if save_path is None:
             save_path = os.getcwd()
@@ -1081,11 +1104,11 @@ class FlowDataManager:
 
             if label_key is not None:
                 x, y = next(iter(dl))
-                np.save(os.path.join(save_path, f'y{filename_suffix}.npy'), y.astype(int))
+                np.save(os.path.join(save_path, f'y{filename_suffix}.npy'), y.astype(int_prec))
             else:
                 x = next(iter(dl))
 
-            np.save(os.path.join(save_path, f'x{filename_suffix}.npy'), x.astype(float))
+            np.save(os.path.join(save_path, f'x{filename_suffix}.npy'), x.astype(float_prec))
 
         # Save data in sample-wise data matrices
         else:
@@ -1121,13 +1144,13 @@ class FlowDataManager:
                     x, y = next(iter(dummy_data_loader))
                     np.save(
                         os.path.join(save_path, 'y_' + new_fn),
-                        y.astype(int)
+                        y.astype(int_prec)
                     )
                 else:
                     x = next(iter(dummy_data_loader))
                 np.save(
                     os.path.join(save_path, 'x_' + new_fn),
-                    x.astype(float)
+                    x.astype(float_prec)
                 )
 
             df = pd.DataFrame()

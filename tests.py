@@ -494,7 +494,7 @@ def test_flowdatamanager():
     os.makedirs(sp_np, exist_ok=True)
     fdm.save_to_numpy_files(
         data_set='train',
-        sample_wise=False,
+        sample_wise=False,  # !!!
         save_path=sp_np,
         filename_suffix='_train',
         channels=['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '19-APC'],
@@ -506,7 +506,7 @@ def test_flowdatamanager():
 
     fdm.save_to_numpy_files(
         data_set='train',
-        sample_wise=True,
+        sample_wise=True,  # !!!
         save_path=sp_np,
         filename_suffix='_train',
         channels=['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '19-APC'],
@@ -517,9 +517,11 @@ def test_flowdatamanager():
     )
     print('Saved files: ', os.listdir(sp_np))
 
+    print('Dtype saved files: ', np.load(os.path.join(sp_np, 'x_train.npy')).dtype)
+
     fdm.save_to_numpy_files(
         data_set='train',
-        sample_wise=True,
+        sample_wise=False,
         save_path=sp_np,
         filename_suffix='_train',
         channels=['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '19-APC'],
@@ -527,7 +529,10 @@ def test_flowdatamanager():
         label_key='population',
         label_layer_key='raw',
         shuffle=True,
+        precision='16bit',  # !!!
     )
+    print('Dtype saved files: ', np.load(os.path.join(sp_np, 'x_train.npy')).dtype)
+
 
     print('# ### Check class balance')
     cb_df = fdm.check_class_balance(
