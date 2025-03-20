@@ -486,7 +486,7 @@ def test_flowdatamanager():
 
     x, y = next(iter(dl))
 
-    print('x: ', x)
+    print('x: ', x.shape)
     print('y: ', y)
 
     print('# ### Save to numpy')

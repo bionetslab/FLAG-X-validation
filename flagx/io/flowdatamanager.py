@@ -736,7 +736,7 @@ class FlowDataManager:
 
         label_array = np.concatenate(labels, axis=0)
 
-        return label_array
+        return label_array.astype(int)
 
     @staticmethod
     def _get_labels(
@@ -771,7 +771,7 @@ class FlowDataManager:
                     labels = adata.obs[label_key].to_numpy().copy()
                 except KeyError:
                     raise ValueError("'label_key' not found in .obs or .var_names")
-        return labels
+        return labels.astype(int)
 
     # ### sample_wise_downsampling() ###################################################################################
     def sample_wise_downsampling(
