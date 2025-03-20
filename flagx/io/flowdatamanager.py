@@ -560,9 +560,6 @@ class FlowDataManager:
             **kwargs,
     ) -> Union[DataLoader, None]:
 
-        if data_set not in {'all', 'train', 'test', 'val'}:
-            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
-
         if data_set == 'all':
             data_list = self.anndata_list_
         elif data_set == 'train':
@@ -570,18 +567,18 @@ class FlowDataManager:
         elif data_set == 'test':
             data_list = self.test_data_
         elif data_set == 'val':
-            try:
-                data_list = self.val_data_
-            except NameError:
+            data_list = self.val_data_
+
+            if data_list is None:
                 if self._verbosity >= 1:
                     warnings.warn(
                         'No validation set was created when splitting the data. '
-                        'Options are "train", "test", "all"',
+                        'Options are "train", "test", "all". Returning None.' ,
                         UserWarning
                     )
                 return
         else:
-            data_list = []
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
 
         out = FlowDataManager.get_data_loader_worker(
             data_list=data_list,
@@ -782,26 +779,25 @@ class FlowDataManager:
             label_layer_key: Union[str, None] = None,
     ) -> None:
 
-        if data_set not in {'all', 'train', 'test', 'val'}:
-            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
-
         if data_set == 'all':
             data_list = self.anndata_list_
         elif data_set == 'train':
             data_list = self.train_data_
         elif data_set == 'test':
             data_list = self.test_data_
-        else:  # data_set == 'val'
-            try:
-                data_list = self.val_data_
-            except NameError:
+        elif data_set == 'val':
+            data_list = self.val_data_
+
+            if data_list is None:
                 if self._verbosity >= 1:
                     warnings.warn(
                         'No validation set was created when splitting the data. '
-                        'Options are "train", "test", "all"',
+                        'Options are "train", "test", "all".',
                         UserWarning
                     )
                 return
+        else:
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
 
         # Downsample selected data list inplace, if og is to be kept use the worker
         FlowDataManager.sample_wise_downsampling_worker(
@@ -945,9 +941,54 @@ class FlowDataManager:
                 plt.tight_layout()
                 plt.savefig(os.path.join(save_path, filename_plot))
 
-    # ### data_list_to_numpy_files() #########################################################################################
+    # ### save_to_numpy_files() ########################################################################################
+    def save_to_numpy_files(
+            self,
+            data_set: Literal['train', 'val', 'test', 'all'],
+            sample_wise: bool = False,
+            save_path: Union[str, None] = None,
+            filename_suffix: Union[str, None] = None,
+            channels: Union[Sequence[int], Sequence[str], None] = None,
+            layer_key: Union[str, None] = None,
+            label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
+            label_layer_key: Union[str, None] = None,
+            shuffle: bool = True,
+    ):
+
+        if data_set == 'all':
+            data_list = self.anndata_list_
+        elif data_set == 'train':
+            data_list = self.train_data_
+        elif data_set == 'test':
+            data_list = self.test_data_
+        elif data_set == 'val':
+            data_list = self.val_data_
+
+            if data_list is None:
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all".',
+                        UserWarning
+                    )
+                return
+        else:
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
+
+        FlowDataManager.save_to_numpy_files_worker(
+            data_list=data_list,
+            sample_wise=sample_wise,
+            save_path=save_path,
+            filename_suffix=filename_suffix,
+            channels=channels,
+            layer_key=layer_key,
+            label_key=label_key,
+            label_layer_key=label_layer_key,
+            shuffle=shuffle,
+        )
+
     @staticmethod
-    def datalist_to_numpy_files(
+    def save_to_numpy_files_worker(
             data_list: List[sc.AnnData],
             sample_wise: bool = False,
             save_path: Union[str, None] = None,
@@ -1055,13 +1096,13 @@ class FlowDataManager:
         elif data_set == 'test':
             data_list = self.test_data_
         elif data_set == 'val':
-            try:
-                data_list = self.val_data_
-            except NameError:
+            data_list = self.val_data_
+
+            if data_list is None:
                 if self._verbosity >= 1:
                     warnings.warn(
                         'No validation set was created when splitting the data. '
-                        'Options are "train", "test", "all"',
+                        'Options are "train", "test", "all".',
                         UserWarning
                     )
                 return
