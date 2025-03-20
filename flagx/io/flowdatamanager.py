@@ -7,6 +7,7 @@ import pytometry as pm
 import copy
 import os
 import warnings
+import gc
 
 from typing import Sequence, Tuple, Union, Literal, List, Dict, Any
 from sklearn.model_selection import train_test_split
@@ -167,12 +168,12 @@ class FlowDataManager:
     # check_sample_sizes() #############################################################################################
     def check_sample_sizes(
             self,
-            out_filename: Union[str, None] = None,
+            filename_sample_sizes_df: Union[str, None] = None,
     ):
         self.sample_sizes_ = FlowDataManager.check_sample_sizes_worker(
             data_list=self.anndata_list_,
             save_path=self._save_path,
-            out_filename=out_filename,
+            filename_sample_sizes_df=filename_sample_sizes_df,
             verbosity=self._verbosity,
         )
 
@@ -180,7 +181,7 @@ class FlowDataManager:
     def check_sample_sizes_worker(
             data_list: List[sc.AnnData],
             save_path: Union[str, None] = None,
-            out_filename: Union[str, None] = None,
+            filename_sample_sizes_df: Union[str, None] = None,
             verbosity: int = 0,
     ) -> pd.DataFrame:
 
@@ -201,8 +202,11 @@ class FlowDataManager:
         df.loc[len(df)] = ['mean', m]
         df.loc[len(df)] = ['total', s]
 
-        if out_filename is not None and save_path is not None:
-            df.to_csv(os.path.join(save_path, out_filename))
+        if save_path is None:
+            save_path = os.getcwd()
+
+        if filename_sample_sizes_df is not None:
+            df.to_csv(os.path.join(save_path, filename_sample_sizes_df))
 
         if verbosity >= 2:
             print(f'# ### Sample sizes:\n{df}')
@@ -313,7 +317,7 @@ class FlowDataManager:
                     msg += f'# ### Name: {value}, Count: {count}\n'
                 warnings.warn(msg, UserWarning)
             else:
-                print('# ### Channel names are consistent across samples\n')
+                print(f'# ### Channel: {i}, Name: {value_counts.index[0]} is consistent across samples\n')
 
     # ### sample_wise_preprocessing() ##################################################################################
     def sample_wise_preprocessing(
@@ -475,6 +479,10 @@ class FlowDataManager:
 
         # Split according to previously saved dataframe
         else:
+
+            # Check format of data split dataframe and set filenames as index
+            data_split = FlowDataManager._check_data_split_df_format(data_split=data_split)
+
             # 'data_list' is list of AnnData with filename annotated in .uns
             train_data = []
             val_data = []
@@ -522,6 +530,20 @@ class FlowDataManager:
         })
 
         df.to_csv(os.path.join(save_path, filename_data_split))
+
+    @staticmethod
+    def _check_data_split_df_format(data_split: pd.DataFrame):
+
+        if 'filename' not in data_split.columns:
+            raise ValueError("The column 'filename' is missing in the 'data_split' dataframe'")
+
+        if 'mode' not in data_split.columns:
+            raise ValueError("The column 'mode' is missing in the 'data_split' dataframe'")
+
+        # Set filename columns as index
+        data_split.set_index('filename', drop=True, inplace=True)
+
+        return data_split
 
     # ### get_data_loader() ############################################################################################
     def get_data_loader(
@@ -635,9 +657,17 @@ class FlowDataManager:
 
             np.save(os.path.join(save_path, filename_np), data_array)
 
+            # Delete data array from memory
+            del data_array
+            gc.collect()
+
+            data = os.path.join(save_path, filename_np)
+        else:
+            data = data_array
+
         # Instantiate FlowDataset
         ds = FlowDataset(
-            data=os.path.join(save_path, filename_np) if on_disk else data_array,
+            data=data,
             on_disk=on_disk,
             includes_labels=True if label_key is not None else False,  # Assume labels in last column
         )
@@ -671,7 +701,7 @@ class FlowDataManager:
 
         # Get data matrix from each anndata in data_list
         arrays = []
-        for adata in data_list[1:]:
+        for adata in data_list:
 
             if layer_key is None:
                 arrays.append(adata[:, channels].X.copy())
@@ -743,8 +773,8 @@ class FlowDataManager:
                     raise ValueError("'label_key' not found in .obs or .var_names")
         return labels
 
-    # ### over_under_sample_data_list() ################################################################################
-    def sample_wise_stratified_downsampling(
+    # ### sample_wise_downsampling() ###################################################################################
+    def sample_wise_downsampling(
             self,
             data_set: Literal['train', 'val', 'test', 'all'],
             fraction: float,
