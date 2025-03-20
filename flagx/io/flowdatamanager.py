@@ -56,6 +56,10 @@ class FlowDataManager:
 
         self._verbosity = verbosity
 
+        # Conventions:
+        # - Store only data as attribute if it does not concern one specific subset of the data (i.e. train, val, test)
+        # - Assume integer labels
+
         # When load_data_files_to_anndata() was called
         self.invalid_files_ = None  # Files that are not .fcs or .csv
         self.anndata_list_ = None  # Either list of AnnData or list of .h5ad filenames (stored at save_path)
@@ -869,77 +873,129 @@ class FlowDataManager:
         return keep_mask
 
     # ### check_class_balance() ########################################################################################
-    @staticmethod
     def check_class_balance(
-            data_loader: DataLoader,
-            save: bool = False,
-            plot: bool = False,
+            self,
+            data_set: Literal['train', 'val', 'test', 'all'],
+            label_key: Union[int, str],
+            label_layer_key: Union[str, None] = None,
+            filename_class_balance_df: Union[str, None] = None,
+    ) -> Union[pd.DataFrame, None]:
+
+        if data_set == 'all':
+            data_list = self.anndata_list_
+        elif data_set == 'train':
+            data_list = self.train_data_
+        elif data_set == 'test':
+            data_list = self.test_data_
+        elif data_set == 'val':
+            data_list = self.val_data_
+
+            if data_list is None:
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all". Returning None',
+                        UserWarning
+                    )
+                return
+        else:
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
+
+        class_balance_df = FlowDataManager.check_class_balance_worker(
+            data_list=data_list,
+            label_key=label_key,
+            label_layer_key=label_layer_key,
+            save_path=self.save_path,
+            filename_class_balance_df=filename_class_balance_df,
+        )
+
+        return class_balance_df
+
+    @staticmethod
+    def check_class_balance_worker(
+            data_list: List[sc.AnnData],
+            label_key: Union[int, str],
+            label_layer_key: Union[str, None] = None,
             save_path: Union[str, None] = None,
-            filename_df: Union[str, None] = None,
-            filename_plot: Union[str, None] = None,
-            ax: Union[plt.Axes, None] = None,
+            filename_class_balance_df: Union[str, None] = None,
             verbosity: int = 1,
-    ):
-        label_array = np.array([])
-        for _, y in data_loader:
-            label_array = np.concatenate((label_array, y), axis=0)
-        label_series = pd.Series(label_array)
-        class_counts = label_series.value_counts()
-        class_fracs = label_series.value_counts(normalize=True)
+    ) -> pd.DataFrame:
+        # Extract labels from data list
+        label_vec = FlowDataManager._get_numpy_label_vector(
+            data_list=data_list,
+            label_key=label_key,
+            layer_key=label_layer_key,
+            verbosity=verbosity,
+        )
+
+        unique_labels, class_counts = np.unique(label_vec, return_counts=True)
+        class_fracs = class_counts / class_counts.sum()
+
+        sorted_indices = np.argsort(class_counts)[::-1]
+        unique_labels = unique_labels[sorted_indices]
+        class_counts = class_counts[sorted_indices]
+        class_fracs = class_fracs[sorted_indices]
 
         if verbosity >= 2:
             print(f'# ### Absolute counts for the labels:\n{class_counts}')
             print(f'# ### Relative frequencies for the labels:\n{class_fracs}')
 
-        if save:
-            if save_path is None:
-                save_path = os.getcwd()
-            if filename_df is None:
-                filename_df = 'class_balances.csv'
-
-            result_df = pd.DataFrame({
-                'count': class_counts.astype(str),
+        results_df = pd.DataFrame(
+            {
+                'count': class_counts.astype(int),
                 'fraction': class_fracs
-            }).T
+            },
+            index=unique_labels.astype(int),
+        ).T
 
-            result_df.to_csv(os.path.join(save_path, filename_df))
-
-        if plot:
+        if filename_class_balance_df is not None:
             if save_path is None:
                 save_path = os.getcwd()
-            if filename_plot is None:
-                filename_plot = 'class_balances.png'
-            if ax is None:
-                fig, ax = plt.subplots()
-                save_plot = True
+
+            results_df.to_csv(os.path.join(save_path, filename_class_balance_df))
+
+        return results_df
+
+    @staticmethod
+    def plot_class_balance_df(
+            class_balance_df: pd.DataFrame,
+            dpi: int = 100,
+            ax: Union[plt.Axes, None] = None,
+    ) -> plt.Axes:
+        if ax is None:
+            fig, ax = plt.subplots(dpi=dpi)
+
+        num_classes = class_balance_df.shape[1]
+
+        color_map = plt.cm.get_cmap("tab10" if num_classes <= 10 else "tab20", num_classes)
+        colors = [color_map(i) for i in range(num_classes)]
+
+        class_balance_df.loc['fraction'].plot(kind='bar', color=colors, ax=ax)
+
+        ax.set_xlabel('Class')
+        ax.set_ylabel('Frequency')
+        ax.set_title('Class Balance')
+
+        ax.set_xticks(range(num_classes))
+        ax.set_xticklabels(class_balance_df.columns)
+
+        class_fracs = class_balance_df.loc['fraction'].to_numpy()
+        class_counts = class_balance_df.loc['count'].to_numpy()
+
+        y_max = class_fracs.max() * 1.1
+        ax.set_ylim(0, y_max)
+        for idx, (frac, count) in enumerate(zip(class_fracs, class_counts)):
+            text = f'total: {count}, frac: {round(frac, 4)}'
+            text_offset = 0.05 * y_max
+            y_text = frac + text_offset
+            if y_text + 6 * text_offset > y_max:
+                ax.text(
+                    idx, y_text, text, ha='center', va='top', rotation=90)
             else:
-                save_plot = False
+                ax.text(
+                    idx, y_text, text, ha='center', va='bottom', rotation=90)
 
-            num_classes = len(class_fracs)
-            color_map = plt.cm.get_cmap("tab10" if num_classes <= 10 else "tab20", num_classes)
-            colors = [color_map(i) for i in range(num_classes)]
-
-            class_fracs.plot(kind='bar', color=colors, ax=ax)
-            ax.set_xlabel('Class')
-            ax.set_ylabel('Frequency')
-            ax.set_title('Class Balance')
-
-            y_max = class_fracs.max() * 1.1
-            ax.set_ylim(0, y_max)
-            for idx, value in enumerate(class_fracs):
-                text = f'total: {class_counts.iloc[idx]}, frac: {round(value, 4)}'
-                text_offset = 0.05 * y_max
-                y_text = value + text_offset
-                if y_text + 6 * text_offset > y_max:
-                    ax.text(
-                        idx, y_text, text, ha='center', va='top', rotation=90)
-                else:
-                    ax.text(
-                        idx, y_text, text, ha='center', va='bottom', rotation=90)
-
-            if save_plot:
-                plt.tight_layout()
-                plt.savefig(os.path.join(save_path, filename_plot))
+        return ax
 
     # ### save_to_numpy_files() ########################################################################################
     def save_to_numpy_files(

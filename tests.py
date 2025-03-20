@@ -324,6 +324,7 @@ def test_flowdatamanager():
     import torch
     import numpy as np
     import pandas as pd
+    import matplotlib.pyplot as plt
     from flagx.io import FlowDataManager
 
     # ### Define function for setting random seeds
@@ -342,7 +343,7 @@ def test_flowdatamanager():
     # ### Create a list of the filenames
     save_path = os.path.join(os.getcwd(), "results/test/test_fdm/data_handling")
     raw_data_path = os.path.join(os.getcwd(), "data/raw/imstat")
-    filename_list = os.listdir(raw_data_path)[0:3]
+    filename_list = os.listdir(raw_data_path)[0:6]
 
     # ### Test loading of data to anndata
     # 2 invalid filenames
@@ -447,7 +448,7 @@ def test_flowdatamanager():
         label_key='population',
         label_layer_key='raw',
     )
-    y = fdm._get_numpy_label_vector(data_list=fdm.train_data_, label_key='population', layer_key='raw', verbosity=2)
+    y = fdm._get_numpy_label_vector(data_list=fdm.train_data_[:1], label_key='population', layer_key='raw', verbosity=2)
     unique_values, counts = np.unique(y, return_counts=True)
     value_counts = {int(c): round(float(frac), 4) for c, frac in zip(unique_values, counts / counts.sum())}
     print('After ds, n events: ', counts.sum(), 'relative counts: ', value_counts)
@@ -488,15 +489,62 @@ def test_flowdatamanager():
     print('x: ', x)
     print('y: ', y)
 
-    print('# ### Check class balance given a dataloader')
+    print('# ### Save to numpy')
+    sp_np = os.path.join(fdm.save_path, 'np_files')
+    os.makedirs(sp_np, exist_ok=True)
+    fdm.save_to_numpy_files(
+        data_set='train',
+        sample_wise=False,
+        save_path=sp_np,
+        filename_suffix='_train',
+        channels=['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '19-APC'],
+        layer_key='raw',
+        label_key='population',
+        label_layer_key='raw',
+        shuffle=True,
+    )
 
+    fdm.save_to_numpy_files(
+        data_set='train',
+        sample_wise=True,
+        save_path=sp_np,
+        filename_suffix='_train',
+        channels=['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '19-APC'],
+        layer_key='raw',
+        label_key='population',
+        label_layer_key='raw',
+        shuffle=True,
+    )
+    print('Saved files: ', os.listdir(sp_np))
 
+    fdm.save_to_numpy_files(
+        data_set='train',
+        sample_wise=True,
+        save_path=sp_np,
+        filename_suffix='_train',
+        channels=['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '19-APC'],
+        layer_key='raw',
+        label_key='population',
+        label_layer_key='raw',
+        shuffle=True,
+    )
 
+    print('# ### Check class balance')
+    cb_df = fdm.check_class_balance(
+        data_set='train',
+        label_key='population',
+        label_layer_key='raw',
+        filename_class_balance_df='class_balance_train.csv',
+    )
+    print('class balance train:\n', cb_df)
+
+    fdm.plot_class_balance_df(class_balance_df=cb_df, dpi=300)
+    plt.savefig(os.path.join(fdm.save_path, 'class_balance_train.png'))
 
 
 
     # Todo:
-    #  - test all fdm functionality here
+    #  - test all fdm functionality here, assume int labels
     #  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
     #  - Implement softmax in gating module
     #  - Go over other classifiers in validation, refactor to package
