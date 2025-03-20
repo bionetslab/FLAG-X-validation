@@ -546,6 +546,95 @@ def test_flowdatamanager():
     fdm.plot_class_balance_df(class_balance_df=cb_df, dpi=300)
     plt.savefig(os.path.join(fdm.save_path, 'class_balance_train.png'))
 
+def test_torch_randomness():
+
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+
+    # Define a function to test reproducibility
+    def test_seed(seed: int):
+
+        # ### 1) Set seed and generate random numbers on cpu and gpu
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+        # Generate random numbers on CPU
+        cpu_rand_1 = torch.rand(3, 3)
+
+        # Generate random numbers on CUDA (if available)
+        cuda_rand_1 = torch.rand(3, 3, device="cuda") if torch.cuda.is_available() else None
+
+        # ### 2) Reset the seed and generate numbers again
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+        cpu_rand_2 = torch.rand(3, 3)
+        cuda_rand_2 = torch.rand(3, 3, device="cuda") if torch.cuda.is_available() else None
+
+        # Check if values match after resetting seed
+        cpu_match = torch.equal(cpu_rand_1, cpu_rand_2)
+        cuda_match = torch.equal(cuda_rand_1, cuda_rand_2) if cuda_rand_1 is not None else True
+
+        return cpu_match, cuda_match, cpu_rand_1, cuda_rand_1
+
+    # Run the test with a fixed seed
+    s = 42
+    cpu_match, cuda_match, cpu_rand, cuda_rand = test_seed(s)
+
+    # Print results
+    print("CPU Match:", cpu_match)
+    print("CUDA Match:", cuda_match)
+    print("First CPU Random Tensor:\n", cpu_rand)
+    if cuda_rand is not None:
+        print("First CUDA Random Tensor:\n", cuda_rand)
+
+
+    # Function to test deterministic shuffling with seeds
+    def test_dataloader_seed(seed):
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+        # Sample dataset: 10 data points (features) with 2 values each
+        data = torch.arange(20).view(10, 2).float()
+        labels = torch.arange(10)  # Labels from 0 to 9
+        print(data)
+
+        # Create a TensorDataset
+        dataset = TensorDataset(data, labels)
+
+        # Create a DataLoader with shuffling enabled
+        dataloader = DataLoader(dataset, batch_size=3, shuffle=True)
+
+        # Collect batches
+        batches = []
+        for batch in dataloader:
+            features, targets = batch
+            batches.append((features, targets))
+
+        return batches
+
+    # Run the test with a fixed seed twice
+    s = 42
+    batches_1 = test_dataloader_seed(s)
+    batches_2 = test_dataloader_seed(s)
+
+    # Check if shuffling is deterministic (batches should be identical)
+    deterministic = all(torch.equal(b1[0], b2[0]) and torch.equal(b1[1], b2[1]) for b1, b2 in zip(batches_1, batches_2))
+
+    # Display results
+    print(deterministic)
+    print(batches_1)
+    print(batches_2)
+
+
+
+
+
+
+
+
+
+
 
 
     # Todo:
@@ -582,6 +671,8 @@ if __name__ == '__main__':
 
     # test_ram()
 
-    test_flowdatamanager()
+    # test_flowdatamanager()
+
+    test_torch_randomness()
 
     print('done')
