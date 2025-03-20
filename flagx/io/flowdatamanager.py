@@ -17,7 +17,6 @@ from .flowdataloader import FlowDataLoader
 
 # Todo:
 #  - Add documentation
-#  - Add downsampling/balancing functionality -> save ds in separate data list
 
 class FlowDataManager:
     def __init__(
