@@ -9,7 +9,7 @@ import os
 import warnings
 import gc
 
-from typing import Sequence, Tuple, Union, Literal, List, Dict, Any
+from typing import Tuple, Union, Literal, List, Dict, Any
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from .flowdataset import FlowDataset
@@ -462,7 +462,7 @@ class FlowDataManager:
             save_path: Union[str, None] = None,
             verbosity: int = 0,
             **kwargs  # kwargs for sklearn are: random_state, shuffle, stratify
-    ) -> Tuple[Union[Sequence[str], Sequence[sc.AnnData]], ...]:
+    ) -> Tuple[List[sc.AnnData], ...]:
 
         # ### Split according to fractions passed as tuple
         if not isinstance(data_split, pd.DataFrame):
@@ -595,7 +595,7 @@ class FlowDataManager:
     def get_data_loader(
             self,
             data_set: Literal['train', 'val', 'test', 'all'],
-            channels: Union[Sequence[int], Sequence[str], None] = None,
+            channels: Union[List[int], List[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
@@ -648,7 +648,7 @@ class FlowDataManager:
     @staticmethod
     def get_data_loader_worker(
             data_list: List[sc.AnnData],
-            channels: Union[Sequence[int], Sequence[str], None] = None,
+            channels: Union[List[int], List[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
@@ -738,7 +738,7 @@ class FlowDataManager:
     @staticmethod
     def _get_numpy_data_matrix(
             data_list: List[sc.AnnData],
-            channels: Union[Sequence[int], Sequence[str]],
+            channels: Union[List[int], List[str]],
             layer_key: Union[str, None] = None,
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
 
@@ -864,7 +864,7 @@ class FlowDataManager:
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
             inplace : bool = False,
-    ) -> Union[Sequence[sc.AnnData], None]:
+    ) -> Union[List[sc.AnnData], None]:
 
         if fraction < 0 or fraction > 1:
             raise ValueError("'fraction' must be between 0 and 1")
@@ -1047,7 +1047,7 @@ class FlowDataManager:
             sample_wise: bool = False,
             save_path: Union[str, None] = None,
             filename_suffix: Union[str, None] = None,
-            channels: Union[Sequence[int], Sequence[str], None] = None,
+            channels: Union[List[int], List[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
@@ -1094,7 +1094,7 @@ class FlowDataManager:
             sample_wise: bool = False,
             save_path: Union[str, None] = None,
             filename_suffix: Union[str, None] = None,
-            channels: Union[Sequence[int], Sequence[str], None] = None,
+            channels: Union[List[int], List[str], None] = None,
             layer_key: Union[str, None] = None,
             label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
