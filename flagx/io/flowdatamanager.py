@@ -117,7 +117,7 @@ class FlowDataManager:
         self._verbosity = new_verbosity
 
     # ### load_data_files_to_anndata() #################################################################################
-    def load_data_files_to_anndata(self):
+    def load_data_files_to_anndata(self) -> None:
 
         # Note: Fcd data is stored as float32 according to the Flow Cytometry Standard
         # - read_fcs() loads as float32
@@ -202,6 +202,9 @@ class FlowDataManager:
         df = pd.DataFrame()
         df['sample'] = sn
         df['n_events'] = ss
+        df.sort_values(by='n_events', ascending=True, inplace=True)
+        df.reset_index(drop=True, inplace=True)
+
         s = df['n_events'].sum()
         m = df['n_events'].mean()
         std = df['n_events'].std()
@@ -219,6 +222,42 @@ class FlowDataManager:
             print(f'# ### Sample sizes:\n{df}')
 
         return df
+
+    @staticmethod
+    def plot_sample_size_df(
+            sample_size_df: pd.DataFrame,
+            dpi: int = 100,
+            ax: Union[plt.Axes, None] = None,
+    ) -> plt.Axes:
+        if ax is None:
+            fig, ax = plt.subplots(dpi=dpi)
+
+        # Extract info from dataframe
+        y_vals = sample_size_df.loc[~sample_size_df['sample'].isin(['mean', 'std', 'total']), 'n_events'].to_numpy()
+        x_vals = list(range(y_vals.shape[0]))
+
+        m = sample_size_df.loc[sample_size_df['sample'] == 'mean', 'n_events'].squeeze()
+        std = sample_size_df.loc[sample_size_df['sample'] == 'std', 'n_events'].squeeze()
+        total = sample_size_df.loc[sample_size_df['sample'] == 'total', 'n_events'].squeeze()
+
+        ax.bar(x_vals, y_vals, color='skyblue', edgecolor='black')
+
+        ax.set_xlabel('Sample id')
+        ax.set_ylabel('n events per sample')
+
+        xtick_vals = np.linspace(min(x_vals), max(x_vals), 6, dtype=int)
+        ax.set_xticks(xtick_vals)
+
+        ax.axhline(m, color='red', linestyle='-', linewidth=2, label=f'Mean: {m:.2f}', alpha=0.6)
+
+        ax.axhline(m - std, color='orange', linestyle='dashed', label=f'Std: {std:.2f}', linewidth=2, alpha=0.5)
+        ax.axhline(m + std, color='orange', linestyle='dashed', linewidth=2, alpha=0.5)
+
+        ax.legend()
+
+        ax.set_title(f'n samples: {y_vals.shape[0]}, Total events: {int(total)}')
+
+        return ax
 
     # ### align_channel_names(), check_og_channel_names_df() ###########################################################
     def align_channel_names(

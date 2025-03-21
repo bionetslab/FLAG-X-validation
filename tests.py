@@ -246,6 +246,7 @@ def test_ram():
 
     # dfp = os.path.join(os.getcwd(), 'data/raw/lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels')
     dfp = os.path.join(os.getcwd(), 'data/raw/lymphoma/concatenated_labled_csv_format_22Blood4Bcell_T2_Labels')
+    # dfp = os.path.join(os.getcwd(), 'data/raw/lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels')
     # dfp = os.path.join(os.getcwd(), 'data/raw/flowcyt/data_original/')
     # dfp = os.path.join(os.getcwd(), 'data/raw/imstat')
     dfn = os.listdir(dfp)
@@ -256,7 +257,7 @@ def test_ram():
     total_filesize = get_total_size(dfp, dfn)
     print(f"Total File Size: {total_filesize :.2f} MB")
 
-    fdm = FlowDataManager(data_file_names=dfn, data_file_path=dfp, memory_saving=False)
+    fdm = FlowDataManager(data_file_names=dfn, data_file_path=dfp)
 
     fdm.load_data_files_to_anndata()
 
@@ -364,6 +365,9 @@ def test_flowdatamanager():
     print('# ### Check sample sizes')
     fdm.check_sample_sizes(filename_sample_sizes_df='sample_sizes.csv')
     print("'sample_sizes_:'\n", fdm.sample_sizes_)
+    fdm.plot_sample_size_df(sample_size_df=fdm.sample_sizes_, dpi=300, ax=None)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "sample_sizes.png"))
 
     print('# ### Align channel names, also calls check_og_channel_names_df()')
     fdm.align_channel_names(reference_channel_names=0, filename_log_df='og_channel_names.csv')  # Use 1st file in list as reference
@@ -546,6 +550,7 @@ def test_flowdatamanager():
     fdm.plot_class_balance_df(class_balance_df=cb_df, dpi=300)
     plt.savefig(os.path.join(fdm.save_path, 'class_balance_train.png'))
 
+
 def test_torch_randomness():
 
     import torch
@@ -671,8 +676,8 @@ if __name__ == '__main__':
 
     # test_ram()
 
-    # test_flowdatamanager()
+    test_flowdatamanager()
 
-    test_torch_randomness()
+    # test_torch_randomness()
 
     print('done')
