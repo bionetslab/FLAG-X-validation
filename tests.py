@@ -632,6 +632,84 @@ def test_torch_randomness():
     print(batches_2)
 
 
+def test_softmax_classifier():
+
+    import os
+    import time
+    import torch
+    import numpy as np
+    import pandas as pd
+    from sklearn.datasets import make_blobs
+    from sklearn.metrics import f1_score
+
+    from flagx.utils import set_random_seed
+    from flagx.gating import SoftmaxClassifier
+
+    set_random_seed(seed=42)
+
+    X, y = make_blobs(n_samples=100000, n_features=11, centers=6, cluster_std=6.0, shuffle=True, random_state=42)
+
+    clf0 = SoftmaxClassifier(
+        layer_sizes=(128, 64, 32),
+        n_epochs=6,
+        # data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+        device=None,
+        verbosity=2,
+    )
+
+    clf0.fit(X, y)
+
+    x_test, y_test = make_blobs(
+        n_samples=1000, n_features=11, centers=6, cluster_std=6.0, shuffle=False, random_state=42
+    )
+
+    y_proba = clf0.predict_proba(x_test)
+    y_pred = clf0.predict(x_test)
+
+    print('# Predicted probs:\n', y_proba)
+    print('# Predicted labels:\n', y_pred)
+
+    f1 = f1_score(y_test, y_pred, average=None)
+
+    print(f1)
+
+    print(clf0.og_classes_)
+
+    res_df = pd.DataFrame(columns=clf0.og_classes_)
+    res_df.loc['f1'] = f1
+
+    print('f1_scores:\n', res_df)
+
+    print('# ### Test saving and loading')
+    fp = os.path.join(os.getcwd(), 'results/test/test_softmax')
+    os.makedirs(fp, exist_ok=True)
+    clf0.save(filepath=fp)
+    del clf0
+    clf0 = SoftmaxClassifier.load(filepath=fp)
+    y_pred_loaded = clf0.predict(x_test)
+    print('# Predicted labels:\n', y_pred_loaded)
+    print('# Same prediction:', np.all(y_pred == y_pred_loaded))
+
+    print('# ### Test GPU vs CPU training')
+    n_epochs = 10
+
+    clf1 = SoftmaxClassifier(n_epochs=n_epochs, device='cpu')
+    st_cpu = time.time()
+    clf1.fit(X[:1000, :], y[:1000])
+    et_cpu = time.time()
+    print(f'# Epoch on CPU took: {(et_cpu - st_cpu) /n_epochs:.2f} seconds')
+
+    if torch.cuda.is_available():
+        print('# Cuda is available')
+        print(f'# Found {torch.cuda.device_count()} GPUs')
+
+        clf2 = SoftmaxClassifier(n_epochs=n_epochs, device='cuda:0')
+        st_gpu = time.time()
+        clf2.fit(X[:1000, :], y[:1000])
+        et_gpu = time.time()
+        print(f'# Epoch on GPU took: {(et_gpu - st_gpu) / n_epochs:.2f} seconds')
+    else:
+        print('# Cuda is not available')
 
 
 
@@ -641,15 +719,26 @@ def test_torch_randomness():
 
 
 
+# Todo:
+#  - test all fdm functionality here, assume int labels
+#  - Run data processing again, also include 1% and 5%
+#  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
+#  - Implement softmax in gating module  #
+#  - Go over other classifiers in validation, refactor to package
+#    ->  go over which plotting/cal funct may be needed in flagx, (adjust __init__ of plt and utils)
+#  - Main: Refactor main scripts, add proposed experiments (grid of n samples and  downsampling frac, fit and analyze results, write toolbox simultaneously) !!!!!!
+#  - (if predicts unknown, change pred to others or ignore pred = pass labels=np.unique(y_true))
+#  - Look at report
+#  - Collect/brainstorm ideas for MRD detection, use Stefan paper as starting point (diff healthy and MRD at sample level, then outlier detection)
+#  - Argument (parm search etc in supplement) that SOM is not very sensitive to hyperparam choice
+#  - Should probably focus on Recall as well (i.e. Do not want to accidentally exclude MRD,
+#    maybe ask stefan to annotate MRD in a few samples)
+#    => Idea: Use SOM nodes not only where majority is Blast but also where blast frac >= some threshold
+#      (plot precision vs recall, works only for the binary case,
+#       include as use case in study: usually interested in rough gating to some population,
+#       in comparison to DL, SOM probs are interpretable)
 
-    # Todo:
-    #  - test all fdm functionality here, assume int labels
-    #  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
-    #  - Implement softmax in gating module
-    #  - Go over other classifiers in validation, refactor to package
-    #    ->  go over which plotting/cal funct may be needed in flagx
-    #  - Refactor main scripts, add proposed experiments (if predicts unknown, change pred to others or ignore pred = pass labels=np.unique(y_true))
-    #  - Look at report
+
 
 
 
@@ -676,8 +765,10 @@ if __name__ == '__main__':
 
     # test_ram()
 
-    test_flowdatamanager()
+    # test_flowdatamanager()
 
     # test_torch_randomness()
+
+    test_softmax_classifier()
 
     print('done')
