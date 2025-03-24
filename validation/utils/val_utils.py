@@ -1,13 +1,20 @@
 
-import os
-import time
 import numpy as np
 import pandas as pd
 from typing import Union, Tuple, Sequence, Optional
 
-from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
+
+def set_pandas_print_options():
+    # Set pandas print options such that alls columns and rows are displayed
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    pd.set_option('display.colheader_justify', 'center')
+
+
+# Todo: maybe refactor this (unknowns should just be excluded or set to others)
 
 def prec_rec_f1_avg(
         y_true: np.ndarray,
@@ -15,12 +22,8 @@ def prec_rec_f1_avg(
         exclude_unknowns: bool = True,
         # Whether to also compute the metrics without unknowns (= events for which classification was not possible)
         unknown_label: int = -1,
-        verbosity: int = 0
+        verbosity: int = 0,
 ) -> Union[Tuple[pd.DataFrame, pd.Series], pd.DataFrame]:
-    pd.set_option('display.max_rows', None)
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', 1000)
-    pd.set_option('display.colheader_justify', 'center')
 
     # Compute the precision, recall and F1 for with average micro, macro and weighted
     prec_macro = precision_score(y_true, y_pred, average='macro', zero_division=0)
@@ -60,6 +63,7 @@ def prec_rec_f1_avg(
         y_true_unknowns_val_counts = y_true_unknowns.value_counts()
 
         if verbosity > 0:
+            set_pandas_print_options()
             print(f'# ### Label count for unclassifiable events:\n{y_true_unknowns_val_counts}')
 
         prec_macro_wout_unknowns = precision_score(
@@ -97,7 +101,8 @@ def prec_rec_f1_avg(
         columns=columns,
     )
 
-    if verbosity > 0:
+    if verbosity >= 1:
+        set_pandas_print_options()
         print(f'# ### Results:\n{res_df}')
 
     return (res_df, y_true_unknowns_val_counts) if exclude_unknowns else res_df
@@ -172,9 +177,11 @@ def prec_rec_f1_class_wise(
         )
 
     if verbosity >= 1:
+        set_pandas_print_options()
         print(f'# ### Class-wise results:\n{res_df_class_wise}')
 
     return res_df_class_wise
+
 
 def confusion_matrix_df(
         y_true: np.ndarray,
@@ -192,6 +199,7 @@ def confusion_matrix_df(
     )
 
     if verbosity >= 1:
+        set_pandas_print_options()
         print(f'# ### Confusion matrix:\n{cf_df}')
 
     return cf_df
@@ -409,247 +417,3 @@ def _res_df_class_wise_concatenation_helper(
             df.loc['mean'] = mean
 
     return tuple(out)
-
-
-# ### Legacy
-def evaluate(
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
-        wout_unknowns: bool = True,
-        # Whether to also compute the metrics without unknowns (= events for which classification was not possible)
-        verbosity: int = 0,
-) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]]:
-
-    pd.set_option('display.max_rows', None)
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', 1000)
-    pd.set_option('display.colheader_justify', 'center')
-
-    # Create y_preds where the unknown samples are excluded
-    if wout_unknowns:
-        not_unknowns_bool = np.logical_not(y_pred == -1)
-
-        # Remove events for which there was no prediction possible (i.e. unknowns)
-        y_pred_wout_unknowns = y_pred[not_unknowns_bool]
-        y_true_wout_unknowns = y_true[not_unknowns_bool]
-
-        # Check the classes of the unclassified events/unknowns
-        y_true_unknowns = pd.Series(y_true[np.logical_not(not_unknowns_bool)])
-        y_true_unknowns_val_counts = y_true_unknowns.value_counts()
-
-        if verbosity > 0:
-            print(f'# ### Label count for unclassifiable events:\n{y_true_unknowns_val_counts}')
-
-    # Compute the precision, recall and F1 for with average micro, macro and weighted
-    prec_macro = precision_score(y_true, y_pred, average='macro', zero_division=0)
-    rec_macro = recall_score(y_true, y_pred, average='macro', zero_division=0)
-    f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
-
-    prec_micro = precision_score(y_true, y_pred, average='micro', zero_division=0)
-    rec_micro = recall_score(y_true, y_pred, average='micro', zero_division=0)
-    f1_micro = f1_score(y_true, y_pred, average='micro', zero_division=0)
-
-    prec_w = precision_score(y_true, y_pred, average='weighted', zero_division=0)
-    rec_w = recall_score(y_true, y_pred, average='weighted', zero_division=0)
-    f1_w = f1_score(y_true, y_pred, average='weighted', zero_division=0)
-
-    # Compute the precision, recall and F1 for with average micro, macro and weighted
-    if wout_unknowns:
-        prec_macro_wout_unknowns = precision_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='macro', zero_division=0)
-        rec_macro_wout_unknowns = recall_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='macro', zero_division=0)
-        f1_macro_wout_unknowns = f1_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='macro', zero_division=0)
-
-        prec_micro_wout_unknowns = precision_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='micro', zero_division=0)
-        rec_micro_wout_unknowns = recall_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='micro', zero_division=0)
-        f1_micro_wout_unknowns = f1_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='micro', zero_division=0)
-
-        prec_w_wout_unknowns = precision_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='weighted', zero_division=0)
-        rec_w_wout_unknowns = recall_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='weighted', zero_division=0)
-        f1_w_wout_unknowns = f1_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average='weighted', zero_division=0)
-
-    # Create df with precision, recall and F1 for with average micro, macro and weighted
-    if wout_unknowns:
-        data = [
-            [prec_macro, prec_micro, prec_w],
-            [prec_macro_wout_unknowns, prec_micro_wout_unknowns, prec_w_wout_unknowns],
-            [rec_macro, rec_micro, rec_w],
-            [rec_macro_wout_unknowns, rec_micro_wout_unknowns, rec_w_wout_unknowns],
-            [f1_macro, f1_micro, f1_w],
-            [f1_macro_wout_unknowns, f1_micro_wout_unknowns, f1_w_wout_unknowns],
-        ]
-
-        res_df = pd.DataFrame(
-            data=data,
-            index=['prec', 'prec_unkn_excl', 'rec', 'rec_unkn_excl', 'f1', 'f1_unkn_excl'],
-            columns=['macro', 'micro', 'weighted']
-        )
-
-    else:
-        data = [
-            [prec_macro, prec_micro, prec_w],
-            [rec_macro, rec_micro, rec_w],
-            [f1_macro, f1_micro, f1_w],
-        ]
-
-        res_df = pd.DataFrame(
-            data=data,
-            index=['prec', 'rec', 'f1'],
-            columns=['macro', 'micro', 'weighted']
-        )
-
-    if verbosity > 0:
-        print(f'# ### Results:\n{res_df}')
-
-    # Compute class-wise precision, recall and F1
-    prec_class_wise = precision_score(y_true, y_pred, average=None, zero_division=0)
-    rec_class_wise = recall_score(y_true, y_pred, average=None, zero_division=0)
-    f1_class_wise = f1_score(y_true, y_pred, average=None, zero_division=0)
-
-    # Combine the results in a dataframe
-    classes = np.union1d(y_true, y_pred)
-
-    res_df_class_wise = pd.DataFrame(
-        data=np.vstack((prec_class_wise, rec_class_wise, f1_class_wise)),
-        columns=classes.tolist(),
-        index=['prec', 'rec', 'f1']
-    )
-
-    if wout_unknowns:
-        prec_class_wise_wout_unknowns = precision_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average=None, zero_division=0)
-        rec_class_wise_wout_unknowns = recall_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average=None, zero_division=0)
-        f1_class_wise_wout_unknowns = f1_score(
-            y_true_wout_unknowns, y_pred_wout_unknowns, average=None, zero_division=0)
-
-        classes_wout_unknowns = np.union1d(y_true_wout_unknowns, y_pred_wout_unknowns)
-
-        res_df_class_wise.loc['prec_unkn_excl'] = align_score_arrays(
-            arr=classes,
-            arr_wout_unknowns=classes_wout_unknowns,
-            arr_wout_unknowns_perf=prec_class_wise_wout_unknowns
-        )
-        res_df_class_wise.loc['rec_unkn_excl'] = align_score_arrays(
-            arr=classes,
-            arr_wout_unknowns=classes_wout_unknowns,
-            arr_wout_unknowns_perf=rec_class_wise_wout_unknowns
-        )
-        res_df_class_wise.loc['f1_unkn_excl'] = align_score_arrays(
-            arr=classes,
-            arr_wout_unknowns=classes_wout_unknowns,
-            arr_wout_unknowns_perf=f1_class_wise_wout_unknowns
-        )
-
-    if verbosity > 0:
-        print(f'# ### Class-wise results:\n{res_df_class_wise}')
-
-    # Compute the confusion matrix
-    cf_mtrx = confusion_matrix(y_true, y_pred)
-
-    cf_df = pd.DataFrame(
-        data=cf_mtrx,
-        index=classes,
-        columns=classes
-    )
-
-    if verbosity > 0:
-        print(f'# ### Confusion matrix:\n{cf_df}')
-
-    if wout_unknowns:
-        return res_df, res_df_class_wise, cf_df, y_true_unknowns_val_counts
-    else:
-        return res_df, res_df_class_wise, cf_df
-
-
-def evaluate_sample_wise(
-        classifier: Union[BaseEstimator, ClassifierMixin],
-        samples_x_test: Sequence[np.ndarray],
-        samples_y_test: Sequence[np.ndarray],
-        sample_names: Sequence[str],
-        wout_unknowns: bool = True,
-        use_y_pred_proba: bool = False,
-        verbosity: int = 0,
-) -> Tuple[pd.DataFrame, ...]:
-
-    pred_times = [0 for _ in range(len(samples_x_test))]
-    res_dfs = [pd.DataFrame() for _ in range(len(samples_x_test))]
-    res_dfs_class_wise = [pd.DataFrame() for _ in range(len(samples_x_test))]
-    cf_dfs = [pd.DataFrame() for _ in range(len(samples_x_test))]
-    y_true_unknowns_val_counts = [pd.Series() for _ in range(len(samples_x_test))]
-    for i in range(len(samples_x_test)):
-
-        if not use_y_pred_proba:
-            st = time.time()
-            y_pred = classifier.predict(X=samples_x_test[i])
-            et = time.time()
-            pred_times[i] = et - st
-        else:
-            st = time.time()
-            y_pred_proba = classifier.predict_proba(X=samples_x_test[i])
-            y_pred = y_pred_proba.argmax(axis=1)
-            y_pred = np.array([classifier.new_to_og_classes_dict_[key] for key in y_pred])
-            et = time.time()
-            pred_times[i] = et - st
-
-        eval_res = evaluate(y_true=samples_y_test[i], y_pred=y_pred, wout_unknowns=wout_unknowns, verbosity=0)
-
-        res_dfs[i] = eval_res[0]
-        res_dfs_class_wise[i] = eval_res[1]
-        cf_dfs[i] = eval_res[2]
-        if wout_unknowns:
-            y_true_unknowns_val_counts[i] = eval_res[3]
-
-    pred_times_df = pd.DataFrame(index=sample_names, columns=['prediction_time'], data=pred_times)
-    std = pred_times_df['prediction_time'].std(axis=0)
-    mean = pred_times_df['prediction_time'].mean(axis=0)
-    pred_times_df.loc['std'] = std
-    pred_times_df.loc['mean'] = mean
-
-    out_res_dfs = _res_df_concatenation_helper(res_dfs=res_dfs, wout_unknowns=wout_unknowns, sample_names=sample_names)
-
-    out_res_dfs_class_wise = _res_df_class_wise_concatenation_helper(
-        res_dfs=res_dfs_class_wise, wout_unknowns=wout_unknowns, sample_names=sample_names)
-
-    if wout_unknowns:
-        out_y_true_unknowns_val_counts = _y_true_unknowns_val_counts_concatenation_helper(
-            val_counts=y_true_unknowns_val_counts, sample_names=sample_names)
-    else:
-        out_y_true_unknowns_val_counts = None
-
-    out = (pred_times_df, ) +  out_res_dfs + out_res_dfs_class_wise + (cf_dfs, ) + (out_y_true_unknowns_val_counts, )
-
-    if verbosity > 0:
-        out_entries = [
-            'pred_times',
-            'prec', 'rec', 'f1', 'prec_unkn_excl', 'rec_unkn_excl', 'f1_unkn_excl',
-            'prec_class_wise', 'rec_class_wise', 'f1_class_wise',
-            'prec_class_wise_unkn_excl', 'rec_class_wise_unkn_excl', 'f1_class_wise_unkn_excl',
-            'confusion_matrices',
-            'y_true_unknowns_val_counts'
-        ]
-        for name, val in zip(out_entries, out):
-            if isinstance(val, pd.DataFrame):
-                try:
-                    print(f'# ### {name.capitalize()}, mean across samples:\n{val.loc["mean"]}')
-                except KeyError:
-                    continue
-
-    return out
-
-
-
-
-
-
-
-
-
