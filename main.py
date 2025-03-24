@@ -231,7 +231,7 @@ def main_data_preparation():
     cutoff_dict_lt1 = {
         'FS': 100000, 'SS': 20000, 'kappavCD8_FITC': 500, 'lambdavCD7_PE': 400, 'CD23_ECD': 500,
         'CD79bvCD4_PC5.5': 1200, 'CD5_PC7': 300, 'CD38_APC': 700,
-        'CD19_APC_A700': -999,  # Nicht vorhanden in Stefans Liste
+        'CD19_APC_A700': 300,  # Nicht vorhanden in Stefans Liste -> verwende 300
         'CD20vCD3_APC_A750': 500, 'FMC7vCD2_PB': 500, 'CD45_KrOr': 1000
     }
     label_key_lt1 = 'population'
@@ -356,34 +356,228 @@ def main_data_preparation():
     )
 
 
+def main_param_influence_study():
+    """
+    Script for running parameter-wise hyperparameter tuning on the immunstatus dataset. The workflow is as follows:
+        - Preprocessed data is loaded.
+        - Data is downsampled for faster training.
+        - k-fold cross validation is performed.
+        - Results are printed and plotted.
+
+    Note: Analysis should be run for n_epochs first to set a sensible value for all other analyses.
+
+    The following flags are defined in the header and can be adjusted as needed:
+    - inference (bool),  whether to do the training or just load and plot previously generated results.
+    - test_n_epochs (bool), whether to run analysis for n_epochs or all other parameters.
+    - random_seed (int)
+    - downsampling_frac (float)
+    - n_splits (int)
+    - n_epochs (int)
+
+    Returns:
+        None
+    """
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from sklearn.model_selection import StratifiedKFold
+
+    from flagx.io import FlowDataManager
+    from flagx.gating import SomClassifier
+    from validation.plt import plot_param_lineplot, plot_param_stripplot
+
+    # ### Set flags and variables ######################################################################################
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
+    test_n_epochs = False
+
+    random_seed = 42
+    downsampling_frac = 0.001  # 0.2  # Todo
+    n_splits = 2  # Todo
+
+    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
+    n_epochs = 6  # Todo
+    ####################################################################################################################
+
+    # ### Load the train data
+    data_p = os.path.join(os.getcwd(), 'data/np_files/imstat/arcsinh_cofactor150')
+
+    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
+    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
+
+    # ### Downsample for faster inference time (4864323 * 0.2 = 972864,6)
+    np.random.seed(random_seed)
+    downsampling_bool = FlowDataManager._get_downsampling_bool(y=y, fraction=downsampling_frac, stratified=True)
+    x = x[downsampling_bool, :]
+    y = y[downsampling_bool]
+
+    # ### Define parameter grids for each individual parameter
+    n_epochs_list = list(range(10, 101, 10)) + list(range(200, 1001, 100)) + list(range(2000, 15001, 1000))
+    param_grid_nepochs = {
+        'n_epochs': n_epochs_list,
+    }
+
+    param_grid_gridtype = {
+        'som_grid_type': ['rectangular', 'hexagonal'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_topology = {
+        'som_topology': ['planar', 'toroid'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_dimension = {
+        'som_dimensions': [(5, 5), (10, 10), (15, 15), (20, 20), (25, 25), (30, 30), (35, 35), (40, 40)],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_neigh_fct = {
+        'neighborhood': ['gaussian', 'bubble'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_neigh_sigma = {
+        'gaussian_neighborhood_sigma': [0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_r0 = {
+        'radius_0': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+        # 0.0 => min(n_columns, n_rows)/2, rn_default = 1.0
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_rn = {
+        'radius_n': [4.0, 3.0, 2.0, 1.0, 0.75, 0.5, 0.25, 0.1, 0.01, 0.001],
+        # r0_default = min(n_columns, n_rows)/2 = 5
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_rcooling = {
+        'radius_cooling': ['linear', 'exponential'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_lr0 = {
+        'learning_rate_0': [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0],
+        # lr_n = 0.01 in default setting
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_lrn = {
+        'learning_rate_n': [0.1, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.005, 0.001],
+        # lr_0 = 0.1 in default setting
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_lrdecay = {
+        'learning_rate_decay': ['linear', 'exponential'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    if test_n_epochs:
+        grids = [param_grid_nepochs, ]
+        grid_names = ['n_epochs', ]
+    else:
+        grids = [
+            param_grid_gridtype, param_grid_topology, param_grid_dimension,
+            param_grid_neigh_fct, param_grid_neigh_sigma, param_grid_r0, param_grid_rn, param_grid_rcooling,
+            param_grid_lr0, param_grid_lrn, param_grid_lrdecay
+        ]
+        grid_names = [
+            'som_grid_type', 'som_topology', 'som_dimensions',
+            'neighborhood', 'gaussian_neighborhood_sigma', 'radius_0', 'radius_n', 'radius_cooling',
+            'learning_rate_0', 'learning_rate_n', 'learning_rate_decay'
+
+        ]
+
+    # ### Perform the parameter tuning
+    # Define path where results will be stored
+    save_p = os.path.join(os.getcwd(), 'results/parameter_influence_study/')
+
+    for grid, grid_name in zip(grids, grid_names):
+
+        print(f'# ### Grid name: {grid_name}')
+
+        current_save_p = os.path.join(save_p, grid_name)
+        os.makedirs(current_save_p, exist_ok=True)
+
+        if inference:
+
+            # Instantiate the SOM classifier
+            som_clf = SomClassifier(verbosity=2)
+
+            # Instantiate a stratified k-fold splitter
+            cv_splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
+
+            # Perform cross-validated grid-search
+            som_clf.hyperparameter_tuning(
+                X=x.copy(),
+                y=y.copy(),
+                param_grid=grid,
+                cv=cv_splitter,
+                scoring='internal',
+                refit=False,
+            )
+
+            # Save SOM classifier with results
+            som_clf.save(filepath=current_save_p)
+
+        else:
+            # Load the previously trained SOM classifier
+            som_clf = SomClassifier.load(filepath=current_save_p)
+
+        # ### Evaluate the performance
+        res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
+
+        res_df.to_csv(os.path.join(current_save_p, f'{grid_name}.csv'))
+
+        print('# ### Results:\n', res_df)
+
+        if grid_name in {
+            'som_grid_type', 'som_topology', 'som_dimensions', 'neighborhood', 'radius_cooling', 'learning_rate_decay'
+        }:
+            plot_param_stripplot(
+                res_df=res_df,
+                id_var='param_' + grid_name,
+                val_var= 'mean_test_score',
+                val_name='Macro F1',
+                jitter=True,
+                xlabel=grid_name,
+                dpi=300
+            )
+            plt.savefig(os.path.join(current_save_p, f'{grid_name}.png'))
+            plt.close('all')
+        else:
+            plot_param_lineplot(
+                res_df=res_df,
+                x_col='param_' + grid_name,
+                y_col='mean_test_score',
+                xlog10=False if grid_name != 'n_epochs' else True,
+                xlog10plusone=False,
+                custom_x_ticks=None if grid_name != 'n_epochs' else 'log10_scale',
+                x_label=grid_name,
+                y_label='Macro F1',
+                dpi=300,
+            )
+            plt.savefig(os.path.join(current_save_p, f'{grid_name}.png'))
+            plt.close('all')
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ # Todo: Other parameter tuning experiments
 
 
 
 
 if __name__ == '__main__':
 
-    main_data_preparation()
+    # main_data_preparation()
 
+    main_param_influence_study()
 
 
     print('done')
