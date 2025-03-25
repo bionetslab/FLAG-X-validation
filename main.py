@@ -2,9 +2,11 @@
 
 def main_data_preparation():
     """
-    Script for loading the .fcs files of our dataset, perform data split on sample level,
-    preprocess/apply transformation, subset to selected channels, save resulting data matrices to .npy files
-    (also sample-wise)
+    Script for loading the .fcs files of the datasets, perform data split on sample level,
+    preprocess/apply transformation, subset to selected channels, save resulting data matrices to .npy files.
+    Additionally:
+     - Save data from all samples concatenated in one matrix.
+     - Downsample (stratified per sample) and save sample-wise and concatenated data matrices.
 
     Returns:
         None
@@ -246,7 +248,10 @@ def main_data_preparation():
     channels_lt1_binary = channels_lt1
     cutoff_dict_lt1_binary = cutoff_dict_lt1
     label_key_lt1_binary = label_key_lt1
-    relabel_dict_lt1_binary = {1: 0, 9: 0, 7: 1, 10: 1}
+    relabel_dict_lt1_binary = {1: 1, 9: 1, 7: 0, 10: 0}
+    # Map:
+    # - class 1, 9 (B cells, B cells outside FSSS gate (dying B cells)) to label 1 (positive)
+    # - class 7, 10 (CD45 negative cells (mostly erythrocytes), other cells) to label 0 (negative)
 
 
     # ### Lymphoma tube 2 ###
@@ -278,7 +283,10 @@ def main_data_preparation():
     channels_lt2_binary = channels_lt2
     cutoff_dict_lt2_binary = cutoff_dict_lt2
     label_key_lt2_binary = label_key_lt2
-    relabel_dict_lt2_binary = {1: 0, 9: 0, 7: 1, 10: 1}
+    relabel_dict_lt2_binary = {1: 1, 9: 1, 7: 0, 10: 0}
+    # Map:
+    # - class 1, 9 (B cells, B cells outside FSSS gate (dying B cells)) to label 1 (positive)
+    # - class 7, 10 (CD45 negative cells (mostly erythrocytes), other cells) to label 0 (negative)
 
 
     # ### Flowcyt ###
@@ -358,7 +366,11 @@ def main_data_preparation():
 
 def main_param_influence_study():
     """
-    Script for running parameter-wise hyperparameter tuning on the immunstatus dataset. The workflow is as follows:
+    Script for running parameter-wise hyperparameter tuning on the
+    immunstatus dataset. Its purpose is to determine whether the
+    individual parameters have an influence on the SOM classifier's
+    performance and, if so, get an intuition of the magnitude.
+    The workflow is as follows:
         - Preprocessed data is loaded.
         - Data is downsampled for faster training.
         - k-fold cross validation is performed.
@@ -388,6 +400,7 @@ def main_param_influence_study():
     from flagx.io import FlowDataManager
     from flagx.gating import SomClassifier
     from validation.plt import plot_param_lineplot, plot_param_stripplot
+    from validation.utils import set_pandas_print_options
 
     # ### Set flags and variables ######################################################################################
     inference = True  # Whether to do the hyperparameter tuning or just view the results
@@ -395,7 +408,7 @@ def main_param_influence_study():
 
     random_seed = 42
     downsampling_frac = 0.001  # 0.2  # Todo
-    n_splits = 2  # Todo
+    n_splits = 3
 
     # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
     n_epochs = 6  # Todo
@@ -417,6 +430,11 @@ def main_param_influence_study():
     n_epochs_list = list(range(10, 101, 10)) + list(range(200, 1001, 100)) + list(range(2000, 15001, 1000))
     param_grid_nepochs = {
         'n_epochs': n_epochs_list,
+    }
+
+    param_grid_initialization = {
+        'initialization': ['random', 'pca'],
+        'n_epochs': [n_epochs, ],
     }
 
     param_grid_gridtype = {
@@ -483,11 +501,13 @@ def main_param_influence_study():
         grid_names = ['n_epochs', ]
     else:
         grids = [
+            param_grid_initialization,
             param_grid_gridtype, param_grid_topology, param_grid_dimension,
             param_grid_neigh_fct, param_grid_neigh_sigma, param_grid_r0, param_grid_rn, param_grid_rcooling,
             param_grid_lr0, param_grid_lrn, param_grid_lrdecay
         ]
         grid_names = [
+            'initialization',
             'som_grid_type', 'som_topology', 'som_dimensions',
             'neighborhood', 'gaussian_neighborhood_sigma', 'radius_0', 'radius_n', 'radius_cooling',
             'learning_rate_0', 'learning_rate_n', 'learning_rate_decay'
@@ -535,10 +555,14 @@ def main_param_influence_study():
 
         res_df.to_csv(os.path.join(current_save_p, f'{grid_name}.csv'))
 
+        set_pandas_print_options()
         print('# ### Results:\n', res_df)
 
         if grid_name in {
-            'som_grid_type', 'som_topology', 'som_dimensions', 'neighborhood', 'radius_cooling', 'learning_rate_decay'
+            'initialization',
+            'som_grid_type', 'som_topology', 'som_dimensions',
+            'neighborhood', 'radius_cooling',
+            'learning_rate_decay'
         }:
             plot_param_stripplot(
                 res_df=res_df,
@@ -549,6 +573,7 @@ def main_param_influence_study():
                 xlabel=grid_name,
                 dpi=300
             )
+            plt.tight_layout()
             plt.savefig(os.path.join(current_save_p, f'{grid_name}.png'))
             plt.close('all')
         else:
@@ -563,13 +588,464 @@ def main_param_influence_study():
                 y_label='Macro F1',
                 dpi=300,
             )
+            plt.tight_layout()
             plt.savefig(os.path.join(current_save_p, f'{grid_name}.png'))
             plt.close('all')
 
 
+def main_parm_tuning_set_wise():
+    """
+    Script for running set-wise hyperparameter tuning on the immunstatus dataset. The workflow is as follows:
+        - Preprocessed data is loaded.
+        - Data is downsampled for faster training.
+        - k-fold cross validation is performed.
+        - Results are printed and plotted.
+    Note:
 
- # Todo: Other parameter tuning experiments
+    The following flags are defined in the header and can be adjusted as needed:
+    - inference (bool),  whether to do the training or just load and plot previously generated results.
+    - random_seed (int)
+    - downsampling_frac (float)
+    - n_splits (int)
+    - n_epochs (int)
 
+    Returns:
+        None
+    """
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from itertools import product
+    from sklearn.model_selection import StratifiedKFold
+
+    from flagx.io import FlowDataManager
+    from flagx.gating import SomClassifier
+    from validation.plt import plot_cv_results_mean_vs_std_scatter, plot_param_stripplot, plot_param_heatmap
+    from validation.utils import set_pandas_print_options
+
+    # ### Set flags and variables ######################################################################################
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
+
+    random_seed = 42
+    downsampling_frac = 0.001  # 0.2  # Todo
+    n_splits = 3
+
+    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
+    n_epochs = 6  # Todo
+    ####################################################################################################################
+
+    # ### Load the train data
+    data_p = os.path.join(os.getcwd(), 'data/np_files/imstat/arcsinh_cofactor150')
+
+    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
+    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
+
+    # ### Downsample for faster inference time (4864323 * 0.2 = 972864,6)
+    np.random.seed(random_seed)
+    downsampling_bool = FlowDataManager._get_downsampling_bool(y=y, fraction=downsampling_frac, stratified=True)
+    x = x[downsampling_bool, :]
+    y = y[downsampling_bool]
+
+    # ### Define parameter grids for each set of parameters
+
+    param_grid_neighborhood = {
+        'neighborhood': ['gaussian', 'bubble'],
+        'gaussian_neighborhood_sigma': [0.5, 0.25, 0.1],
+        'radius_0': [5.0, 6.0, 7.0, 8.0, 9.0],
+        'radius_n': [0.75, 0.5, 0.25, 0.1, 0.01],
+        'radius_cooling': ['linear', 'exponential'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    param_grid_neighborhood = {
+        'neighborhood': ['gaussian', ],
+        'gaussian_neighborhood_sigma': [0.5, 0.1],
+        'radius_0': [5.0, 9.0],
+        'radius_n': [0.75, 0.01],
+        'radius_cooling': ['linear', 'exponential'],
+        'n_epochs': [n_epochs, ],
+    }  # Todo
+
+    param_grid_learning_rate = {
+        'learning_rate_0': [0.1, 0.2, 0.6, 1.0],
+        'learning_rate_n': [0.1, 0.01, 0.001],
+        'learning_rate_decay': ['linear', 'exponential'],
+        'n_epochs': [n_epochs, ],
+    }
+
+    grids = [param_grid_neighborhood, param_grid_learning_rate]
+    grid_names = ['neighborhood', 'learning_rate']
+
+    # ### Perform the parameter tuning
+    # Define path where results will be stored
+    save_p = os.path.join(os.getcwd(), 'results/parameter_tuning_set_wise/')
+
+    for grid, grid_name in zip(grids, grid_names):
+
+        print(f'# ### Grid name: {grid_name}')
+
+        current_save_p = os.path.join(save_p, grid_name)
+        os.makedirs(current_save_p, exist_ok=True)
+
+        if inference:
+
+            # Instantiate the SOM classifier
+            som_clf = SomClassifier(verbosity=2)
+
+            # Instantiate a stratified k-fold splitter
+            cv_splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
+
+            # Perform cross-validated grid-search
+            som_clf.hyperparameter_tuning(
+                X=x.copy(),
+                y=y.copy(),
+                param_grid=grid,
+                cv=cv_splitter,
+                scoring='internal',
+                refit=False,
+            )
+
+            # Save SOM classifier with results
+            som_clf.save(filepath=current_save_p)
+
+        else:
+            # Load the previously trained SOM classifier
+            som_clf = SomClassifier.load(filepath=current_save_p)
+
+        # ### Evaluate the performance
+        res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
+
+        res_df.to_csv(os.path.join(current_save_p, f'{grid_name}.csv'))
+
+        set_pandas_print_options()
+        print('# ### Results:\n', res_df)
+
+        plot_cv_results_mean_vs_std_scatter(res_df=res_df, score_name='macro F1', dpi=300)
+        plt.tight_layout()
+        plt.savefig(os.path.join(current_save_p, f'mean_vs_std_score.png'))
+        plt.close('all')
+
+        param_cols = [c for c in res_df.columns if c.startswith('param_')]
+        for c in param_cols:
+            plot_param_stripplot(
+                res_df=res_df,
+                id_var=c,
+                val_var='mean_test_score',
+                val_name='Mean macro F1',
+                jitter=0.2,
+                xlabel=c,
+                dpi=300,
+            )
+            plt.tight_layout()
+            plt.savefig(os.path.join(current_save_p, f'{c}.png'))
+            plt.close('all')
+
+
+        # Remove parameters that should not be plotted
+        grid.pop('learning_rate_0', None)
+        grid.pop('learning_rate_n', None)
+        grid.pop('radius_0', None)
+        grid.pop('radius_n', None)
+        grid.pop('n_epochs', None)
+
+        # Extract keys and value lists of
+        keys, values = zip(*grid.items())
+
+        # Bring keys to same format as df column names
+        keys = ['param_' + k for k in keys]
+
+        # Create all combinations
+        param_combinations = [dict(zip(keys, v)) for v in product(*values)]
+
+        # Example: print all combinations
+        for combination in param_combinations:
+            if grid_name == 'neighborhood':
+                row_key = 'param_radius_0'
+                col_key = 'param_radius_n'
+                title_fs = 9.0
+            else:
+                row_key = 'param_learning_rate_0'
+                col_key = 'param_learning_rate_n'
+                title_fs = 12.0
+
+            plot_param_heatmap(
+                res_df=res_df,
+                param_row=row_key,
+                param_col=col_key,
+                performance_score='mean_test_score',
+                title_fontsize=title_fs,
+                other_params=combination,
+                dpi=300,
+            )
+
+            plt.tight_layout()
+            fn_str = ''
+            for key, val in combination.items():
+                fn_str += f'{key.removeprefix('param_')}{val}_'
+            fn_str = fn_str[:-1] + '.png'
+            plt.savefig(os.path.join(current_save_p, fn_str))
+            plt.close('all')
+
+
+def main_param_tuning():
+    """
+    Script for running hyperparameter tuning on the immunstatus dataset. The workflow is as follows:
+        - Preprocessed data is loaded.
+        - Data is downsampled for faster training.
+        - Data is split into train and val.
+        - Results are printed.
+
+    The following flags are defined in the header and can be adjusted as needed:
+    - inference (bool), whether to do the training or just load and print previously generated results.
+    - random_seed (int)
+    - downsampling_frac (float)
+    - val_frac (float), relative size of the validation set
+    - n_epochs (int)
+
+    Returns:
+        None
+    """
+
+    import os
+    import numpy as np
+    import pandas as pd
+
+    from sklearn.model_selection import train_test_split, PredefinedSplit
+
+    from flagx.io import FlowDataManager
+    from flagx.gating import SomClassifier
+    from validation.utils import set_pandas_print_options
+
+    # ### Set flags and variables ######################################################################################
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
+    trafo = 'log10_channelwisecutoff'  # arcsinh_cofactor150, log10_channelwisecutoff
+
+    random_seed = 42
+    downsampling_frac = 0.001  # 0.2  # Todo
+    val_frac = 0.34
+
+    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
+    n_epochs = 6  # Todo
+    ####################################################################################################################
+
+    # ### Load the train data
+    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
+
+    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
+    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
+
+    # ### Downsample for faster inference time (4864323 * 0.2 = 972864,6)
+    np.random.seed(random_seed)
+    downsampling_bool = FlowDataManager._get_downsampling_bool(y=y, fraction=downsampling_frac, stratified=True)
+    x = x[downsampling_bool, :]
+    y = y[downsampling_bool]
+
+    # ### Split data into train and val set (performance was observed to be stable across folds => No more cv here)
+    x_train, x_val, y_train, y_val = train_test_split(
+        x, y,
+        test_size=val_frac,
+        stratify=y,
+        random_state=random_seed,
+    )
+
+    # Reconcatenate the data (first train, then val)
+    x = np.vstack((x_train, x_val))
+    y = np.hstack((y_train, y_val))
+
+    # Create a PredefinedSplit according to the previous data split
+    # (https://scikit-learn.org/1.5/modules/cross_validation.html#predefined-split)
+    val_fold = [-1] * x_train.shape[0] + [0] * x_val.shape[0]
+    cv = PredefinedSplit(test_fold=val_fold)
+
+
+    # ### Define parameter grid, based on the previous experiments
+    param_grid = {
+        'som_topology': ['planar', ],
+        'som_grid_type': ['rectangular', ],
+        'som_dimensions': [(10, 10), (20, 20), (30, 30)],
+        'neighborhood': ['gaussian', ],
+        'gaussian_neighborhood_sigma': [0.5, 0.25, 0.1],
+        'initialization': ['pca', ],
+        'n_epochs': [n_epochs, ],
+        'radius_0': [-0.5, -0.75],
+        'radius_n': [0.75, 0.01, 0.25],
+        'radius_cooling': ['linear', ],
+        'learning_rate_0': [1.0, 0.2],
+        'learning_rate_n': [0.1, 0.01],
+        'learning_rate_decay': ['linear', ],
+    }
+
+    param_grid = {
+        'som_topology': ['planar', ],
+        'som_grid_type': ['rectangular', ],
+        'som_dimensions': [(10, 10), ],
+        'neighborhood': ['gaussian', ],
+        'gaussian_neighborhood_sigma': [0.5, ],
+        'initialization': ['pca', ],
+        'n_epochs': [n_epochs, ],
+        'radius_0': [-0.5, -0.75],
+        'radius_n': [0.75, ],
+        'radius_cooling': ['linear', ],
+        'learning_rate_0': [1.0, 0.2],
+        'learning_rate_n': [0.1, 0.01],
+        'learning_rate_decay': ['linear', ],
+    }  # Todo
+
+    # Define dir for saving the results
+    save_p = os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}')
+    os.makedirs(save_p, exist_ok=True)
+
+    # ### Inference
+    if inference:
+        # Instantiate the SOM classifier
+        som_clf = SomClassifier(verbosity=2)
+
+        # Perform the hyperparameter tuning
+        som_clf.hyperparameter_tuning(
+            X=x,
+            y=y,
+            param_grid=param_grid,
+            cv=cv,
+            scoring='internal',
+            refit=False
+        )
+
+        # Save the SOM classifier
+        som_clf.save(filepath=save_p)
+
+    else:
+        som_clf = SomClassifier.load(filepath=save_p)
+
+    res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
+
+    res_df.to_csv(os.path.join(save_p, f'res_df.csv'))
+
+    set_pandas_print_options()
+    print('# ### Results:\n', res_df)
+    print('# ### Best parameters:\n', som_clf.grid_search_.best_params_)
+    print('# ### Best score:\n', som_clf.grid_search_.best_score_)
+
+
+def main_n_epochs_calibration():
+    """
+    Script for finding the optimal number of epochs tp train for given a set of optimized parameters.
+    The workflow is as follows:
+        - Preprocessed data is loaded.
+        - Data is split into train and val.
+        - Results are printed.
+
+    The following flags are defined in the header and can be adjusted as needed:
+    - inference (bool), whether to do the training or just load and print previously generated results.
+    - random_seed (int)
+    - downsampling_frac (float)
+    - val_frac (float), relative size of the validation set
+    - n_epochs (int)
+
+    Returns:
+        None
+    """
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from sklearn.model_selection import train_test_split, PredefinedSplit
+
+    from flagx.gating import SomClassifier
+    from validation.utils import set_pandas_print_options
+    from validation.plt import plot_param_lineplot
+
+    # ### Set flags and variables ######################################################################################
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
+    trafo = 'log10_channelwisecutoff'  # arcsinh_cofactor150, log10_channelwisecutoff
+
+    random_seed = 42
+    val_frac = 0.34
+
+    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
+    n_epochs = list(range(100, 901, 100)) + list(range(1000, 10001, 1000))
+    n_epochs = [10, 100, 1000]  # Todo
+    ####################################################################################################################
+
+    # ### Load the train data
+    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
+
+    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
+    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
+
+    # ### Split data into train and val set (performance was observed to be stable across folds => No more cv here)
+    x_train, x_val, y_train, y_val = train_test_split(
+        x, y,
+        test_size=val_frac,
+        stratify=y,
+        random_state=random_seed,
+    )
+
+    # Reconcatenate the data (first train, then val)
+    x = np.vstack((x_train, x_val))
+    y = np.hstack((y_train, y_val))
+
+    # Create a PredefinedSplit according to the previous data split
+    # (https://scikit-learn.org/1.5/modules/cross_validation.html#predefined-split)
+    val_fold = [-1] * x_train.shape[0] + [0] * x_val.shape[0]
+    cv = PredefinedSplit(test_fold=val_fold)
+
+    # ### Load the previously optimized parameters and define a parameter grid with them
+    som_clf_param_tuning = SomClassifier.load(filepath=os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}'))
+    best_params = som_clf_param_tuning.grid_search_.best_params_
+
+    # Define dir for saving the results
+    save_p = os.path.join(os.getcwd(), f'results/n_epoch_calibration/{trafo}')
+    os.makedirs(save_p, exist_ok=True)
+
+    # ### Inference
+    if inference:
+        # Instantiate the SOM classifier with the best parameters
+        som_clf = SomClassifier(verbosity=1, **best_params)
+
+        # Perform the hyperparameter tuning
+        som_clf.hyperparameter_tuning(
+            X=x,
+            y=y,
+            param_grid={'n_epochs': n_epochs},
+            cv=cv,
+            scoring='internal',
+            refit=False
+        )
+
+        # Save the SOM classifier
+        som_clf.save(filepath=save_p)
+
+    else:
+        som_clf = SomClassifier.load(filepath=save_p)
+
+    res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
+
+    res_df.to_csv(os.path.join(save_p, f'res_df.csv'))
+
+    set_pandas_print_options()
+    print('# ### Results:\n', res_df)
+    print('# ### Best parameters:\n', som_clf.grid_search_.best_params_)
+    print('# ### Best score:\n', som_clf.grid_search_.best_score_)
+
+    plot_param_lineplot(
+        res_df=res_df,
+        x_col='param_n_epochs',
+        y_col='mean_test_score',
+        xlog10=True,
+        xlog10plusone=False,
+        custom_x_ticks='log10_scale',
+        x_label='n epochs',
+        y_label='Macro F1',
+        dpi=300,
+    )
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'n_epochs.png'))
+    plt.close('all')
 
 
 
@@ -577,8 +1053,13 @@ if __name__ == '__main__':
 
     # main_data_preparation()
 
-    main_param_influence_study()
+    # main_param_influence_study()
 
+    # main_parm_tuning_set_wise()
+
+    # main_param_tuning()
+
+    # main_n_epochs_calibration()
 
     print('done')
 
