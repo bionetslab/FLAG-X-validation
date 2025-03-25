@@ -4,6 +4,7 @@ import warnings
 
 import matplotlib
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.image as mpimg
@@ -12,7 +13,530 @@ import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.transforms as mtransforms
 
-from typing import Tuple, Union, Dict, Literal
+from typing import Tuple, Union, Dict, Literal, List
+
+
+def plot_param_lineplot(
+        res_df: pd.DataFrame,
+        x_col: str,
+        y_col: str,
+        xlog10: bool = False,  # Trafo for the x-Axis
+        xlog10plusone: bool = False,  # Trafo for the x-Axis
+        custom_x_ticks: Union[List[Union[int, float]], Literal['log10_scale'], None] = None,
+        x_label: Union[str, None] = None,
+        y_label: Union[str, None] = None,
+        markersize: float = 6.0,
+        x_axis_grid: bool = False,
+        abline_param_values: bool = False,
+        dpi: int = 100,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if xlog10 and xlog10plusone:
+        raise ValueError("xlog10 and xlog10plusone cannot both be True")
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=dpi)
+
+    x = res_df[x_col].to_numpy()
+    x_og = x.copy()
+    y = res_df[y_col].to_numpy()
+
+    if xlog10:
+        x = np.log10(x)
+    if xlog10plusone:
+        x = np.log10(1 + x)
+
+    ax.plot(x, y, marker='o', markersize=markersize)
+
+    if custom_x_ticks is not None:
+        if custom_x_ticks == 'log10_scale':
+            x_low = x_og.min()
+            x_high = x_og.max()
+            xt = [x_low, ]
+            current_value = x_low
+            while True:
+                # Determine the current step size based on magnitude
+                step = 10 ** (len(str(current_value)) - 1)
+
+                # Find the next value based on the step
+                next_value = ((current_value // step) + 1) * step
+
+                # Stop if the next value exceeds x_high
+                if next_value >= x_high:
+                    break
+
+                xt.append(next_value)
+                current_value = next_value
+
+            xt.append(x_high)
+
+            def is_power_of_ten(n):
+                while n % 10 == 0:
+                    n //= 10
+                return n == 1
+
+            xt_labels = [tick if is_power_of_ten(n=tick) else '' for tick in xt]
+            xt_labels[0] = x_low
+            # xt_labels[-1] = x_high
+
+        else:
+            xt = custom_x_ticks
+            xt_labels = custom_x_ticks
+
+        if xlog10:
+            xt = np.log10(xt)
+        elif xlog10plusone:
+            xt = np.log10(1 + xt)
+
+        ax.set_xticks(xt, labels=xt_labels)
+
+    ax.xaxis.grid(x_axis_grid)
+    ax.yaxis.grid(False)
+
+    if abline_param_values:
+        offset = 0.05
+
+        for i, value in enumerate(x):
+            ax.axvline(x=value, color='grey', linestyle='-', linewidth=0.8, zorder=1)
+
+            y_position = y.max() * 0.9 + (i % 2) * offset
+            ax.text(
+                value, y_position, f"{x_og[i]:.2f}",
+                ha='center', va='bottom', transform=ax.get_xaxis_transform(), fontsize=10, color='grey'
+            )
+
+    if x_label is not None:
+        ax.set_xlabel(x_label)
+    else:
+        if xlog10:
+            ax.set_xlabel(f'log10({x_col})')
+        elif xlog10plusone:
+            ax.set_xlabel(f'log10(1 + {x_col})')
+        else:
+            ax.set_xlabel(x_col)
+
+    if y_label is not None:
+        ax.set_ylabel(y_label)
+    else:
+        ax.set_ylabel(y_col)
+
+    return ax
+
+
+def plot_param_stripplot(
+        res_df: pd.DataFrame,
+        id_var: str,
+        val_var: str,
+        val_name: Union[str, None] = None,
+        jitter: Union[bool, float] = True,
+        xlabel: str = '',
+        dpi: int = 100,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+    val_name = val_name if val_name is not None else 'Mean Test Score'
+
+    try:
+        res_df[id_var] = res_df[id_var].astype(str)
+    except TypeError:
+        print("'id_var' values could not be turned into str")
+        return
+
+    # val_name = 'Score'
+    df_melted = res_df.reset_index().melt(
+        id_vars=['index', id_var], value_vars=val_var, value_name=val_name)
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=dpi)
+
+    ax = sns.stripplot(
+        data=df_melted, x=id_var, y=val_name, jitter=jitter,
+        size=11, color='orange', edgecolor='auto', linewidth=1.0, ax=ax)
+    ax.set_xlabel(xlabel)
+
+    categories = df_melted[id_var].unique()
+    collections = ax.collections
+
+    if len(categories) != len(collections):
+        raise ValueError("Mismatch between categories and collections. Check plot setup.")
+
+    for category, collection in zip(categories, collections):
+
+        # Filter DataFrame for this category
+        category_data = df_melted[df_melted[id_var] == category]
+
+        # Retrieve offsets for this collection
+        offsets = collection.get_offsets()
+        x_coords = offsets[:, 0]
+        y_coords = offsets[:, 1]
+
+        # Annotate points
+        for (x, y), (_, row) in zip(zip(x_coords, y_coords), category_data.iterrows()):
+            ax.text(
+                x=x,
+                y=y,
+                s=str(row['index']),
+                # Annotate with sample index
+                fontsize=8,
+                ha='center',
+                va='center',
+                color='black',
+                fontweight='bold'
+            )
+
+    return ax
+
+
+def plot_cv_results_mean_vs_std_scatter(
+        res_df: pd.DataFrame,
+        score_name: Union[str, None] = None,
+        dpi: int = 100,
+        ax: Union[plt.Axes, None] = None,
+):
+    if ax is None:
+        fig, ax = plt.subplots(dpi=dpi)
+
+    x_coords = res_df['mean_test_score'].to_numpy()
+    y_coords = res_df['std_test_score'].to_numpy()
+
+    ax.scatter(x=x_coords, y=y_coords)
+    for i, (x, y) in enumerate(zip(x_coords, y_coords)):
+        ax.text(
+            x=x,
+            y=y,
+            s=str(i),
+            fontsize=8,
+            ha='center',
+            va='center',
+            color='black',
+            fontweight='bold'
+        )
+
+    if score_name is None:
+        score_name = 'score'
+
+    ax.set_xlabel(f'Mean {score_name}')
+    ax.set_ylabel(f'Std {score_name}')
+
+    ax.set_title(
+        f'Min {score_name}: {np.round(x_coords.min(), 4)}, '
+        f'max {score_name}: {np.round(x_coords.max(), 4)}, '
+        f'range: {np.round(x_coords.max() - x_coords.min(), 4)}'
+    )
+
+    return ax
+
+
+def plot_param_heatmap(
+        res_df: pd.DataFrame,
+        param_row: str,
+        param_col: str,
+        performance_score: str = 'mean_test_score',
+        other_params: Union[dict, None] = None,
+        title_fontsize: float = 12,
+        dpi: int = 100,
+        ax: Union[plt.Axes, None] = None,
+):
+    if ax is None:
+        fig, ax = plt.subplots(dpi=dpi)
+
+    # Problem, param pairs are not unique, two options:
+    # 1.) Aggregate to remove duplicates
+    #     agg_res_df = res_df.groupby([param_row, param_col])[performance_score].mean().reset_index()
+    # 2.) Subset dataframe ~= fix all other parameters to specified value
+
+    res_df = res_df.copy()
+
+    if other_params is None:
+        other_params = {}
+
+    title_str = ''
+    for key, val in other_params.items():
+        res_df = res_df[res_df[key] == str(val)]
+        title_str += f'{key.removeprefix('param_')}: {val} '
+
+    # Pivot the data
+    heatmap_data = res_df.pivot(index=param_row, columns=param_col, values=performance_score)
+
+    # Plot the heatmap
+    sns.heatmap(heatmap_data, annot=True, fmt=".5f", ax=ax)
+    ax.set_xlabel(param_col.removeprefix('param_'))
+    ax.set_ylabel(param_row.removeprefix('param_'))
+    ax.set_title(title_str, fontsize=title_fontsize)
+
+    return ax
+
+
+def plot_support_hists(
+        som_c,  # Todo
+        n_bins: int = 100,
+        verbosity: int = 0,
+        dpi: int = 100,
+        plot_class_wise: bool = False,
+        n_bins_class_wise: int = 20,
+        plot_act_freq: bool = False,
+        save_p: Union[str, None] = None,
+        ax: Union[plt.Axes, None] = None,
+):
+    support = som_c.class_counts_per_unit_.sum(axis=2)
+    if verbosity >= 1:
+        print(f'# ### Total support (n events): {support.sum()}')
+        print(f'# ### Max support: {support.max()}')
+        print(f'# ### Min support: {support.min()}')
+        print(f'# ### Class of unit with smallest support in training set: '
+              f'{som_c.som_unit_labels_[np.unravel_index(np.argmin(support), support.shape)]}')
+
+    if ax is None:
+        _, ax = plt.subplots(dpi=dpi)
+
+    ax.hist(support.flatten(), bins=n_bins, color='lightblue', edgecolor='grey')
+
+    if save_p is not None:
+        plt.savefig(os.path.join(save_p, 'support_hist.png'))
+        plt.close('all')
+
+    if plot_class_wise:
+        # Plot the for each class the size of the support (events for which the unit is bmu)
+        # of the units that predict this class
+        # => Are there classes with BMUs that predict them that are bmu only for very few cells
+        colormap = plt.get_cmap('tab10', len(som_c.og_classes_))
+        for i, c in enumerate(som_c.classes_):
+            c_bool = (som_c.som_unit_labels_ == c)
+            c_supp_vals = support[c_bool]
+            fig, ax_dummy = plt.subplots(dpi=dpi)
+            ax_dummy.hist(
+                c_supp_vals, color=colormap(i), alpha=0.6, edgecolor='grey', label=f'{int(c)}', bins=n_bins_class_wise)
+            ax_dummy.set_title(
+                f'Class: {som_c.new_to_og_classes_dict_[c]}, '
+                f'Total units: {c_bool.sum()}, '
+                f'total support: {int(c_supp_vals.sum())}')
+            if save_p is not None:
+                plt.savefig(os.path.join(save_p, f'support_hist_c{som_c.new_to_og_classes_dict_[c]}.png'))
+                plt.close('all')
+
+    if plot_act_freq:
+        freq = support / support.sum()
+        freq_sci = np.vectorize(lambda x: f"{x:.2e}")(freq)
+
+        fig, ax_dummy = plt.subplots(dpi=dpi)
+        sns.heatmap(freq, cmap='Blues', annot=freq_sci, annot_kws={'size': 2}, fmt='', ax=ax_dummy)
+        if save_p is not None:
+            plt.savefig(os.path.join(save_p, 'act_freq_heatmap.png'))
+            plt.close('all')
+
+        fig, ax_dummy = plt.subplots(dpi=dpi)
+        ax_dummy.hist(freq.flatten(), color='green', alpha=0.6, edgecolor='grey', bins=n_bins)
+        if save_p is not None:
+            plt.savefig(os.path.join(save_p, 'act_freq_hist.png'))
+            plt.close('all')
+
+        if verbosity >= 1:
+            print(f'Activation frequencies sorted: {np.sort(freq.flatten()).tolist()}')
+            print(f'Activation frequency is zero {(freq == 0).sum()} times')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Todo: Assess if this is needed at some point
+
+def plot_support_hist_w_class_perc(
+        som_c,  # Todo
+        class_label: Union[int, None] = None,
+        n_bins: int = 20,
+        plot_percentages: bool = False,
+        fontsize: Union[float, None] = None,
+        plot_title: bool = False,
+        ax: Union[plt.Axes, None] = None,
+        dpi: int = 100,
+):
+    # ### Get class count per unit and number of classes from SOM classifier
+    cc_per_unit = som_c.class_counts_per_unit_.copy()  # somdim0 x somdim1 x n_classes
+    n_classes = som_c.og_classes_.shape[0]
+
+    # ### Calculate support of each unit
+    support = cc_per_unit.sum(axis=2).flatten()  # shape: n_units
+
+    # Flatten the class count per unit array
+    cc_per_unit_flat = cc_per_unit.reshape(-1, n_classes)  # shape: n_units x n_classes
+    # Note: flatten, reshape works row by row
+    # => entries in 0-dimension correspond to same unit in 'support' and 'cc_per_unit_flat'
+
+    # ### If passed, subset 'support' and 'cc_per_unit_flat' to units associated with 'class_label'
+    if class_label is not None:
+        new_class_label = None
+        for key, value in som_c.new_to_og_classes_dict_.items():
+            if value == class_label:
+                new_class_label = key
+        if new_class_label is not None:
+            c_bool = (som_c.som_unit_labels_ == new_class_label).flatten()
+            support = support[c_bool]
+            cc_per_unit_flat = cc_per_unit_flat[c_bool, :]
+        else:
+            warnings.warn(
+                "'class_label' is not a class that the SomClassifier can predict, "
+                "proceeding without subsetting SOM units", UserWarning)
+
+    # Define histogram (bin values and bins edges)
+    bin_vals, bins = np.histogram(support, bins=n_bins)
+
+    # ### For each bin calculate the label fraction across all events that are in the support of units of that bin
+    # Initialize counts for each label in the bins, shape: n_bins x n_classes
+    bin_wise_label_count = np.zeros((n_bins, n_classes))
+
+    # Calculate counts for each bin and label
+    for i, (low, high) in enumerate(zip(bins[:-1], bins[1:])):
+        # Create bool for which units the support value is in the respective bin
+        if i == len(bins) - 2:  # Last bin, included upper bound
+            in_bin = (low <= support) & (support <= high)
+        else:
+            in_bin = (low <= support) & (support < high)
+        # in_bin = (support >= low) & (support < high)
+        if in_bin.any():
+            # Sum label counts across units that are in the bin
+            bin_wise_label_count[i, :] = cc_per_unit_flat[in_bin].sum(axis=0)
+
+    # Calculate the label fractions in each bin, shape: n_bins x n_classes
+    relative_bin_wise_label_count = np.zeros_like(bin_wise_label_count)
+    row_sums = bin_wise_label_count.sum(axis=1)
+    non_zero_rows = row_sums != 0
+    relative_bin_wise_label_count[non_zero_rows] = (
+            bin_wise_label_count[non_zero_rows] / row_sums[non_zero_rows, None]
+    )
+
+    # ### Plotting
+    # Define centers of bins
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    # Define colors
+    colors = plt.cm.tab10(np.linspace(0, 1, n_classes))
+    # Define bottom and top of the respective bars (one barplot per class),
+    bar_edges = np.zeros((n_bins, n_classes + 1))
+    for i in range(n_classes):
+        bar_edges[:, i + 1] = bar_edges[:, i].copy() + relative_bin_wise_label_count[:, i] * bin_vals
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=dpi)
+
+    # Plot the stacked bar histogram
+    for i in range(n_classes):
+        ax.bar(
+            bin_centers,
+            bar_edges[:, i + 1] - bar_edges[:, i],  # Bar height starts from bottom
+            width=np.diff(bins),
+            bottom=bar_edges[:, i],
+            color=colors[i],
+            edgecolor='black',
+            align='center',
+            label=f'{int(som_c.new_to_og_classes_dict_[i])}'
+        )
+
+    if plot_percentages:
+        for i in range(n_bins):
+            percentages_str = '%: '
+            for j in range(n_classes):
+                frac = relative_bin_wise_label_count[i, j]
+                if frac > 0:
+                    percentages_str += f'{int(som_c.new_to_og_classes_dict_[j])}: {np.round(frac * 100, 2)}'
+                    percentages_str += ', ' if j <= n_classes - 2 else ''
+            ax.text(
+                x=bin_centers[i], y=ax.get_ylim()[1] * 0.05, s=percentages_str, rotation=90, ha='center',
+                fontsize=fontsize
+            )
+
+    # Add legend and labels
+    # ax.set_title('Distribution of support sizes across SOM units')
+    ax.set_xlabel('Support, all units' if class_label is None else f'Support, Class {class_label} units')
+    ax.set_ylabel('# SOM units')
+    ax.legend(title='Labels')
+
+    if plot_title:
+        ax.set_title(
+            f'Class: {class_label}, '
+            f'Total units: {support.shape[0]}, '
+            f'Total support: {int(support.sum())}')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Todo: Add some of the som plotting functoins to the flagx package
+
+
 
 
 def plot_som(
