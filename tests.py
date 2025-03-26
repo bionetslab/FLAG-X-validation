@@ -712,6 +712,335 @@ def test_softmax_classifier():
         print('# Cuda is not available')
 
 
+def test_param_tuning():
+
+    from sklearn.datasets import make_blobs
+
+    from flagx.utils import set_random_seed
+    from flagx.gating import SomClassifier
+
+    set_random_seed(seed=42)
+
+    x, y = make_blobs(n_samples=1000, n_features=11, centers=6, cluster_std=6.0, shuffle=True, random_state=42)
+
+    # Define parameter grid for neighborhood parameters
+    param_grid_0 = {
+        'gaussian_neighborhood_sigma': [0.5, 1.0],
+        'radius_0': [-0.5, -0.75],
+        'radius_n': [1.0, 0.01, ],
+        'n_epochs': [6,],
+    }
+
+    param_grid_1 = {
+        'gaussian_neighborhood_sigma': [0.5, 1.0],
+        'radius_0': [-0.5, -0.75],
+        'radius_n': [1.0, 0.01, ],
+    }
+
+    # Set no params
+    som_clf_0 = SomClassifier(verbosity=0)
+    print('# ### Case 0')
+    som_clf_0.hyperparameter_tuning(X=x, y=y, param_grid=param_grid_0, cv=2, scoring='internal', refit=True)
+    for attr, value in vars(som_clf_0).items():
+        print(f"{attr} = {value}")
+
+
+    # Set some params t other than default value
+    som_clf_1 = SomClassifier(som_dimensions=(5, 5), n_epochs=6, verbosity=0)
+    print('# ### Case 1')
+    som_clf_1.hyperparameter_tuning(X=x, y=y, param_grid=param_grid_1, cv=2, scoring='internal', refit=True)
+    for attr, value in vars(som_clf_1).items():
+        print(f"{attr} = {value}")
+
+    # Also: Put print(f'# ### SOM dimensions: {self.som_dimensions}') in .fit(), seems to work as expected
+
+    best_params = som_clf_1.grid_search_.best_params_
+
+    print(best_params)
+
+    som_clf_2 = SomClassifier(verbosity=2, **best_params)
+
+    print(vars(som_clf_2))
+
+
+def test_metrics_calc():
+
+    import numpy as np
+
+    from sklearn.metrics import precision_score, recall_score, f1_score
+
+    from validation.utils import (
+        eval_score_with_abstention,
+        prec_rec_f1_avg, prec_rec_f1_class_wise,
+        prec_rec_f1_avg_sample_wise, prec_rec_f1_class_sample_wise,
+        abstention_counts, abstention_counts_sample_wise,
+        confusion_matrix_df, confusion_matrix_df_sample_wise,
+        eval_wrapper, eval_wrapper_sample_wise
+    )
+
+    np.random.seed(0)
+
+    print('# ###### Binary input ###### #')
+    y_true = np.random.randint(low=0, high=2, size=(10,))
+    print('# ### y_true: ', y_true)
+    y_pred = np.random.randint(low=0, high=2, size=(10,))
+    print('# ### y_pred: ', y_pred, '\n')
+
+    print('# ### No avg specified (binary)')
+    score_sk = f1_score(y_true, y_pred)
+    score_abst = eval_score_with_abstention(y_true, y_pred, eval_func=f1_score, eval_func_kwargs=None)
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Binary')
+    score_sk = f1_score(y_true, y_pred, average='binary', pos_label=1)
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'binary', 'pos_label': 1}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Macro')
+    score_sk = f1_score(y_true, y_pred, average='macro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'macro'}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Micro')
+    score_sk = f1_score(y_true, y_pred, average='micro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'micro'}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Weighted')
+    score_sk = f1_score(y_true, y_pred, average='weighted')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'weighted'}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ###### Binary input, with unknowns ###### #')
+    y_true = np.random.randint(low=0, high=2, size=(20,))
+    print('# ### y_true: ', y_true)
+    y_pred = np.random.randint(low=0, high=2, size=(20,))
+    y_pred[np.random.randint(low=0, high=y_pred.shape[0], size=(6,))] = -1
+    print('# ### y_pred: ', y_pred, '\n')
+
+    print('# ### No avg specified (binary)')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'pos_label': 1}, abstention_label=-1
+    )
+    print('# Abstention: ', score_abst, '\n')
+
+    print('# ### Binary')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'binary', 'pos_label': 1},
+        abstention_label=-1
+    )
+    print('# Abstention: ', score_abst, '\n')
+
+    print('# ### Macro')
+    score_sk = f1_score(y_true, y_pred, average='macro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'macro'}, abstention_label=-1
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Micro')
+    score_sk = f1_score(y_true, y_pred, average='micro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'micro'}, abstention_label=-1
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Weighted')
+    score_sk = f1_score(y_true, y_pred, average='weighted')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'weighted'}, abstention_label=-1
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+
+    print('# ###### Multi class input ###### #')
+    y_true = np.random.randint(low=0, high=6, size=(100,))
+    print('# ### y_true: ', y_true)
+    y_pred = np.random.randint(low=0, high=6, size=(100,))
+    print('# ### y_pred: ', y_pred, '\n')
+
+    print('# ### Macro')
+    score_sk = f1_score(y_true, y_pred, average='macro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'macro'}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Micro')
+    score_sk = f1_score(y_true, y_pred, average='micro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'micro'}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Weighted')
+    score_sk = f1_score(y_true, y_pred, average='weighted')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'weighted'}
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+
+    print('# ###### Multi class input, with unknowns ###### #')
+    y_true = np.random.randint(low=0, high=6, size=(100,))
+    print('# ### y_true: ', y_true)
+    y_pred = np.random.randint(low=0, high=6, size=(100,))
+    y_pred[np.random.randint(low=0, high=y_pred.shape[0], size=(20,))] = -1
+    print('# ### y_pred: ', y_pred, '\n')
+
+    print('# ### Macro')
+    score_sk = f1_score(y_true, y_pred, average='macro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'macro'}, abstention_label=-1
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Micro')
+    score_sk = f1_score(y_true, y_pred, average='micro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'micro'}, abstention_label=-1
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Weighted')
+    score_sk = f1_score(y_true, y_pred, average='weighted')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'weighted'}, abstention_label=-1
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+
+    print('# ###### Multi class input, with unknowns, with others ###### #')
+    y_true = np.random.randint(low=0, high=6, size=(100,))
+    print('# ### y_true: ', y_true)
+    y_pred = np.random.randint(low=0, high=6, size=(100,))
+    y_pred[np.random.randint(low=0, high=y_pred.shape[0], size=(20,))] = -1
+    print('# ### y_pred: ', y_pred, '\n')
+
+    print('# ### Macro')
+    score_sk = f1_score(y_true, y_pred, average='macro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'macro'}, abstention_label=-1, others_label=0
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Micro')
+    score_sk = f1_score(y_true, y_pred, average='micro')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'micro'}, abstention_label=-1,  others_label=0
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    print('# ### Weighted')
+    score_sk = f1_score(y_true, y_pred, average='weighted')
+    score_abst = eval_score_with_abstention(
+        y_true, y_pred, eval_func=f1_score, eval_func_kwargs={'average': 'weighted'},
+        abstention_label=-1, others_label=0
+    )
+    print('# Sklearn: ', score_sk, ' # Abstention: ', score_abst, '\n')
+
+    def test_no_abstentions():
+        y_true = np.array([0, 1, 1, 0])
+        y_pred = np.array([0, 1, 1, 0])
+        assert eval_score_with_abstention(y_true, y_pred, precision_score) == 1.0
+
+    def test_abstentions_binary():
+        y_true = np.array([0, 1, 1, 0])
+        y_pred = np.array([0, 1, -1, 0])
+        score = eval_score_with_abstention(
+            y_true, y_pred, recall_score,
+            eval_func_kwargs={'average': 'binary', 'pos_label': 1},
+            abstention_label=-1
+        )
+        assert score == 0.5
+
+    def test_abstentions_macro():
+        y_true = np.array([0, 1, 2, 0])
+        y_pred = np.array([0, 1, -1, 0])
+        score = eval_score_with_abstention(
+            y_true, y_pred, f1_score,
+            eval_func_kwargs={'average': 'macro'},
+            abstention_label=-1
+        )
+        assert isinstance(score, float)
+
+    def test_abstentions_with_others():
+        y_true = np.array([0, 1, 99, 0])  # others_label exists in ground truth
+        y_pred = np.array([0, 1, -1, 0])
+        score = eval_score_with_abstention(
+            y_true, y_pred, f1_score,
+            eval_func_kwargs={'average': 'macro'},
+            abstention_label=-1,
+            others_label=99
+        )
+        assert isinstance(score, float)
+
+    test_no_abstentions()
+    test_abstentions_binary()
+    test_abstentions_macro()
+    test_abstentions_with_others()
+
+    print('# ### Results dataframe averaged ### #')
+    y_true = np.random.randint(low=0, high=6, size=(100,))
+    print('# ### y_true: ', y_true)
+    y_pred = np.random.randint(low=0, high=6, size=(100,))
+    y_pred[np.random.randint(low=0, high=y_pred.shape[0], size=(20,))] = -1
+    print('# ### y_pred: ', y_pred, '\n')
+
+    prec_rec_f1_avg(y_true=y_true, y_pred=y_pred, abstention_label=-1, others_label=None, verbosity=2)
+    prec_rec_f1_avg(y_true=y_true, y_pred=y_pred, abstention_label=-1, others_label=0, verbosity=2)
+
+    print('# ### Results dataframe class-wise ### #')
+    prec_rec_f1_class_wise(y_true=y_true, y_pred=y_pred, abstention_label=-1, others_label=None, verbosity=2)
+    prec_rec_f1_class_wise(y_true=y_true, y_pred=y_pred, abstention_label=-1, others_label=0, verbosity=2)
+
+
+    print('# ### Results dataframe averaged, sample-wise ### #')
+    y_trues = ([np.random.randint(low=0, high=6, size=(100,)) for i in range(6)] +
+               [np.random.randint(low=0, high=5, size=(100,))])
+    print('# ### y_true: ', y_true)
+    y_preds = ([np.random.randint(low=-1, high=6, size=(100,)) for i in range(6)] +
+               [np.random.randint(low=-1, high=5, size=(100,))])
+    print('# ### y_pred: ', y_pred, '\n')
+
+    prec_rec_f1_avg_sample_wise(y_trues=y_trues, y_preds=y_preds, abstention_label=-1, others_label=None, verbosity=2)
+    prec_rec_f1_avg_sample_wise(y_trues=y_trues, y_preds=y_preds, abstention_label=-1, others_label=0, verbosity=2)
+
+    print('# ### Results dataframe class-wise, sample-wise ### #')
+    prec_rec_f1_class_sample_wise(y_trues=y_trues, y_preds=y_preds, abstention_label=-1, others_label=None, verbosity=2)
+    prec_rec_f1_class_sample_wise(y_trues=y_trues, y_preds=y_preds, abstention_label=-1, others_label=0, verbosity=2)
+
+
+    print('# ### Abstention counts ### #')
+    abstention_counts(y_true=y_trues[0], y_pred=y_preds[0], abstention_label=-1, verbosity=2)
+
+    print('# ### Abstention counts, sample-wise ### #')
+    abstention_counts_sample_wise(y_trues=y_trues, y_preds=y_preds, abstention_label=-1, verbosity=2)
+
+
+    print('# ### Confusion matrix ### #')
+    confusion_matrix_df(y_true=y_trues[0], y_pred=y_preds[0], verbosity=2)
+
+    print('# ### Confusion matrix sample-wise ### #')
+    #print(confusion_matrix_df_sample_wise(y_trues=y_trues, y_preds=y_preds))
+
+    print('# ### Eval wrapper ### #')
+    out_avg = eval_wrapper(y_true=y_true, y_pred=y_pred, abstention_label=-1, others_label=None, verbosity=2)
+
+    print('# ### Eval wrapper, sample-wise ### #')
+    out_sw = eval_wrapper_sample_wise(
+        y_trues=y_trues, y_preds=y_preds, abstention_label=-1, others_label=None, verbosity=2
+    )
+
+
 
 
 
@@ -720,13 +1049,14 @@ def test_softmax_classifier():
 
 
 # Todo:
-#  - test all fdm functionality here, assume int labels
+#  - test all fdm functionality here, assume int labels  #
 #  - Run data processing again, also include 1% and 5%
 #  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
 #  - Implement softmax in gating module  #
 #  - Go over other classifiers in validation, refactor to package
 #    ->  go over which plotting/cal funct may be needed in flagx, (adjust __init__ of plt and utils)
 #  - Main: Refactor main scripts, add proposed experiments (grid of n samples and  downsampling frac, fit and analyze results, write toolbox simultaneously) !!!!!!
+#    => Run analysis again!!!!
 #  - (if predicts unknown, change pred to others or ignore pred = pass labels=np.unique(y_true))
 #  - Look at report
 #  - Collect/brainstorm ideas for MRD detection, use Stefan paper as starting point (diff healthy and MRD at sample level, then outlier detection)
@@ -737,6 +1067,7 @@ def test_softmax_classifier():
 #      (plot precision vs recall, works only for the binary case,
 #       include as use case in study: usually interested in rough gating to some population,
 #       in comparison to DL, SOM probs are interpretable)
+
 
 
 
@@ -769,6 +1100,10 @@ if __name__ == '__main__':
 
     # test_torch_randomness()
 
-    test_softmax_classifier()
+    # test_softmax_classifier()
+
+    # test_param_tuning()
+
+    test_metrics_calc()
 
     print('done')
