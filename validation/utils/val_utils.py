@@ -449,3 +449,13 @@ def eval_wrapper_sample_wise(
     return out
 
 
+def get_time_str(seconds: float) -> Tuple[str, int, int, float]:
+
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+
+    time_str = f'{h}h {m}m {s}s'
+
+    return time_str, h, m, s
+

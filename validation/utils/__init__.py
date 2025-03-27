@@ -6,7 +6,8 @@ from .val_utils import (
     prec_rec_f1_avg_sample_wise, prec_rec_f1_class_sample_wise,
     abstention_counts, abstention_counts_sample_wise,
     confusion_matrix_df, confusion_matrix_df_sample_wise,
-    eval_wrapper, eval_wrapper_sample_wise
+    eval_wrapper, eval_wrapper_sample_wise,
+    get_time_str
 )
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     'prec_rec_f1_avg_sample_wise', 'prec_rec_f1_class_sample_wise',
     'abstention_counts', 'abstention_counts_sample_wise',
     'confusion_matrix_df', 'confusion_matrix_df_sample_wise',
-    'eval_wrapper', 'eval_wrapper_sample_wise'
+    'eval_wrapper', 'eval_wrapper_sample_wise',
+    'get_time_str'
 ]
