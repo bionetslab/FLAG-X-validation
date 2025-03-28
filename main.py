@@ -63,7 +63,7 @@ def main_data_preparation():
 
                 # ### Load and process the data set
                 # Create a list of the filenames
-                filename_list = os.listdir(rdp)
+                filename_list = sorted(os.listdir(rdp))
 
                 # Instantiate the FlowDataManager
                 fdm = FlowDataManager(
@@ -233,7 +233,7 @@ def main_data_preparation():
     cutoff_dict_lt1 = {
         'FS': 100000, 'SS': 20000, 'kappavCD8_FITC': 500, 'lambdavCD7_PE': 400, 'CD23_ECD': 500,
         'CD79bvCD4_PC5.5': 1200, 'CD5_PC7': 300, 'CD38_APC': 700,
-        'CD19_APC_A700': 300,  # Nicht vorhanden in Stefans Liste -> verwende 300
+        'CD19_APC_A700': 150,  # Nicht vorhanden in Stefans Liste -> verwende 150 (siehe Mail)
         'CD20vCD3_APC_A750': 500, 'FMC7vCD2_PB': 500, 'CD45_KrOr': 1000
     }
     label_key_lt1 = 'population'
@@ -404,10 +404,10 @@ def main_param_influence_study():
 
     # ### Set flags and variables ######################################################################################
     inference = True  # Whether to do the hyperparameter tuning or just view the results
-    test_n_epochs = False
+    test_n_epochs = True
 
     random_seed = 42
-    downsampling_frac = 0.001  # 0.2  # Todo
+    downsampling_frac = 0.2
     n_splits = 3
 
     # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
@@ -1048,18 +1048,249 @@ def main_n_epochs_calibration():
     plt.close('all')
 
 
+def main_som_classifier():
+
+    import os
+    import time
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SomClassifier
+    from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
+
+    data_sets = [
+        'imstat',
+    ]
+    others_labels = [8,]
+    pos_labels = [None,]
+
+    preprocessing_trafos = ['arcsinh_cofactor150', ]
+
+    fit = True
+    predict = True
+    evaluate = True
+    ####################################################################################################################
+
+    for data_set, others_label, pos_label in zip(data_sets, others_labels, pos_labels):
+        for trafo in preprocessing_trafos:
+
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+            if not os.path.exists(data_p):
+                print(f'# ### Found no data. Continue.\n')
+                continue
+
+            # Define path where results will be saved to
+            save_p = os.path.join(os.getcwd(), f'results/pred_eval/som_classifier/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
+
+            if fit:
+
+                # Load training data
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:100000, :]  # Todo
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:100000]  # Todo
+
+                # Instantiate the SOM classifier
+                som_clf = SomClassifier(som_dimensions=(3, 3), n_epochs=6, verbosity=2)  # Todo: parameters
+
+                # Fit and track time
+                print('# ### Starting fit ...')
+                st_fit = time.time()
+                som_clf.fit(X=x_train, y=y_train)
+                et_fit = time.time()
+                fit_time_sek = et_fit - st_fit
+                fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+                print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+                fit_time_df = pd.DataFrame(
+                    data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+                )
+                fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+                som_clf.save(filepath=save_p)
+
+            else:
+                # Load the SOM classifier
+                som_clf = SomClassifier.load(filepath=save_p)
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+                print('# ### Starting prediction ...')
+                st_pred = time.time()
+                y_pred = som_clf.predict(X=x_test)
+                et_pred = time.time()
+                pred_time_sek = et_pred - st_pred
+                pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+                print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+                pred_time_df = pd.DataFrame(
+                    data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+                )
+                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                # Load the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+                samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+                samples_y_pred = []
+                samples_pred_times = []
+
+                print('# ### Starting sample-wise prediction ...')
+                for x in samples_x_test:
+
+                    st = time.time()
+                    samples_y_pred.append(som_clf.predict(X=x))
+                    et = time.time()
+                    samples_pred_times.append(et - st)
+
+                samples_pred_times_df = pd.DataFrame(index=sample_names, columns=['pred_time'])
+                samples_pred_times_df['pred_time'] = samples_pred_times
+                m = samples_pred_times_df['pred_time'].mean(axis=0)
+                std = samples_pred_times_df['pred_time'].std(axis=0)
+                samples_pred_times_df.loc['mean'] = m
+                samples_pred_times_df.loc['std'] = std
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, sn in zip(samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+            else:
+                # Load the predictions
+                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [
+                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+                ]
+                samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
+                # samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in os.listdir(samples_y_pred_p)]
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=-1,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+                out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                # Load the labels of the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+                samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=-1,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
+def main_som_plots():
+    pass
+
+
+def main_som_classifier_with_confidence_threshold():
+    pass
+
+
+def main_gatemeclass_no_abstention():
+    pass
+
+
+def main_gatemeclass_with_abstention():
+    pass
+
+
+def main_dgcytof():
+    pass
+
+
+def main_softmax():
+
+    pass
+
+
+
+
+
+def main_n_samples_experiment():
+    pass
+
+
+def main_prec_vs_recall():
+    # Binary case: Want to gate for specific population
+    # Select all nodes for which frac of pop of interest >= threshold
+    # Vary threshold => prec-rec-tradeoff
+    # Need trained clf for this ...
+    pass
+
 
 if __name__ == '__main__':
 
     # main_data_preparation()
 
-    # main_param_influence_study()
+    # main_param_influence_study()  # started in pi for epochs
 
     # main_parm_tuning_set_wise()
 
     # main_param_tuning()
 
     # main_n_epochs_calibration()
+
+    main_som_classifier()
 
     print('done')
 
