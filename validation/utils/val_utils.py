@@ -133,23 +133,34 @@ def prec_rec_f1_avg(
         y_pred: np.ndarray,
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
+        pos_label: Union[int, None] = None,
         verbosity: int = 1,
 ) -> pd.DataFrame:
+
+    # todo: add binary option (if pos label given, also compute binary)
 
     score_names = ['precision', 'recall', 'f1-score']
     score_fcts = [precision_score, recall_score, f1_score]
 
     averages = ['macro', 'micro', 'weighted']
 
+    if pos_label is not None:
+        averages += ['binary']
+
     res_df = pd.DataFrame(index=score_names, columns=averages)
 
     for sn, sf in zip(score_names, score_fcts):
         for avg in averages:
+
+            kwargs = {'average': avg}
+            if pos_label is not None:
+                kwargs['pos_label'] = pos_label
+
             res_df.loc[sn, avg] = eval_score_with_abstention(
                 y_true=y_true,
                 y_pred=y_pred,
                 eval_func=sf,
-                eval_func_kwargs={'average': avg},
+                eval_func_kwargs=kwargs,
                 abstention_label=abstention_label,
                 others_label=others_label,
                 verbosity=verbosity,
@@ -203,6 +214,7 @@ def prec_rec_f1_avg_sample_wise(
         y_preds: List[np.ndarray],
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
+        pos_label: Union[int, None] = None,
         verbosity: int = 1,
 ) -> Tuple[pd.DataFrame, ...]:
 
@@ -210,6 +222,9 @@ def prec_rec_f1_avg_sample_wise(
     score_fcts = [precision_score, recall_score, f1_score]
 
     averages = ['macro', 'micro', 'weighted']
+
+    if pos_label is not None:
+        averages += ['binary']
 
     res_dfs = []
 
@@ -222,12 +237,17 @@ def prec_rec_f1_avg_sample_wise(
             # Compute macro, micro and weighted average score
             scores = []
             for avg in averages:
+
+                kwargs = {'average': avg}
+                if pos_label is not None:
+                    kwargs['pos_label'] = pos_label
+
                 scores.append(
                     eval_score_with_abstention(
                         y_true=yt,
                         y_pred=yp,
                         eval_func=sf,
-                        eval_func_kwargs={'average': avg},
+                        eval_func_kwargs=kwargs,
                         abstention_label=abstention_label,
                         others_label=others_label,
                         verbosity=verbosity,
@@ -392,11 +412,13 @@ def eval_wrapper(
         y_pred: np.ndarray,
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
+        pos_label: Union[int, None] = None,
         verbosity: int = 1,
 ) -> Tuple[pd.DataFrame, ...]:
 
     res_df_avg = prec_rec_f1_avg(
-        y_true=y_true, y_pred=y_pred, abstention_label=abstention_label, others_label=others_label, verbosity=verbosity
+        y_true=y_true, y_pred=y_pred, abstention_label=abstention_label, others_label=others_label, pos_label=pos_label,
+        verbosity=verbosity
     )
 
     res_df_cw = prec_rec_f1_class_wise(
@@ -422,17 +444,18 @@ def eval_wrapper_sample_wise(
         y_preds: List[np.ndarray],
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
+        pos_label: Union[int, None] = None,
         verbosity: int = 1,
 ) -> Tuple[Union[pd.DataFrame, List[pd.DataFrame]], ...]:
 
     res_df_avg_prec, res_df_avg_rec, res_df_avg_f1 = prec_rec_f1_avg_sample_wise(
-        y_trues=y_trues, y_preds=y_preds, abstention_label=abstention_label,
-        others_label=others_label, verbosity=verbosity
+        y_trues=y_trues, y_preds=y_preds, abstention_label=abstention_label, others_label=others_label,
+        pos_label=pos_label, verbosity=verbosity
     )
 
     res_df_cw_prec, res_df_cw_rec, res_df_cw_f1 = prec_rec_f1_class_sample_wise(
-        y_trues=y_trues, y_preds=y_preds, abstention_label=abstention_label,
-        others_label=others_label, verbosity=verbosity
+        y_trues=y_trues, y_preds=y_preds, abstention_label=abstention_label, others_label=others_label,
+        verbosity=verbosity
     )
 
     cf_mats = confusion_matrix_df_sample_wise(y_trues=y_trues, y_preds=y_preds)
