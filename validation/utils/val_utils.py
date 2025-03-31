@@ -482,3 +482,20 @@ def get_time_str(seconds: float) -> Tuple[str, int, int, float]:
 
     return time_str, h, m, s
 
+def get_error_dataframe(
+        failure_combinations: List[str],
+        failure_points: List[str],
+        error_types: List[str],
+        error_messages: List[str],
+) -> pd.DataFrame:
+    error_df = pd.DataFrame()
+    error_df['setting'] = failure_combinations
+    error_df['failure_point'] = failure_points
+    error_df['error_type'] = error_types
+    error_df['error_message'] = error_messages
+    if not error_df.empty:
+        error_df['error_message'] = error_df['error_message'].str.replace("\n", " ", regex=True)
+
+    return error_df
+
+

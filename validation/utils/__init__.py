@@ -7,7 +7,8 @@ from .val_utils import (
     abstention_counts, abstention_counts_sample_wise,
     confusion_matrix_df, confusion_matrix_df_sample_wise,
     eval_wrapper, eval_wrapper_sample_wise,
-    get_time_str
+    get_time_str,
+    get_error_dataframe
 )
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     'abstention_counts', 'abstention_counts_sample_wise',
     'confusion_matrix_df', 'confusion_matrix_df_sample_wise',
     'eval_wrapper', 'eval_wrapper_sample_wise',
-    'get_time_str'
+    'get_time_str',
+    'get_error_dataframe'
 ]
