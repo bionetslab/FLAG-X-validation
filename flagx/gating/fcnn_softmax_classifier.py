@@ -23,7 +23,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
             n_epochs: int = 20,
             data_loader_params: Union[Dict[str, Any], None] = None,
             device: Union[str, None] = None,  # If None use default
-            verbosity: int = 2,
+            verbosity: int = 1,
     ):
         super().__init__()
         self.layer_sizes = layer_sizes
