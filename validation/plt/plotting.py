@@ -15,6 +15,8 @@ import matplotlib.transforms as mtransforms
 
 from typing import Tuple, Union, Dict, Literal, List
 
+from validation.utils.val_utils import eval_wrapper_sample_wise
+
 
 def plot_param_lineplot(
         res_df: pd.DataFrame,
@@ -265,6 +267,83 @@ def plot_param_heatmap(
     ax.set_title(title_str, fontsize=title_fontsize)
 
     return ax
+
+
+def plot_prec_rec_vs_thresh(
+        y_trues: List[np.ndarray],
+        y_probs: List[np.ndarray],
+        thresholds: Union[List[float], None] = None,
+        pos_label: int = 1,
+        neg_label: int = 0,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if any([np.unique(y_true).shape[0] >= 3 for y_true in y_trues]):
+        raise ValueError("Function assumes binary labels. 'y_trues' contains more than two classes.")
+
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    if thresholds is None:
+        thresholds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+    precs = []
+    recs = []
+
+    for threshold in thresholds:
+        # Get prediction for current threshold
+        y_preds = [(y_prob >= threshold).astype(int) for y_prob in y_probs]
+
+        # Relabel if necessary
+        if pos_label != 1:
+            for y_pred in y_preds:
+                y_pred[y_pred == 1] = pos_label
+        if neg_label != 0:
+            for y_pred in y_preds:
+                y_pred[y_pred == 0] = neg_label
+
+        out = eval_wrapper_sample_wise(
+            y_trues=y_trues,
+            y_preds=y_preds,
+            abstention_label=None,
+            others_label=None,
+            pos_label=pos_label,
+            verbosity=1,
+        )
+
+        res_df_avg_prec = out[0]
+        res_df_avg_rec = out[1]
+
+        precs.append(res_df_avg_prec.loc['mean', 'binary'])
+        recs.append(res_df_avg_rec.loc['mean', 'binary'])
+
+    ax.plot(thresholds, precs, label='Precision', marker='o', c='b')
+    ax.plot(thresholds, recs, label='Recall', marker='o', c='g')
+
+    ax.set_xlabel('Threshold')
+
+    plt.legend(loc='best')
+
+    return ax
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def plot_support_hists(
