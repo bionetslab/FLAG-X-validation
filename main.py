@@ -404,14 +404,14 @@ def main_param_influence_study():
 
     # ### Set flags and variables ######################################################################################
     inference = True  # Whether to do the hyperparameter tuning or just view the results
-    test_n_epochs = True
+    test_n_epochs = False
 
     random_seed = 42
-    downsampling_frac = 0.2
+    downsampling_frac = 0.25
     n_splits = 3
 
     # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
-    n_epochs = 6  # Todo
+    n_epochs = 6000
     ####################################################################################################################
 
     # ### Load the train data
@@ -514,6 +514,14 @@ def main_param_influence_study():
 
         ]
 
+        grids = [
+            param_grid_neigh_sigma, param_grid_r0, param_grid_rn
+        ]
+
+        grid_names = [
+            'gaussian_neighborhood_sigma', 'radius_0', 'radius_n',
+        ]
+
     # ### Perform the parameter tuning
     # Define path where results will be stored
     save_p = os.path.join(os.getcwd(), 'results/parameter_influence_study/')
@@ -586,6 +594,7 @@ def main_param_influence_study():
                 custom_x_ticks=None if grid_name != 'n_epochs' else 'log10_scale',
                 x_label=grid_name,
                 y_label='Macro F1',
+                x_axis_grid=True,
                 dpi=300,
             )
             plt.tight_layout()
@@ -784,7 +793,7 @@ def main_parm_tuning_set_wise():
             plt.tight_layout()
             fn_str = ''
             for key, val in combination.items():
-                fn_str += f'{key.removeprefix('param_')}{val}_'
+                fn_str += f'{key[7:]}{val}_'
             fn_str = fn_str[:-1] + '.png'
             plt.savefig(os.path.join(current_save_p, fn_str))
             plt.close('all')
@@ -1184,7 +1193,6 @@ def main_som_classifier():
                     f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
                 ]
                 samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
-                # samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in os.listdir(samples_y_pred_p)]
 
             if evaluate:
 
@@ -1246,24 +1254,775 @@ def main_som_classifier_with_confidence_threshold():
     pass
 
 
-def main_gatemeclass_no_abstention():
-    pass
+def main_gatemeclass():
+
+    import os
+    import time
+    import numpy as np
+    import pandas as pd
+    from validation.gating.gatemeclass import GateMeClassClassifier
+    from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise, get_error_dataframe
+
+    # ### Set flags and important variables here #######################################################################
+    fit = True
+    predict = True
+    evaluate = True
+
+    allow_abstention = True
+    abstention_label = -1 if allow_abstention else None
+
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
+
+    data_sets = [
+        'imstat',  # Todo
+    ]
+    others_labels = [8, ]  # Todo
+    pos_labels = [None, ]  # Todo
+
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff',]  # Todo
+
+    marker_names_imstat = [
+        'FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO'
+    ]
+    marker_names_lymphoma_t1 = [
+        'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
+        'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
+    ]
+    marker_names_lymphoma_t2 = [
+        'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
+        'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
+    ]
+
+    marker_names_lymphoma_t1_binary = marker_names_lymphoma_t1
+
+    marker_names_lymphoma_t2_binary = marker_names_lymphoma_t2
+
+    marker_names_flowcyt = [
+        'FS INT', 'SS INT', 'FL1 INT_CD14-FITC', 'FL2 INT_CD19-PE', 'FL3 INT_CD13-ECD', 'FL4 INT_CD33-PC5.5',
+        'FL5 INT_CD34-PC7', 'FL6 INT_CD117-APC', 'FL7 INT_CD7-APC700', 'FL8 INT_CD16-APC750', 'FL9 INT_HLA-PB',
+        'FL10 INT_CD45-KO'
+    ]
+
+    marker_names_list = [
+        marker_names_imstat,
+        marker_names_lymphoma_t1, marker_names_lymphoma_t2,
+        marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,
+        marker_names_flowcyt,
+    ]
+    ####################################################################################################################
 
 
-def main_gatemeclass_with_abstention():
-    pass
+
+    for data_set, others_label, pos_label, marker_names  in zip(
+            data_sets, others_labels, pos_labels, marker_names_list
+    ):
+        for trafo in preprocessing_trafos:
+
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+            # Define lists to track errors
+            failure_combinations = []
+            failure_points = []
+            error_types = []
+            error_messages = []
+
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+            if not os.path.exists(data_p):
+                print(f'# ### Found no data. Continue.\n')
+                continue
+
+            # Define path where results will be saved to
+            abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
+            save_p = os.path.join(os.getcwd(), f'results/pred_eval/gatemeclass{abstention_str}/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
+
+            if fit:
+
+                # Load training data
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:1000, :]  # Todo
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:1000]  # Todo
+
+                # Instantiate the GMC classifier with default parameters
+                gmc_clf = GateMeClassClassifier(
+                    marker_names=marker_names,
+                    gmc_gmm_parameterization='V',
+                    gmc_k=20,
+                    gmc_sampling=0.1,
+                    gmc_reject_option=allow_abstention,
+                    gmc_seed=1,
+                    time_fit_pred=True,
+                    verbosity=1
+                )
+
+                try:
+                    # Fit and track time
+                    print('# ### Starting fit ...')
+                    st_fit = time.time()
+                    gmc_clf.fit(X=x_train, y=y_train)
+                    et_fit = time.time()
+                    fit_time_sek = et_fit - st_fit
+                    fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+                    print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+                    fit_time_df = pd.DataFrame(
+                        data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+                    )
+                    fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+                    gmc_clf.save(filepath=save_p)
+
+                except Exception as e:
+                    # Log errors
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append('fit')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types ,error_messages)
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                    continue
+
+            else:
+                # Load the GMC classifier
+                try:
+                    gmc_clf = GateMeClassClassifier.load(filepath=save_p)
+                except FileNotFoundError:
+                    print(f'# ### Classifier could not be trained without error. Continue.\n')
+                    continue
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))[0:1000, :]  # Todo
+
+                try:
+                    print('# ### Starting prediction ...')
+                    st_pred = time.time()
+                    y_pred = gmc_clf.predict(X=x_test)
+                    et_pred = time.time()
+                    pred_time_sek = et_pred - st_pred
+                    pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+                    print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+                    pred_time_df = pd.DataFrame(
+                        data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+                    )
+                    pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+
+                    np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                except Exception as e:
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append('predict_concatenated')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                    continue
+
+                # Load the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+                samples_x_test = [np.load(os.path.join(samples_p, f))[0:1000, :] for f in samples_x_test_filenames]  # Todo
+
+                samples_y_pred = []
+                samples_pred_times = []
+                successful_fit_idx = []
+                print('# ### Starting sample-wise prediction ...')
+                for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
+                    try:
+                        st = time.time()
+                        samples_y_pred.append(gmc_clf.predict(X=x))
+                        et = time.time()
+                        samples_pred_times.append(et - st)
+                        successful_fit_idx.append(i)
+                    except Exception as e:
+                        samples_pred_times.append(np.nan)
+                        failure_combinations.append(f'{data_set}_{trafo}')
+                        failure_points.append(f'predict_{sn}')
+                        error_types.append(type(e).__name__)
+                        error_messages.append(str(e))
+
+                        error_df = get_error_dataframe(
+                            failure_combinations, failure_points, error_types, error_messages
+                        )
+                        error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+
+                samples_pred_times_df = pd.DataFrame(index=sample_names, columns=['pred_time'])
+                samples_pred_times_df['pred_time'] = samples_pred_times
+                m = samples_pred_times_df['pred_time'].mean(axis=0)
+                std = samples_pred_times_df['pred_time'].std(axis=0)
+                samples_pred_times_df.loc['mean'] = m
+                samples_pred_times_df.loc['std'] = std
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, sn in zip(samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+            else:
+                # Load the predictions
+                try:
+                    y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+                except FileNotFoundError:
+                    print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
+                    continue
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [
+                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+                ]
+                samples_y_pred = []
+                successful_fit_idx = []
+                for i, fn in enumerate(samples_y_pred_filenames):
+                    try:
+                        samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
+                        successful_fit_idx.append(i)
+                    except FileNotFoundError:
+                        print(
+                            f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
+                            f'Cannot include it in evaluation.\n'
+                        )
+                        continue
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))[0:1000]  # Todo
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+                if abstention_label is not None:
+                    out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                # Load the labels of the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+                # Get the test samples for which the fit was successful
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
+                samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+                samples_y_test = [np.load(os.path.join(samples_p, f))[0:1000] for f in samples_y_test_filenames]  # Todo
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                if abstention_label is not None:
+                    out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
 def main_dgcytof():
-    pass
+    import os
+    import time
+    import numpy as np
+    import pandas as pd
+    from validation.gating.dgcytof import DgcytofClassifier
+    from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise, get_error_dataframe
+
+    # ### Set flags and important variables here #######################################################################
+    fit = True
+    predict = True
+    evaluate = True
+
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
+
+    data_sets = [
+        'imstat',  # Todo
+    ]
+    others_labels = [8, ]  # Todo
+    pos_labels = [None, ]  # Todo
+
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', ]  # Todo
+
+    marker_names_imstat = [
+        'FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO'
+    ]
+    marker_names_lymphoma_t1 = [
+        'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
+        'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
+    ]
+    marker_names_lymphoma_t2 = [
+        'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
+        'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
+    ]
+
+    marker_names_lymphoma_t1_binary = marker_names_lymphoma_t1
+
+    marker_names_lymphoma_t2_binary = marker_names_lymphoma_t2
+
+    marker_names_flowcyt = [
+        'FS INT', 'SS INT', 'FL1 INT_CD14-FITC', 'FL2 INT_CD19-PE', 'FL3 INT_CD13-ECD', 'FL4 INT_CD33-PC5.5',
+        'FL5 INT_CD34-PC7', 'FL6 INT_CD117-APC', 'FL7 INT_CD7-APC700', 'FL8 INT_CD16-APC750', 'FL9 INT_HLA-PB',
+        'FL10 INT_CD45-KO'
+    ]
+
+    marker_names_list = [
+        marker_names_imstat,
+        marker_names_lymphoma_t1, marker_names_lymphoma_t2,
+        marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,
+        marker_names_flowcyt,
+    ]
+    ####################################################################################################################
+
+    for data_set, others_label, pos_label, marker_names in zip(
+            data_sets, others_labels, pos_labels, marker_names_list
+    ):
+        for trafo in preprocessing_trafos:
+
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+            # Define lists to track errors
+            failure_combinations = []
+            failure_points = []
+            error_types = []
+            error_messages = []
+
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+            if not os.path.exists(data_p):
+                print(f'# ### Found no data. Continue.\n')
+                continue
+
+            # Define path where results will be saved to
+            save_p = os.path.join(os.getcwd(), f'results/pred_eval/dgcytof/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
+
+            if fit:
+
+                # Load training data
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:1000, :]  # Todo
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:1000]  # Todo
+
+                # Instantiate the Dgcytof classifier with default parameters
+                dgcytof_clf = DgcytofClassifier(
+                    val_size=0.2,
+                    layer_sizes=(128, 64, 32),
+                    n_epochs=20,
+                    train_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                    verbosity=2,
+                )
+
+                try:
+                    # Fit and track time
+                    print('# ### Starting fit ...')
+                    st_fit = time.time()
+                    dgcytof_clf.fit(X=x_train, y=y_train)
+                    et_fit = time.time()
+                    fit_time_sek = et_fit - st_fit
+                    fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+                    print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+                    fit_time_df = pd.DataFrame(
+                        data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+                    )
+                    fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+                    dgcytof_clf.save(filepath=save_p)
+
+                except Exception as e:
+                    # Log errors
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append('fit')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                    continue
+
+            else:
+                # Load the SOM classifier
+                try:
+                    dgcytof_clf = DgcytofClassifier.load(filepath=save_p)
+                except FileNotFoundError:
+                    print(f'# ### Classifier could not be trained without error. Continue.\n')
+                    continue
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))[0:1000, :]  # Todo
+
+                try:
+                    print('# ### Starting prediction ...')
+                    st_pred = time.time()
+                    y_pred = dgcytof_clf.predict(X=x_test)
+                    et_pred = time.time()
+                    pred_time_sek = et_pred - st_pred
+                    pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+                    print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+                    pred_time_df = pd.DataFrame(
+                        data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+                    )
+                    pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+
+                    np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                except Exception as e:
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append('predict_concatenated')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                    continue
+
+                # Load the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+                samples_x_test = [np.load(os.path.join(samples_p, f))[0:1000, :] for f in
+                                  samples_x_test_filenames]  # Todo
+
+                samples_y_pred = []
+                samples_pred_times = []
+                successful_fit_idx = []
+                print('# ### Starting sample-wise prediction ...')
+                for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
+                    try:
+                        st = time.time()
+                        samples_y_pred.append(dgcytof_clf.predict(X=x))
+                        et = time.time()
+                        samples_pred_times.append(et - st)
+                        successful_fit_idx.append(i)
+                    except Exception as e:
+                        samples_pred_times.append(np.nan)
+                        failure_combinations.append(f'{data_set}_{trafo}')
+                        failure_points.append(f'predict_{sn}')
+                        error_types.append(type(e).__name__)
+                        error_messages.append(str(e))
+
+                        error_df = get_error_dataframe(
+                            failure_combinations, failure_points, error_types, error_messages
+                        )
+                        error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+
+                samples_pred_times_df = pd.DataFrame(index=sample_names, columns=['pred_time'])
+                samples_pred_times_df['pred_time'] = samples_pred_times
+                m = samples_pred_times_df['pred_time'].mean(axis=0)
+                std = samples_pred_times_df['pred_time'].std(axis=0)
+                samples_pred_times_df.loc['mean'] = m
+                samples_pred_times_df.loc['std'] = std
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, sn in zip(samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+            else:
+                # Load the predictions
+                try:
+                    y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+                except FileNotFoundError:
+                    print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
+                    continue
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [
+                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+                ]
+                samples_y_pred = []
+                successful_fit_idx = []
+                for i, fn in enumerate(samples_y_pred_filenames):
+                    try:
+                        samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
+                        successful_fit_idx.append(i)
+                    except FileNotFoundError:
+                        print(
+                            f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
+                            f'Cannot include it in evaluation.\n'
+                        )
+                        continue
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))[0:1000]  # Todo
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=-1,  # Dgcytof can predict events to be of 'unknown'/-1 class
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+                out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                # Load the labels of the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+                # Get the test samples for which the fit was successful
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
+                samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+                samples_y_test = [np.load(os.path.join(samples_p, f))[0:1000] for f in samples_y_test_filenames]  # Todo
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=-1,  # Dgcytof can predict events to be of 'unknown'/-1 class
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
 def main_softmax():
+    import os
+    import time
+    import numpy as np
+    import pandas as pd
 
-    pass
+    from flagx.gating import SoftmaxClassifier
+    from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise
 
+    # ### Set flags and important variables here #######################################################################
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    pos_labels = [None, None, None, 1, 1, None]
 
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
+    data_sets = [
+        'imstat',   # Todo
+    ]
+    pos_labels = [None, ]   # Todo
+
+    preprocessing_trafos = ['arcsinh_cofactor150', ]   # Todo
+
+    fit = True
+    predict = True
+    evaluate = True
+    ####################################################################################################################
+
+    for data_set, pos_label in zip(data_sets, pos_labels):
+        for trafo in preprocessing_trafos:
+
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+            if not os.path.exists(data_p):
+                print(f'# ### Found no data. Continue.\n')
+                continue
+
+            # Define path where results will be saved to
+            save_p = os.path.join(os.getcwd(), f'results/pred_eval/softmax_classifier/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
+
+            if fit:
+
+                # Load training data
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:1000, :]  # Todo
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:1000]  # Todo
+
+                # Instantiate the Softmax classifier with default parameters
+                softmax_clf = SoftmaxClassifier(
+                    layer_sizes=(128, 64, 32),
+                    n_epochs=20,
+                    data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                    device=None,  # Tries to use default cuda device, if none availabel cpu
+                    verbosity=2
+                )
+
+                # Fit and track time
+                print('# ### Starting fit ...')
+                st_fit = time.time()
+                softmax_clf.fit(X=x_train, y=y_train)
+                et_fit = time.time()
+                fit_time_sek = et_fit - st_fit
+                fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+                print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+                fit_time_df = pd.DataFrame(
+                    data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+                )
+                fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+                softmax_clf.save(filepath=save_p)
+
+            else:
+                # Load the SOM classifier
+                softmax_clf = SoftmaxClassifier.load(filepath=save_p)
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+                print('# ### Starting prediction ...')
+                st_pred = time.time()
+                y_pred = softmax_clf.predict(X=x_test)
+                et_pred = time.time()
+                pred_time_sek = et_pred - st_pred
+                pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+                print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+                pred_time_df = pd.DataFrame(
+                    data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+                )
+                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                # Load the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+                samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+                samples_y_pred = []
+                samples_pred_times = []
+
+                print('# ### Starting sample-wise prediction ...')
+                for x in samples_x_test:
+                    st = time.time()
+                    samples_y_pred.append(softmax_clf.predict(X=x))
+                    et = time.time()
+                    samples_pred_times.append(et - st)
+
+                samples_pred_times_df = pd.DataFrame(index=sample_names, columns=['pred_time'])
+                samples_pred_times_df['pred_time'] = samples_pred_times
+                m = samples_pred_times_df['pred_time'].mean(axis=0)
+                std = samples_pred_times_df['pred_time'].std(axis=0)
+                samples_pred_times_df.loc['mean'] = m
+                samples_pred_times_df.loc['std'] = std
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, sn in zip(samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+            else:
+                # Load the predictions
+                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [
+                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+                ]
+                samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=None,
+                    others_label=None,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+
+                # Load the labels of the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+                samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=None,
+                    others_label=None,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
 def main_n_samples_experiment():
@@ -1282,7 +2041,7 @@ if __name__ == '__main__':
 
     # main_data_preparation()
 
-    # main_param_influence_study()  # started in pi for epochs
+    # main_param_influence_study()  # todo: binary (gmc0), dim/lr0/lrn (pi1), sigma/r0/rn (pi0)
 
     # main_parm_tuning_set_wise()
 
@@ -1290,7 +2049,13 @@ if __name__ == '__main__':
 
     # main_n_epochs_calibration()
 
-    main_som_classifier()
+    # main_som_classifier()
+
+    # main_gatemeclass()  # todo: debug this in gmc0
+
+    # main_dgcytof()
+
+    main_softmax()
 
     print('done')
 
