@@ -42,7 +42,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             kernel_type: int = 0,  # 0 ~= CPU, 1 ~= GPU
             # cores: Union[List[int], None] = None,
             unlabeled_label: Any = -999,
-            verbosity: int = 0,
+            verbosity: int = 1,
     ):
         super().__init__()
         # ### Initialize parameters
