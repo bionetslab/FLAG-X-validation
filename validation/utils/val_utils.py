@@ -1,8 +1,11 @@
 
+import os
 import warnings
+import time
+import copy
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple, Sequence, Optional, Callable, Dict, List
+from typing import Union, Tuple, Callable, Dict, List, Any
 
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
@@ -136,8 +139,6 @@ def prec_rec_f1_avg(
         pos_label: Union[int, None] = None,
         verbosity: int = 1,
 ) -> pd.DataFrame:
-
-    # todo: add binary option (if pos label given, also compute binary)
 
     score_names = ['precision', 'recall', 'f1-score']
     score_fcts = [precision_score, recall_score, f1_score]
@@ -498,4 +499,201 @@ def get_error_dataframe(
 
     return error_df
 
+
+def n_samples_experiment_helper(
+        classifier: Any,
+        downsampled_data_subdirs: List[str],
+        data_p: Union[str, None] = None,
+        save_p: Union[str, None] = None,
+        abstention_label: Union[int, None] = None,
+        others_label: Union[int, None] = None,
+        pos_label: Union[int, None] = None,
+):
+
+    if data_p is None:
+        data_p = os.getcwd()
+
+    if save_p is None:
+        save_p = os.getcwd()
+
+    # Load the test data
+    x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+    y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+    # Load the sample-wise test data
+    samples_p = os.path.join(data_p, 'sample_wise_test')
+    n_samples_test = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+    sample_names_test = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples_test)]
+    samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names_test]
+    samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+    samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names_test]
+    samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+    # Get number of downsampling fractions to be analyzed
+    n_ds_fractions = len(downsampled_data_subdirs)
+
+    # Get number of samples in the dataset
+    n_samples = len([fn for fn in os.listdir(os.path.join(data_p, 'sample_wise_train')) if fn.startswith('x_')])
+
+    # Get list of index tuples to iterate in desired order
+    iter_list = _get_expanding_iterator_list(n=n_ds_fractions, m=n_samples)
+
+    # Init dfs to track performance, prec, rec, f1, micro, macro, weighted, binary (if available)
+    dummy_df = pd.DataFrame(np.nan, index=downsampled_data_subdirs, columns=list(range(1, n_samples + 1)))
+    n_modes = 3 if pos_label is None else 4
+    res_dfs = [dummy_df.copy() for _ in range(n_modes * 3)]
+    metrics = ['prec', ] * n_modes + ['rec', ] * n_modes + ['f1'] * n_modes
+    modes = ['micro', 'macro', 'weighted'] * 3 if pos_label is None else ['micro', 'macro', 'weighted', 'binary'] * 3
+
+    for i, j in iter_list:  # i = n_ds_fractions, j = n_samples
+
+        # Deepcopy classifier before training etc in each loop
+        clf = copy.deepcopy(classifier)
+
+        # ### Define path for saving results
+        current_save_p = os.path.join(save_p, 'detailed_res', f'dsfrac_{downsampled_data_subdirs[i]}_nsamples_{j + 1}')
+        os.makedirs(current_save_p, exist_ok=True)
+
+        # ### Load the train data
+        data_p_ds = os.path.join(data_p, 'downsampled', downsampled_data_subdirs[i], 'sample_wise_train')
+        n_samples_train = len([f for f in os.listdir(data_p_ds) if f.startswith('x_')])
+        sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_test)]
+
+        fns_x_train = [f'x_{sn}.npy' for sn in sample_names_train][:j + 1]
+        x_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_x_train]
+
+        fns_y_train = [f'y_{sn}.npy' for sn in sample_names_train][:j + 1]
+        y_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_y_train]
+
+        # Concatenate and shuffle rows
+        x_train = np.concatenate(x_trains, axis=0)
+        y_train = np.concatenate(y_trains, axis=0)
+
+        shuffle_permutation = np.random.permutation(x_train.shape[0])
+        x_train = x_train[shuffle_permutation, :]
+        y_train = y_train[shuffle_permutation]
+
+        # ### Fit the classifier
+        print('# ### Starting fit ...')
+        st_fit = time.time()
+        clf.fit(X=x_train, y=y_train)
+        et_fit = time.time()
+        fit_time_sek = et_fit - st_fit
+        fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+        print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+        fit_time_df = pd.DataFrame(
+            data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+        )
+        fit_time_df.to_csv(os.path.join(current_save_p, 'fit_time_df.csv'))
+
+        clf.save(filepath=current_save_p)
+
+        # ### Predict
+        print('# ### Starting prediction ...')
+        st_pred = time.time()
+        y_pred = clf.predict(X=x_test)
+        et_pred = time.time()
+        pred_time_sek = et_pred - st_pred
+        pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+        print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+        pred_time_df = pd.DataFrame(
+            data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+        )
+        pred_time_df.to_csv(os.path.join(current_save_p, 'pred_time_df.csv'))
+
+        np.save(os.path.join(current_save_p, 'y_pred.npy'), y_pred)
+
+        print('# ### Starting sample-wise prediction ...')
+        samples_y_pred = []
+        samples_pred_times = []
+        for x, sn in zip(samples_x_test, sample_names_test):
+            st = time.time()
+            samples_y_pred.append(clf.predict(X=x))
+            et = time.time()
+            samples_pred_times.append(et - st)
+
+        samples_pred_times_df = pd.DataFrame(index=sample_names_test, columns=['pred_time'])
+        samples_pred_times_df['pred_time'] = samples_pred_times
+        m = samples_pred_times_df['pred_time'].mean(axis=0)
+        std = samples_pred_times_df['pred_time'].std(axis=0)
+        samples_pred_times_df.loc['mean'] = m
+        samples_pred_times_df.loc['std'] = std
+        samples_pred_times_df.to_csv(os.path.join(current_save_p, 'samples_pred_times_df.csv'))
+
+        print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+        os.makedirs(os.path.join(current_save_p, 'samples_y_pred'), exist_ok=True)
+        for y, sn in zip(samples_y_pred, sample_names_test):
+            np.save(os.path.join(current_save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+        # ### Evaluate
+        # Compute evaluation metrics for samples concatenated to one
+        out = eval_wrapper(
+            y_true=y_test,
+            y_pred=y_pred,
+            abstention_label=abstention_label,
+            others_label=others_label,
+            pos_label=pos_label,
+            verbosity=1
+        )
+
+        out[0].to_csv(os.path.join(current_save_p, 'res_df_avg.csv'))
+        out[1].to_csv(os.path.join(current_save_p, 'res_df_cw.csv'))
+        out[2].to_csv(os.path.join(current_save_p, 'cf_mat.csv'))
+        if abstention_label is not None:
+            out[3].to_csv(os.path.join(current_save_p, 'abst_counts.csv'))
+
+        # Compute sample-wise evaluation metrics
+        out_sw = eval_wrapper_sample_wise(
+            y_trues=samples_y_test,
+            y_preds=samples_y_pred,
+            abstention_label=abstention_label,
+            others_label=others_label,
+            pos_label=pos_label,
+            verbosity=2,
+        )
+
+        out_sw[0].to_csv(os.path.join(current_save_p, 'res_df_sw_avg_prec.csv'))
+        out_sw[1].to_csv(os.path.join(current_save_p, 'res_df_sw_avg_rec.csv'))
+        out_sw[2].to_csv(os.path.join(current_save_p, 'res_df_sw_avg_f1.csv'))
+
+        out_sw[3].to_csv(os.path.join(current_save_p, 'res_df_sw_cw_prec.csv'))
+        out_sw[4].to_csv(os.path.join(current_save_p, 'res_df_sw_cw_rec.csv'))
+        out_sw[5].to_csv(os.path.join(current_save_p, 'res_df_sw_cw_f1.csv'))
+
+        if abstention_label is not None:
+            out_sw[7].to_csv(os.path.join(current_save_p, 'abst_counts.csv'))
+
+        os.makedirs(os.path.join(current_save_p, 'confusion_matrices_sw'), exist_ok=True)
+        for cf_df, sn in zip(out_sw[6], sample_names_test):
+            cf_df.to_csv(os.path.join(current_save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+        for res_df, metric, mode in zip(res_dfs, metrics, modes):
+
+            if metric == 'prec':
+                out_df = out_sw[0]
+            elif metric == 'rec':
+                out_df = out_sw[1]
+            else:  # f1
+                out_df = out_sw[2]
+
+            res_df.loc[downsampled_data_subdirs[i], j + 1] = out_df.loc['mean', mode]
+
+            res_df.to_csv(os.path.join(save_p, f'res_df_{metric}_{mode}.csv'))
+
+
+def _get_expanding_iterator_list(n: int, m: int) -> List[Tuple[int, int]]:
+    max_dim = max(n, m)
+    seen = set()
+    out = []
+    for size in range(1, max_dim + 1):
+        for i in range(size):
+            for j in range(size):
+                if i < n and j < m and (i, j) not in seen:
+                    out.append((i, j))
+                    seen.add((i, j))
+    return out
 
