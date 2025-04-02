@@ -236,20 +236,24 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
     ) -> None:
         if filepath is None:
             filepath = os.getcwd()
-        with open(os.path.join(filepath, filename), 'wb') as f:
-            pickle.dump(self, f)
+        # with open(os.path.join(filepath, filename), 'wb') as f:
+            # pickle.dump(self, f)
+        torch.save(self, os.path.join(filepath, filename))
 
     @classmethod
     def load(
             cls,
             filename: str = 'softmax_classifier.pkl',
             filepath: Union[str, None] = None,
+            map_location: Union[str, torch.device] = 'cpu',
     ) -> Self:
         if filepath is None:
             filepath = os.getcwd()
 
-        with open(os.path.join(filepath, filename), 'rb') as f:
-            return pickle.load(f)
+        # with open(os.path.join(filepath, filename), 'rb') as f:
+        #     return torch.load(f, map_location=torch.device('cpu'))
+
+        return torch.load(os.path.join(filepath, filename), map_location=map_location)
 
     @staticmethod
     def _process_class_labels(
