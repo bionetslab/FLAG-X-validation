@@ -1,6 +1,5 @@
 
 import os
-import pickle
 import warnings
 import numpy as np
 import pandas as pd
@@ -16,6 +15,7 @@ from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.metrics import f1_score
 from torch.autograd import Variable
 from scipy.stats import spearmanr
+
 
 class DgcytofClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
@@ -180,20 +180,20 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
     ) -> None:
         if filepath is None:
             filepath = os.getcwd()
-        with open(os.path.join(filepath, filename), 'wb') as f:
-            pickle.dump(self, f)
+
+        torch.save(self, os.path.join(filepath, filename))
 
     @classmethod
     def load(
             cls,
             filename: str = 'dgcytof_classifier.pkl',
             filepath: Union[str, None] = None,
+            map_location: Union[str, torch.device] = 'cpu'
     ) -> Self:
         if filepath is None:
             filepath = os.getcwd()
 
-        with open(os.path.join(filepath, filename), 'rb') as f:
-            return pickle.load(f)
+        return torch.load(os.path.join(filepath, filename), map_location=map_location, weights_only=False)
 
     @staticmethod
     def _process_class_labels(

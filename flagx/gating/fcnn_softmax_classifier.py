@@ -1,6 +1,5 @@
 
 import os
-import pickle
 import warnings
 import numpy as np
 import torch
@@ -236,8 +235,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
     ) -> None:
         if filepath is None:
             filepath = os.getcwd()
-        # with open(os.path.join(filepath, filename), 'wb') as f:
-            # pickle.dump(self, f)
+
         torch.save(self, os.path.join(filepath, filename))
 
     @classmethod
@@ -250,10 +248,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
         if filepath is None:
             filepath = os.getcwd()
 
-        # with open(os.path.join(filepath, filename), 'rb') as f:
-        #     return torch.load(f, map_location=torch.device('cpu'))
-
-        return torch.load(os.path.join(filepath, filename), map_location=map_location)
+        return torch.load(os.path.join(filepath, filename), map_location=map_location, weights_only=False)
 
     @staticmethod
     def _process_class_labels(
