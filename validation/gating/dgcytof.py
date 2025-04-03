@@ -10,62 +10,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data_utils
 import torch.optim as optim
-import DGCyTOF
-from typing import Union, Tuple, TypeVar, Dict, Any
+from typing import Union, Tuple, Dict, Self, Any
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.metrics import f1_score
 from torch.autograd import Variable
 from scipy.stats import spearmanr
-
-T = TypeVar("T", bound="DgcytofClassifier")
-
-# ### Define the Softmax-classifier
-# Dimensions chosen as described in paper and
-# https://github.com/lijcheng12/DGCyTOF/blob/main/Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb
-class SoftmaxClassifier(nn.Module):
-    def __init__(self, in_size, out_size, layer_sizes: Tuple[int, int, int] = (128, 64, 32)):
-        super(SoftmaxClassifier, self).__init__()
-        # Define layers
-        self.fc1 = nn.Linear(in_size, layer_sizes[0])
-        self.fc2 = nn.Linear(layer_sizes[0], layer_sizes[1])
-        self.fc3 = nn.Linear(layer_sizes[1], layer_sizes[2])
-        self.fc4 = nn.Linear(layer_sizes[2], out_size, bias=True)
-        # self.softmax = nn.Softmax(dim=1)  # Softmax for the output layer
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = self.fc4(x)
-        # x = self.softmax(x)  # Softmax activation for output
-        # Do not apply softmax, CrossEntropyLoss does so internally
-        return x
-
-
-def predict_softmax(
-        X: np.ndarray,
-        softmax_classifier: SoftmaxClassifier,
-        label_mapping: Union[Dict[int, Any], None] = None,
-) -> np.ndarray:
-    X = check_array(X)
-
-    x_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=False)
-
-    # Get softmax probabilities
-    with torch.no_grad():  # Ensure no gradients are computed
-        y_proba = F.softmax(softmax_classifier(x_tensor), dim=1)
-
-    # Convert tensor to NumPy
-    y_proba = y_proba.cpu().numpy()
-
-    y_pred = y_proba.argmax(axis=1)
-
-    if label_mapping is not None:
-        y_pred = np.array([label_mapping[key] for key in y_pred])
-
-    return y_pred
-
 
 class DgcytofClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
@@ -91,14 +41,14 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         self.class_priors_ = None
         self.new_to_og_classes_dict_ = None
         self.device_ = None
-        self.softmax_classifier_ = None
+        self.fcnn_model_ = None
         self.validation_results_ = None
 
     def fit(
             self,
             X: np.ndarray,
             y: np.ndarray
-    ) -> T:
+    ) -> Self:
 
         X, y = check_X_y(X, y)
 
@@ -125,13 +75,13 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
 
         # ### Model training
         # Instantiate the softmax classifier
-        self.softmax_classifier_ = SoftmaxClassifier(in_size=x_train.shape[1], out_size=np.unique(y_train).shape[0])
+        self.fcnn_model_ = FCNNModel(in_size=x_train.shape[1], out_size=np.unique(y_train).shape[0])
         # Move model and tensors to device
-        self.softmax_classifier_.to(device=self.device_)
+        self.fcnn_model_.to(device=self.device_)
         # Use the function provided by dgcytof for training
         # (https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py)
         DgcytofClassifier.train_model(
-            model_fc=self.softmax_classifier_,
+            model_fc=self.fcnn_model_,
             X_train=dataset_train,
             max_epochs=self.n_epochs,
             params_train=self.train_params,
@@ -139,15 +89,15 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         )
 
         # Move model back to cpu
-        self.softmax_classifier_ = self.softmax_classifier_.to("cpu")
+        self.fcnn_model_ = self.fcnn_model_.to("cpu")
 
         # ### Validation step
         # Use the validation set to get an estimate of the prediction confidence
         # (for later correction of the predictions)
         # Use the function provided by dgcytof for the validation step
         # (https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py)
-        self.validation_results_ = DGCyTOF.validate_model(
-            model_fc=self.softmax_classifier_,
+        self.validation_results_ = DgcytofClassifier.validate_model(
+            model_fc=self.fcnn_model_,
             val_tensor=dataset_val,
             classes=np.unique(y_train).tolist(),
             params_val={'batch_size': 10000, 'shuffle': False, 'num_workers': 6}
@@ -172,7 +122,7 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         # Adopted the function provided by dgcytof for the calibration step
         # (https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py)
         _, y_pred = DgcytofClassifier._calibrate_data(
-            model_fc=self.softmax_classifier_,
+            model_fc=self.fcnn_model_,
             X_test=x_tensor,
             classes=self.classes_.tolist(),
             validation_results=self.validation_results_,
@@ -202,7 +152,7 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
 
         # Get softmax probabilities
         with torch.no_grad():  # Ensure no gradients are computed
-            y_proba = F.softmax(self.softmax_classifier_(x_tensor), dim=1)
+            y_proba = F.softmax(self.fcnn_model_(x_tensor), dim=1)
 
         # Convert tensor to NumPy array and return
         return y_proba.cpu().numpy()
@@ -219,7 +169,7 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         # by setting their sample weight to 0
         if sample_weight is None:
             sample_weight = np.ones(X.shape[0])
-            sample_weight[y_pred == -1] = 0
+            sample_weight[y_pred == -1] = 0  # Todo
 
         return f1_score(y, y_pred, average='macro', sample_weight=sample_weight)
 
@@ -235,10 +185,10 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
 
     @classmethod
     def load(
-            cls: type(T),
+            cls,
             filename: str = 'dgcytof_classifier.pkl',
             filepath: Union[str, None] = None,
-    ) -> T:
+    ) -> Self:
         if filepath is None:
             filepath = os.getcwd()
 
@@ -262,30 +212,47 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         return y_new, new_classes, class_priors, new_to_og_classes_dict, og_classes
 
     @staticmethod
-    def train_model(model_fc, X_train, max_epochs=20,
-                    params_train={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
-                    device: torch.device=torch.device('cpu')):
-        '''
+    def train_model(
+            model_fc: nn.Module,
+            X_train: torch.utils.data.TensorDataset,
+            max_epochs: int = 20,
+            params_train: Union[Dict[str, Any], None] = None,
+            device: Union[torch.device, None] = None,
+    ) -> None:
+        """
+        Train loop for the fully connected neural network at the core of the Dgcytof classifier.
+        Function is an adapted version of train_model() from:
+        https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py
 
-            Trains the entered deep learning model using Pytorch. Utulized criterion is CrossEntropyLoss and optimizer is Adam
-            optimizer with learning rate 0.001. The input model is set to evaluation mode after training.
+        Trains the entered deep learning model using Pytorch. Criterion is CrossEntropyLoss and optimizer is Adam
+        optimizer with learning rate 0.001. The input model is set to evaluation mode after training.
 
-            **Params**:
+        Args:
+            model_fc (nn.Module):
+                A PyTorch model with a `forward()` method. It should perform
+                classification using `argmax` in its design.
+            X_train (torch.utils.data.TensorDataset):
+                Training dataset wrapped in a TensorDataset.
+            max_epochs (int, optional):
+                Number of training epochs. Defaults to 20.
+            params_train (dict, optional):
+                Parameters for the DataLoader. Expected keys are:
+                - 'batch_size' (int): Size of each batch (default: 128)
+                - 'shuffle' (bool): Whether to shuffle the data (default: True)
+                - 'num_workers' (int): Number of subprocesses for data loading (default: 6)
+            device (torch.device, optional):
+                Device to run the training on (e.g., 'cpu' or 'cuda'). Defaults to 'cpu'.
 
-            * model_fc: PyTorch model, must have a forward function and utilize argmax as classification in its design
-            * max_epochs: Number of epochs the model will be trained for
-                * default: 20
-            * params_train: dictionary containing information for trainloader, requires at least a batch_size, shuffle, and
-            num_workers keys.
-                * batch_size: Number of data points in a single batch, default 128
-                * shuffle: Shuffle the batches prior to training, default True
-                * num_workers: Number of processes that will be used to load data, default 6
+        Returns:
+            None
+        """
 
-            **Returns**:
+        if params_train is None:
+            params_train = {'batch_size': 128, 'shuffle': True, 'num_workers': 6}
 
-            * None: Nothing is returned, the model is set to eval mode after training.
+        if device is None:
+            device = torch.device('cpu')
 
-        '''
         train_loader = data_utils.DataLoader(dataset=X_train, **params_train)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model_fc.parameters(), lr=0.001)
@@ -330,8 +297,23 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         # (as well as the unclassifiable samples as before), unclassifiable samples are predicted to have label - 1
         # Also, did not include all events in calculation of correlation matrices, to not exceed the memory limit.
         # Previously this was only done for class 1
-        corr_mtrx_dim_limit = 12000
-        '''
+
+        """
+        Function adapted with minor changes from:
+        https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py
+
+        Changes to the original function are highlighted by inline comments of the form:
+        # ###### Start, My addition ###### #
+        ...
+        # ###### End, My addition ###### #
+
+        Note:
+        A limit for the dimension of the correlation matrices is introduced to avoid memory issues.
+        In the original function this was only done for some classes of the input data.
+
+        ################################################################################################################
+        # ### Original function description:
+
         Calibrates the test set of the data based on the training model and validation results in performing over the test set.
         Test data either are classified more accurately or labeled as a new subtype based on the minimum threshold
         in classification. Minumum threshold is computed by obtaining the lowest correlation probability from validation results.
@@ -350,7 +332,11 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         **Returns**:
 
         * updated_incorrect_data: Calibrated incorrect data.
-        '''
+        """
+
+        # ###### Start, My addition ###### #
+        corr_mtrx_dim_limit = 12000
+        # ###### End, My addition ###### #
 
         # Create list of instances from the val set where the prediction was correct,
         # save the predicted probability of the predicted class (i.e. the confidence of the class prediction)
@@ -486,7 +472,7 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         #    they indicate the most probable class they actually belong to
 
         # Drop rows with all zeros
-        temp_1 = temp.loc[(temp != 0).any(1)]
+        temp_1 = temp.loc[(temp != 0).any(axis=1)]  # ### My addition: add axis keyword
 
         # Set highest value in each row to 1 and other entries to 0, store in df
         # => Df with the corrected cell type predictions
@@ -535,6 +521,10 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
 
     @staticmethod
     def _active_learning_index(test_correct_list, rho, indices=True):
+        """
+        Helper function, identical to active_learning_index() from:
+        https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py
+        """
         wrongly_incorrect_index = []  # indices of wrongly predicted incorrect
         # Number of events that were deemed to be correctly classified as some label
         correct_size = len(test_correct_list)  # length of correct class
@@ -564,4 +554,92 @@ class DgcytofClassifier(BaseEstimator, ClassifierMixin):
         else:
             return rho_avg
 
+    @staticmethod
+    def validate_model(model_fc, val_tensor, classes,
+                       params_val={'batch_size': 10000, 'shuffle': False, 'num_workers': 6}):
+        """
+        Function is identical to validate_model() from:
+        https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py
 
+        ################################################################################################################
+        # ### Original function description:
+        Runs validation on the validation dataset, print out the performance of the trained model for all cell types and returns
+        them as a zip.
+
+        **Params**:
+
+        * model_fc: Trained PyTorch model, must have a forward function and utilize argmax as classification in its design
+        * val_tensor: Validation dataset as a Torch tensor.
+        * classes: List of types of cells
+        * params_val: dictionary containing information for dataloader, requires at least a batch_size, shuffle, and num_workers
+        keys.
+            * batch_size: Number of data points in a single batch, default 128
+            * shuffle: Shuffle the batches prior to training, default True
+            * num_workers: Number of processes that will be used to load data, default 6
+
+        **Returns**:
+
+        * Zip of listed results. Each respective row contains pred,label,out in validation_results
+            * pred: Predicted label of a data point
+            * label: Actual label of a data point
+            * out: Output value of the data running forward through model_fc
+
+        """
+        assert (len(set(classes)) > 1), "There must be at least 2 classes"
+
+        labels = len(classes)
+
+        model_fc.eval()
+
+        val_loader = data_utils.DataLoader(dataset=val_tensor, **params_val)
+
+        class_correct = list(0. for i in range(labels))
+        class_total = list(0. for i in range(labels))
+
+        val_correct = 0
+        val_total = 0
+
+        for data in val_loader:
+            val_samples, val_labels = data
+            val_outputs = model_fc(Variable(val_samples))
+            _, val_predicted = torch.max(val_outputs.data, 1)  # Find the class index with the maximum value.
+            c = (val_predicted == val_labels).squeeze()
+            for i in range(val_labels.shape[0]):
+                label = val_labels[i]
+                class_correct[label] += c[i].item()
+                class_total[label] += 1
+
+            val_total += val_labels.size(0)
+            val_correct += (val_predicted == val_labels).sum()
+
+        print("Accuracy:", round(100 * val_correct.item() / val_total, 4))
+        print('-' * 100)
+        for i in range(labels):
+            print('Accuracy of {} : {}'.format(
+                classes[i], round(100 * class_correct[i] / class_total[i], 3)))
+
+        # Return. validation results
+        return list(zip(val_predicted, val_labels, val_outputs))
+
+
+# ### Define the FCNN Softmax model
+# Dimensions chosen as described in Dgcytof paper and
+# https://github.com/lijcheng12/DGCyTOF/blob/main/Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb
+class FCNNModel(nn.Module):
+    def __init__(self, in_size, out_size, layer_sizes: Tuple[int, int, int] = (128, 64, 32)):
+        super(FCNNModel, self).__init__()
+        # Define layers
+        self.fc1 = nn.Linear(in_size, layer_sizes[0])
+        self.fc2 = nn.Linear(layer_sizes[0], layer_sizes[1])
+        self.fc3 = nn.Linear(layer_sizes[1], layer_sizes[2])
+        self.fc4 = nn.Linear(layer_sizes[2], out_size, bias=True)
+        # self.softmax = nn.Softmax(dim=1)  # Softmax for the output layer
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = self.fc4(x)
+        # x = self.softmax(x)  # Softmax activation for output
+        # Do not apply softmax, CrossEntropyLoss does so internally
+        return x
