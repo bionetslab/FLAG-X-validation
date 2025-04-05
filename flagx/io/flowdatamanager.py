@@ -278,7 +278,7 @@ class FlowDataManager:
     @staticmethod
     def align_channel_names_worker(
             data_list: List[sc.AnnData],
-            reference: Union[int, dict],  # Either int for which file to use as reference or a
+            reference: Union[int, dict, None] = None,  # Either int for which file to use as reference or a
             # dictionary with possible_name: reference_name
             inplace: bool = False,
             filename_log_df: Union[str, None] = None,  # Filename for log df, None then no saving
@@ -292,6 +292,9 @@ class FlowDataManager:
             data_list = copy.deepcopy(data_list)
 
         # ### If idx to reference anndata / file is passed use it to create list of reference channel names
+        if reference is None:
+            reference = 0
+
         if isinstance(reference, int):
             # Create list of channel names on the basis of selected AnnData object
             reference = data_list[reference].var_names.values.tolist()
