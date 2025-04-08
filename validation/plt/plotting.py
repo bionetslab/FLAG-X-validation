@@ -327,6 +327,34 @@ def plot_prec_rec_vs_thresh(
     return ax
 
 
+def plot_n_samples_n_events(
+        res_df: pd.DataFrame,
+        cmap_name: str = 'magma',
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    # Instantiate axis
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    # Get cmap
+    cmap = plt.get_cmap(cmap_name)
+
+    for i, (idx, row) in enumerate(res_df.iterrows()):
+        # Get row values that are not NaNs
+        valid_values = row.dropna()
+        # Skip rows with all NaNs
+        if valid_values.empty:
+            continue
+
+        ax.plot(valid_values.index, valid_values.values, marker='o', c=cmap(i / (res_df.shape[0] - 1)), label=idx)
+
+    # Optional: add labels, title, legend, etc.
+    ax.set_xlabel('n samples')
+    ax.set_ylabel('F1 binary')
+    ax.legend(title='ds frac')
+
+    return ax
 
 
 
