@@ -508,6 +508,8 @@ def n_samples_experiment_helper(
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
         pos_label: Union[int, None] = None,
+        random_sample_order: bool = True,
+        sample_order_file: Union[str, None] = None,  # Cannot be None if random_sample_order == False
 ):
 
     if data_p is None:
@@ -521,26 +523,26 @@ def n_samples_experiment_helper(
     y_test = np.load(os.path.join(data_p, 'y_test.npy'))
 
     # Load the sample-wise test data
-    samples_p = os.path.join(data_p, 'sample_wise_test')
-    n_samples_test = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+    samples_p_test = os.path.join(data_p, 'sample_wise_test')
+    n_samples_test = len([f for f in os.listdir(samples_p_test) if f.startswith('x_')])
     sample_names_test = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples_test)]
     samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names_test]
-    samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+    samples_x_test = [np.load(os.path.join(samples_p_test, f)) for f in samples_x_test_filenames]
 
     samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names_test]
-    samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+    samples_y_test = [np.load(os.path.join(samples_p_test, f)) for f in samples_y_test_filenames]
 
     # Get number of downsampling fractions to be analyzed
     n_ds_fractions = len(downsampled_data_subdirs)
 
-    # Get number of samples in the dataset
-    n_samples = len([fn for fn in os.listdir(os.path.join(data_p, 'sample_wise_train')) if fn.startswith('x_')])
+    # Get number of train samples in the dataset
+    n_samples_train = len([fn for fn in os.listdir(os.path.join(data_p, 'sample_wise_train')) if fn.startswith('x_')])
 
     # Get list of index tuples to iterate in desired order
-    iter_list = _get_expanding_iterator_list(n=n_ds_fractions, m=n_samples)
+    iter_list = _get_expanding_iterator_list(n=n_ds_fractions, m=n_samples_train)
 
     # Init dfs to track performance, prec, rec, f1, micro, macro, weighted, binary (if available)
-    dummy_df = pd.DataFrame(np.nan, index=downsampled_data_subdirs, columns=list(range(1, n_samples + 1)))
+    dummy_df = pd.DataFrame(np.nan, index=downsampled_data_subdirs, columns=list(range(1, n_samples_train + 1)))
     n_modes = 3 if pos_label is None else 4
     res_dfs = [dummy_df.copy() for _ in range(n_modes * 3)]
     metrics = ['prec', ] * n_modes + ['rec', ] * n_modes + ['f1'] * n_modes
@@ -557,14 +559,39 @@ def n_samples_experiment_helper(
 
         # ### Load the train data
         data_p_ds = os.path.join(data_p, 'downsampled', downsampled_data_subdirs[i], 'sample_wise_train')
-        n_samples_train = len([f for f in os.listdir(data_p_ds) if f.startswith('x_')])
-        sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_test)]
+        if random_sample_order:
+            # n_samples_train = len([f for f in os.listdir(data_p_ds) if f.startswith('x_')])
+            sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
 
-        fns_x_train = [f'x_{sn}.npy' for sn in sample_names_train][:j + 1]
-        x_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_x_train]
+            fns_x_train = [f'x_{sn}.npy' for sn in sample_names_train][:j + 1]
+            x_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_x_train]
 
-        fns_y_train = [f'y_{sn}.npy' for sn in sample_names_train][:j + 1]
-        y_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_y_train]
+            fns_y_train = [f'y_{sn}.npy' for sn in sample_names_train][:j + 1]
+            y_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_y_train]
+
+        else:
+
+            # Load the filenames in a fixed order from a .txt file
+            with open(sample_order_file, 'r') as file:
+                og_filenames = [line.strip() for line in file if line.strip()]
+
+            # Load the df that stores the mapping from old (.fcs) to new (.npy) filenames
+            og_to_new_fns_df_train = pd.read_csv(
+                os.path.join(data_p, 'sample_wise_train', 'sample_names_mapping_train.csv'), index_col=0
+            )
+
+            # Get the corresponding new filenames
+            sample_names_train = [
+                og_to_new_fns_df_train.loc[og_to_new_fns_df_train['og_sample_name'] == og_sn, 'new_sample_name'].iloc[0]
+                for og_sn in og_filenames
+            ]
+
+            # Load the samples
+            fns_x_train = [f'x_{sn}' for sn in sample_names_train][:j + 1]
+            x_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_x_train]
+
+            fns_y_train = [f'y_{sn}' for sn in sample_names_train][:j + 1]
+            y_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_y_train]
 
         # Concatenate and shuffle rows
         x_train = np.concatenate(x_trains, axis=0)
