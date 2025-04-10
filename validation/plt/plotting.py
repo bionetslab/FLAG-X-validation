@@ -321,6 +321,7 @@ def plot_prec_rec_vs_thresh(
     ax.plot(thresholds, recs, label='Recall', marker='o', c='g')
 
     ax.set_xlabel('Threshold')
+    ax.set_ylabel('Score (prec, rec), binary')
 
     plt.legend(loc='best')
 
