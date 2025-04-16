@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import scanpy as sc
 
-from typing import Dict
+from .._legacy_typing import Dict
 
 
 def set_random_seed(seed: int = 42):

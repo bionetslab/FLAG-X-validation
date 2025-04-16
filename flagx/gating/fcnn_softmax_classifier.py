@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from typing import Union, Tuple, Dict, List, Self, Any
+from .._legacy_typing import Union, Tuple, Dict, List, SelfSoftmaxClassifier, Any
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.metrics import f1_score
@@ -51,7 +51,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
             y: np.ndarray
-    ) -> Self:
+    ) -> SelfSoftmaxClassifier:
 
         # ### Data processing and preparation
         # Check input data format
@@ -244,7 +244,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
             filename: str = 'softmax_classifier.pkl',
             filepath: Union[str, None] = None,
             map_location: Union[str, torch.device] = 'cpu',
-    ) -> Self:
+    ) -> SelfSoftmaxClassifier:
         if filepath is None:
             filepath = os.getcwd()
 

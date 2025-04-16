@@ -1,7 +1,7 @@
 
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple
+from .._legacy_typing import Tuple
 
 
 class FCNNModel(nn.Module):

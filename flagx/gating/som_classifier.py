@@ -9,7 +9,7 @@ import flowio
 import numpy as np
 import pandas as pd
 
-from typing import Literal, Tuple, Union, List, Self, Dict, Callable, Iterable, Any
+from .._legacy_typing import Literal, Tuple, Union, List, Dict, Callable, Iterable, SelfSomClassifier, Any
 from math import log, exp
 from somoclu import Somoclu
 from umap import UMAP
@@ -123,7 +123,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
             y: np.ndarray,
-    ) -> Self:
+    ) -> SelfSomClassifier:
 
         # Check input data format
         X, y = check_X_y(X, y)
@@ -291,7 +291,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
             y: np.ndarray,
-    ) -> Self:
+    ) -> SelfSomClassifier:
 
         # Ensure SOM has been trained before annotation
         if not hasattr(self, 'som_') or self.som_ is None:
@@ -545,7 +545,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             # https://scikit-learn.org/1.5/modules/model_evaluation.html#scoring-parameter
             gridsearchcv_kwargs: Union[Dict, None] = None,
             # 'n_jobs', 'pre_dispatch', 'error_score', 'return_train_score'
-    ) -> Self:
+    ) -> SelfSomClassifier:
 
         # Set a default parameter grid if none is provided
         if param_grid is None:
@@ -606,7 +606,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             X_y_val: Union[Tuple[np.ndarray, np.ndarray], None] = None,
             checkpoint_dir: Union[str, None] = None,
             save_tracked: bool = False,
-    ) -> Self:
+    ) -> SelfSomClassifier:
 
         if checkpoint_interval < 2 or checkpoint_interval >= self.n_epochs:
             raise ValueError("'checkpoint_interval' must be greater or equal to 2 and smaller than 'n_epochs'")
@@ -968,7 +968,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             cls,
             filename: str = 'som_classifier.pkl',
             filepath: Union[str, None] = None,
-    ) -> Self:
+    ) -> SelfSomClassifier:
         if filepath is None:
             filepath = os.getcwd()
 

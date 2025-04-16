@@ -9,7 +9,7 @@ import os
 import warnings
 import gc
 
-from typing import Tuple, Union, Literal, List, Dict, Any
+from .._legacy_typing import Tuple, Union, Literal, List, Dict, Any
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from .flowdataset import FlowDataset
