@@ -1234,6 +1234,58 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         # (i0, j0), (i1, j1) adjacent in gris is if: abs(i0 - i1) + abs(j0 - j1) = 1
         return np.abs(bmus1 - bmus0).sum(axis=1) == 1
 
+    def transform(
+            self,
+            X: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+
+        check_is_fitted(self, 'is_fitted_')
+
+        bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
+
+        som_unit_ids = self._get_row_major_positions(bmus=bmus, start_from=1)
+
+        bmus_df = pd.DataFrame(
+            data=np.hstack((bmus, som_unit_ids.reshape((-1, 1)))),
+            columns=['bmu1', 'bmu2', 'unit_id']
+        )
+
+        # Get dataframe with columns: 'bmu1', 'bmu2', 'som_unit_id', 'count'
+        unit_counts = bmus_df.groupby(['bmu1', 'bmu2', 'unit_id']).size().reset_index(name='count')
+
+        # Compute radius for each unit that is proportional to count
+        counts = unit_counts['count'].to_numpy()
+        # Version 2:
+        radii = 0.5 * np.sqrt(counts) / np.sqrt(counts.max())
+        # Version 1:
+        # radii = np.sqrt(counts / np.pi)
+        # radii = 0.5 * radii / radii.max()
+        # Version 0:
+        # radii = (counts - counts.min()) / (counts.max() - counts.min())
+        # radii = np.sqrt(radii)  # Area should be proportional to count -> use square root
+        # radii = radii * 0.5  # Radius should be <= 0.5
+        unit_counts['radius'] = radii
+
+        bmus_df['bmu1_scattered'] = np.zeros(bmus.shape[0])
+        bmus_df['bmu2_scattered'] = np.zeros(bmus.shape[0])
+        bmus_df['radius'] = np.zeros(bmus.shape[0])
+
+        for bmu1, bmu2, unit_id, count, radius in zip(
+                unit_counts['bmu1'], unit_counts['bmu2'], unit_counts['unit_id'], unit_counts['count'],
+                unit_counts['radius']
+        ):
+            x, y = SomClassifier._random_points_on_sphere(x_center=bmu1, y_center=bmu2, radius=radius, n=count)
+            mask = bmus_df['unit_id'] == unit_id
+            bmus_df.loc[mask, 'bmu1_scattered'] = x
+            bmus_df.loc[mask, 'bmu2_scattered'] = y
+            bmus_df.loc[mask, 'radius'] = radius
+
+        bmus_scattered = bmus_df[['bmu1_scattered', 'bmu2_scattered']].to_numpy()
+
+        radii_out = bmus_df['radius'].to_numpy()
+
+        return bmus, bmus_scattered, som_unit_ids, radii_out
+
     def _x_to_fcs_style_df(
             self,
             X: np.ndarray,
