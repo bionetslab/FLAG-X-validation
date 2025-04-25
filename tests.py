@@ -1,3 +1,5 @@
+import numpy as np
+
 
 # Todo: write proper unittests for main classes of package
 
@@ -1041,23 +1043,688 @@ def test_metrics_calc():
     )
 
 
+def test_binary_and_micro():
+
+    import numpy as np
+    from sklearn.metrics import precision_score, recall_score
+
+    y_true = [1, 0, 1, 0]
+    y_pred = [1, 0, 0, 1]
+
+    prec_binary = precision_score(y_true=y_true, y_pred=y_pred, average='binary', pos_label=1)
+    rec_binary = recall_score(y_true=y_true, y_pred=y_pred, average='binary', pos_label=1)
+
+    prec_micro = precision_score(y_true=y_true, y_pred=y_pred, average='micro')
+    rec_micro = recall_score(y_true=y_true, y_pred=y_pred, average='micro')
+
+    print(f'# ### Binary: prec: {prec_binary}, rec: {rec_binary}')
+    print(f'# ### Micro: precision: {prec_micro}, recall: {rec_micro}')
+
+    prec_binaries = []
+    rec_binaries = []
+    prec_micros = []
+    rec_micros = []
+
+    for i in range(100):
+
+        np.random.seed(i)
+
+        y_true = np.random.randint(low=0, high=2, size=(1000,))
+        y_pred = np.random.randint(low=0, high=2, size=(1000,))
+
+        prec_binary = precision_score(y_true=y_true, y_pred=y_pred, average='binary', pos_label=1)
+        rec_binary = recall_score(y_true=y_true, y_pred=y_pred, average='binary', pos_label=1)
+
+        prec_micro = precision_score(y_true=y_true, y_pred=y_pred, average='micro')
+        rec_micro = recall_score(y_true=y_true, y_pred=y_pred, average='micro')
+
+        prec_binaries.append(prec_binary)
+        rec_binaries.append(rec_binary)
+
+        prec_micros.append(prec_micro)
+        rec_micros.append(rec_micro)
+
+    # print(f'# ### Binary:\nprec: {prec_binaries},\nrec: {rec_binaries}\n')
+    # print(f'# ### Micro:\nprecision: {prec_micros},\nrecall: {rec_micros}\n')
+
+    print('# ### Precision: ', np.all(np.array(prec_binaries) == np.array(prec_micros)))
+    print('# ### Recall: ', np.all(np.array(rec_binaries) == np.array(rec_micros)))
 
 
+def test_data_processing_results():
+
+    import os
+    import numpy as np
+    import pandas as pd
+    from validation.utils import set_pandas_print_options
+
+    set_pandas_print_options()
+
+    ds = 'lymphoma_tube2_binary'
+    trafo = 'log10_channelwisecutoff'
+
+    data_p = os.path.join(os.getcwd(), 'data/np_files/', ds, trafo)
+
+    sample_mapping_df_test = pd.read_csv(
+        os.path.join(data_p, 'sample_wise_test/sample_names_mapping_test.csv'),
+        index_col=0,
+    )
+    print('# ### Sample mapping test:\n', sample_mapping_df_test.head(6))
+
+    sample_mapping_df_train = pd.read_csv(
+        os.path.join(data_p, 'sample_wise_train/sample_names_mapping_train.csv'),
+        index_col=0,
+    )
+    print('# ### Sample mapping train:\n', sample_mapping_df_train.head(6))
+
+    x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+    y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+    print('# ### x_test:\n', x_test)
+    print('# ### y_test:\n', y_test)
+
+    x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+    y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+    print('# ### x_train:\n', x_train)
+    print('# ### y_train:\n', y_train)
 
 
+def test_expanding_iterator():
 
+    from validation.utils.val_utils import _get_expanding_iterator_list
+
+    out = _get_expanding_iterator_list(n=6, m=3)
+
+    print(out)
+
+
+def test_copy():
+
+    import copy
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+
+    clf0 = SomClassifier()
+
+    clf1 = copy.deepcopy(clf0)
+
+    clf0.verbosity = 2
+
+    print(clf0.verbosity)
+    print(clf1.verbosity)
+
+    clf0 = SoftmaxClassifier()
+
+    clf1 = copy.deepcopy(clf0)
+
+    clf0.verbosity = 2
+
+    print(clf0.verbosity)
+    print(clf1.verbosity)
+
+
+def test_gpu_som_training():
+
+    import numpy as np
+
+    from flagx.gating import SomClassifier
+
+    n_events = 10000
+    x = np.random.randn(n_events, 11).astype(np.float32)
+    y = np.random.randint(low=0, high=3, size=(n_events,)).astype(np.int32)
+
+    clf = SomClassifier(som_dimensions=(30, 30), kernel_type=0, verbosity=2)
+
+    clf.fit(x, y)
+
+
+def test_my_som():
+
+    import os
+    import time
+    import numpy as np
+    import numba
+
+    import matplotlib.pyplot as plt
+
+
+    from somoclu import Somoclu
+    # from flagx.utils.som import SOM
+
+    # numba.config.DEBUG_ARRAY_OPT_STATS = True
+
+    n_samples = 10000
+    # x = np.random.normal(loc=0, scale=6, size=(n_samples, 12)).astype(np.float32)
+    # x = np.random.random((n_samples, 12)).astype(np.float32)
+    x = np.vstack((np.zeros((int(n_samples/2), 12)), np.ones((int(n_samples/2), 12)))).astype(np.float32)
+
+    save_p = os.path.join(os.getcwd(), 'results/test/som_windows')
+    os.makedirs(save_p, exist_ok=True)
+
+    fig, ax = plt.subplots(dpi=300)
+    ax.hist(x.flatten(), bins=100, edgecolor='black')
+    plt.savefig(os.path.join(save_p, 'x.png'))
+
+    n_epochs = 100
+    som_dims = (10, 10)
+
+    test_online_numba = False
+    test_batch_numba = False
+    batch_size = n_samples
+    test_somoclu = True
+
+    if test_online_numba:
+        som0 = SOM(
+            som_dimensions=som_dims,
+            distance_metric='euclidean',
+            neighborhood= 'gaussian',
+            gaussian_neighborhood_sigma=0.5,
+            initialization='pca',
+            n_epochs=n_epochs,
+            radius_0=6,
+            radius_n=1.0,
+            radius_cooling='linear',
+            learning_rate_0=0.1,
+            learning_rate_n=0.01,
+            learning_rate_decay='linear',
+            batch_size=None,
+            verbosity=1
+        )
+
+        st = time.time()
+        som0.fit(x)
+        et = time.time()
+
+        fit_time = et - st
+
+        print('# ### Fit time:', fit_time)
+        print('# ### Time per epoch:', fit_time / n_epochs)
+
+    if test_batch_numba:
+        som1 = SOM(
+            som_dimensions=som_dims,
+            distance_metric='euclidean',
+            neighborhood='gaussian',
+            gaussian_neighborhood_sigma=0.5,
+            initialization='pca',
+            n_epochs=n_epochs,
+            radius_0=6,
+            radius_n=1.0,
+            radius_cooling='linear',
+            learning_rate_0=0.1,
+            learning_rate_n=0.01,
+            learning_rate_decay='linear',
+            batch_size=batch_size,
+            verbosity=1
+        )
+
+        st = time.time()
+        som1.fit(x)
+        et = time.time()
+
+        fit_time = et - st
+
+        print('# ### Numba batch ### #')
+        print('# ### Fit time:', fit_time)
+        print('# ### Time per epoch:', fit_time / n_epochs)
+
+        print(som1.codebook_)
+
+        fig, ax = plt.subplots(dpi=300)
+        ax.hist(som1.codebook_.flatten(), bins=100, edgecolor='black')
+        plt.savefig(os.path.join(save_p, 'my_som.png'))
+
+
+    if test_somoclu:
+        som2 = Somoclu(
+                n_columns=som_dims[0],
+                n_rows=som_dims[1],
+                gridtype='rectangular',
+                maptype='planar',
+                neighborhood='gaussian',
+                std_coeff=0.5,
+                initialization='pca',
+                initialcodebook=None,
+                kerneltype=0,
+                verbose=2,
+            )
+
+        st = time.time()
+        som2.train(
+            data=x,
+            epochs=n_epochs,
+            radius0=6,
+            radiusN=1.0,
+            radiuscooling='linear',
+            scale0=0.1,
+            scaleN=0.01,
+            scalecooling='linear',
+        )
+        et = time.time()
+
+        fit_time = et - st
+        print('# ### Somoclu ### #')
+        print('# ### Fit time:', fit_time)
+        print('# ### Time per epoch:', fit_time / n_epochs)
+
+        fig, ax = plt.subplots(dpi=300)
+        ax.hist(som2.codebook.flatten(), bins=100, edgecolor='black')
+        plt.savefig(os.path.join(save_p, 'somomclu.png'))
+
+        print(som2.codebook)
+
+
+def test_windows_env():
+
+    import time
+    import numpy as np
+
+    from somoclu import Somoclu
+
+    n_samples = 10
+    x = np.random.normal(loc=0, scale=6, size=(n_samples, 12)).astype(np.float32)
+    # x = np.random.random((n_samples, 12)).astype(np.float32)
+    # x = np.vstack((np.zeros((int(n_samples / 2), 12)), np.ones((int(n_samples / 2), 12)))).astype(np.float32)
+
+    n_epochs = 10
+    som_dims = (3, 3)
+
+    som = Somoclu(
+        n_columns=som_dims[0],
+        n_rows=som_dims[1],
+        gridtype='rectangular',
+        maptype='planar',
+        neighborhood='gaussian',
+        std_coeff=0.5,
+        initialization='pca',
+        initialcodebook=None,
+        kerneltype=0,
+        verbose=2,
+    )
+
+    st = time.time()
+    som.train(
+        data=x,
+        epochs=n_epochs,
+        radius0=6,
+        radiusN=1.0,
+        radiuscooling='linear',
+        scale0=0.1,
+        scaleN=0.01,
+        scalecooling='linear',
+    )
+    et = time.time()
+
+    fit_time = et - st
+    print('# ### Somoclu ### #')
+    print('# ### Fit time:', fit_time)
+    print('# ### Avg time per epoch:', fit_time / n_epochs)
+
+    print(som.codebook)
+
+    import torch
+    print(torch.cuda.is_available())
+    print(torch.version.cuda)
+
+    from flagx import gating
+    from flagx import io
+    from flagx import dimred
+    from flagx import plt
+    from flagx import utils
+
+
+def test_som_transform():
+
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from flagx.gating import SomClassifier
+    from validation.plt.plotting import plot_som_disks
+
+    n_samples = 10000
+    x0 = np.random.normal(loc=0, scale=6, size=(int(n_samples / 2), 12)).astype(np.float32)
+    x1 = np.random.normal(loc=6, scale=6, size=(int(n_samples / 2), 12)).astype(np.float32)
+    x = np.vstack((x0, x1))
+
+    y = np.full(int(n_samples / 2) * 2, -999)
+
+    n_epochs = 100
+    som_dims = (2, 3)
+
+    clf = SomClassifier(som_dimensions=som_dims, n_epochs=n_epochs, unlabeled_label=-999, verbosity=2)
+
+    clf.fit(x, y)
+
+    bmus, bmus_scattered, bmu_ids, radii = clf.transform(x)
+
+    print(bmus)
+    print(bmus_scattered)
+    print(bmu_ids)
+    print(radii)
+
+    circle_x_y_r = np.hstack((bmus, radii.reshape(-1, 1)))
+
+    fig, ax = plt.subplots(dpi=300)
+    plot_som_disks(
+        x_vals=bmus_scattered[:, 0],
+        y_vals=bmus_scattered[:, 1],
+        scatter_kwargs={'s': 3.0},
+        labels=bmu_ids,
+        cmap='husl',
+        circle_x_y_r=circle_x_y_r,
+        ax=ax,
+    )
+    plt.tight_layout()
+    plt.savefig('zzz.png', dpi=300)
+
+
+def test_pipeline0():
+    """
+    Script for testing the GatingPipeline.
+    Setting:
+        - Gating method: SOM
+        - Dimensionality reduction method: PCA, SOM, UMAP
+        - Try sample-wise and all in one .fcs saving
+        - Try different input parameters (e.g. dim_red_method_kwargs)
+    Returns: None
+
+    """
+
+    import os
+    import readfcs
+    import matplotlib.pyplot as plt
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    train_data_p = os.path.join(os.getcwd(), 'data/raw/test')
+
+    save_p = os.path.join(os.getcwd(), 'results/test/test_pipeline0')
+    save_p_fdm = os.path.join(save_p, 'train_fdm')
+    os.makedirs(save_p_fdm, exist_ok=True)
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+    label_key = 'population'
+
+    relabel_data_kwargs = {
+        'old_to_new_label_mapping': {1: 0, 2: 0, 3: 0, 4: 0, 5: 1, 6: 1, 7: 1, 8: 1},
+        'new_label_key': 'relabeled_label'
+    }
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}, 'save_raw_to_layer': 'no_trafo'}
+
+    gating_method_kwargs = {'som_dimensions': (3, 3), 'n_epochs': 10, 'radius_0': -0.6, 'radius_n': 0.01}
+
+    gp = GatingPipeline(
+        train_data_file_path=train_data_p,
+        train_data_file_names=None,  # all files in dir
+        train_data_file_type='fcs',
+        train_data_manager_save_path=save_p_fdm,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,  # relabel_data_kwargs,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='som',
+        gating_method_kwargs=gating_method_kwargs,
+        verbosity=2,
+    )
+
+    print(gp)
+
+    gp.train()
+
+    print(gp.gating_module_)
+
+    dim_red_methods = ('som', 'umap', 'pca')
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=None,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=save_p,
+        save_filenames='train_data_anno.fcs',
+        val_range=(0.0, 2**20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    fcs0 = readfcs.view(os.path.join(save_p, 'train_data_anno.fcs'))
+    print("# ### All samples in one .fcs:\n", fcs0)
+    print("# Channels:\n", fcs0[1].columns)
+
+    data_tab = fcs0[1]
+    data_tab['pred_unscaled'] = data_tab['pred_unscaled'].astype(int)
+
+    for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=data_tab, x=f'{drm}_1', y=f'{drm}_2', s=3, hue='pred_unscaled', palette='deep', ax=ax)
+        plt.legend(title='Pred', markerscale=4)
+        plt.savefig(os.path.join(save_p, f'{drm}.png'))
+        plt.close('all')
+
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=None,
+        gate=True,
+        dim_red_methods=('som', 'pca'),
+        dim_red_method_kwargs=(None, {'whiten': True}),
+        save_sample_wise=True,
+        save_path=save_p,
+        save_filenames=None,
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
+    fcs1 = readfcs.view(os.path.join(save_p, 'annotated_' + os.listdir(train_data_p)[0]))
+    print("# ### Sample-wise .fcs:\n", fcs1)
+    print("# Channels:\n", fcs1[1].columns)
+
+
+def test_pipeline1():
+    """
+    Script for testing the GatingPipeline.
+    Setting:
+        - Gating method: FCNN_Softmax
+        - Dimensionality reduction method: PCA, UMAP, SOM (should raise error)
+    Returns: None
+    """
+
+    import os
+    import readfcs
+    import matplotlib.pyplot as plt
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    train_data_p = os.path.join(os.getcwd(), 'data/raw/test')
+
+    train_data_file_names = [
+        '20150210-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019652 001.fcs', 'ER_000000_H1_150305_ED.fcs'
+    ]
+
+    save_p = os.path.join(os.getcwd(), 'results/test/test_pipeline1')
+    save_p_fdm = os.path.join(save_p, 'train_fdm')
+    os.makedirs(save_p_fdm, exist_ok=True)
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+    label_key = 'population'
+
+    relabel_data_kwargs = {
+        'old_to_new_label_mapping': {1: 0, 2: 0, 3: 0, 4: 0, 5: 1, 6: 1, 7: 1, 8: 1},
+        'new_label_key': 'relabeled_label'
+    }
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}, 'save_raw_to_layer': 'no_trafo'}
+
+    gating_method_kwargs = {
+        'layer_sizes': (128, 64, 32), 'n_epochs': 3, 'data_loader_params': None, 'device': None,  'verbosity': 2}
+
+    gp = GatingPipeline(
+        train_data_file_path=train_data_p,
+        train_data_file_names=train_data_file_names,
+        train_data_file_type='fcs',
+        train_data_manager_save_path=save_p_fdm,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=relabel_data_kwargs,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='fcnn_softmax',
+        gating_method_kwargs=gating_method_kwargs,
+        verbosity=2,
+    )
+
+    print(gp)
+
+    gp.train()
+
+    print(gp.gating_module_)
+
+    dim_red_methods = ('umap', 'pca')
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=['20150312-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019509 001.fcs', ],
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=save_p,
+        save_filenames='train_data_anno.fcs',
+        val_range=(0.0, 2**20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    fcs0 = readfcs.view(os.path.join(save_p, 'train_data_anno.fcs'))
+    print("# ### All samples in one .fcs:\n", fcs0)
+    print("# Channels:\n", fcs0[1].columns)
+
+    data_tab = fcs0[1]
+    data_tab['pred_unscaled'] = data_tab['pred_unscaled'].astype(int)
+
+    for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=data_tab, x=f'{drm}_1', y=f'{drm}_2', s=3, hue='pred_unscaled', palette='deep', ax=ax)
+        plt.legend(title='Pred', markerscale=4)
+        plt.savefig(os.path.join(save_p, f'{drm}.png'))
+        plt.close('all')
+
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=None,
+        gate=True,
+        dim_red_methods=('som', ),
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=save_p,
+        save_filenames=None,
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
+
+def test_pipeline2():
+    """
+    Script for testing the GatingPipeline.
+    Setting:
+        - Gating method: SOM, unsupervised case
+        - Dimensionality reduction method: PCA, SOM, UMAP
+        - Try sample-wise and all in one .fcs saving
+        - Try different input parameters (e.g. dim_red_method_kwargs)
+    Returns: None
+
+    """
+
+    import os
+    import readfcs
+    import matplotlib.pyplot as plt
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    train_data_p = os.path.join(os.getcwd(), 'data/raw/test')
+
+    train_data_file_names = [
+        '20150210-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019652 001.fcs', 'ER_000000_H1_150305_ED.fcs'
+    ]
+
+    save_p = os.path.join(os.getcwd(), 'results/test/test_pipeline2')
+    save_p_fdm = os.path.join(save_p, 'train_fdm')
+    os.makedirs(save_p_fdm, exist_ok=True)
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+
+    label_key = None  # Pass no label key !!!
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}, 'save_raw_to_layer': 'no_trafo'}
+
+    gating_method_kwargs = {'som_dimensions': (3, 3), 'n_epochs': 10, 'radius_0': -0.6, 'radius_n': 0.01}
+
+    gp = GatingPipeline(
+        train_data_file_path=train_data_p,
+        train_data_file_names=train_data_file_names,
+        train_data_file_type='fcs',
+        train_data_manager_save_path=save_p_fdm,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='som',
+        gating_method_kwargs=gating_method_kwargs,
+        verbosity=2,
+    )
+
+    print(gp)
+
+    gp.train()
+
+    print(gp.gating_module_)
+
+    dim_red_methods = ('som', 'pca', 'tsne')
+    dim_red_method_kwargs = (None, None, {'n_jobs': 16})
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=['20150312-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019509 001.fcs', ],
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=save_p,
+        save_filenames='train_data_anno.fcs',
+        val_range=(0.0, 2**20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    fcs0 = readfcs.view(os.path.join(save_p, 'train_data_anno.fcs'))
+    print("# ### All samples in one .fcs:\n", fcs0)
+    print("# Channels:\n", fcs0[1].columns)
+
+    data_tab = fcs0[1]
+    data_tab['som_unit_id_unscaled'] = data_tab['som_unit_id_unscaled'].astype(int)
+
+    for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=data_tab, x=f'{drm}_1', y=f'{drm}_2', s=3, hue='som_unit_id_unscaled', palette='deep', ax=ax)
+        plt.legend(title='som_unit_id', markerscale=4)
+        plt.savefig(os.path.join(save_p, f'{drm}.png'))
+        plt.close('all')
 
 
 # Todo:
-#  - test all fdm functionality here, assume int labels  #
-#  - Run data processing again, also include 1% and 5%
 #  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
-#  - Implement softmax in gating module  #
-#  - Go over other classifiers in validation, refactor to package
-#    ->  go over which plotting/cal funct may be needed in flagx, (adjust __init__ of plt and utils)
+#  - Go over which plotting/cal funct may be needed in flagx, (adjust __init__ of plt and utils)
 #  - Main: Refactor main scripts, add proposed experiments (grid of n samples and  downsampling frac, fit and analyze results, write toolbox simultaneously) !!!!!!
-#    => Run analysis again!!!!
-#  - (if predicts unknown, change pred to others or ignore pred = pass labels=np.unique(y_true))
+#    => Run analysis again!!!! (generate res on my machine for runtimes also)
 #  - Look at report
 #  - Collect/brainstorm ideas for MRD detection, use Stefan paper as starting point (diff healthy and MRD at sample level, then outlier detection)
 #  - Argument (parm search etc in supplement) that SOM is not very sensitive to hyperparam choice
@@ -1067,7 +1734,12 @@ def test_metrics_calc():
 #      (plot precision vs recall, works only for the binary case,
 #       include as use case in study: usually interested in rough gating to some population,
 #       in comparison to DL, SOM probs are interpretable)
+#  - start manuscript
 
+# Todo:
+#  - Start n_samples for som when ramses is free  #
+#  - Finnish toolbox
+#  - Write manuscript and run analysis in parallel (tuning etc on workstations, benchmark runs locally)
 
 
 
@@ -1104,6 +1776,28 @@ if __name__ == '__main__':
 
     # test_param_tuning()
 
-    test_metrics_calc()
+    # test_metrics_calc()
+
+    # test_binary_and_micro()
+
+    # test_data_processing_results()
+
+    # test_expanding_iterator()
+
+    # test_copy()
+
+    # test_gpu_som_training()
+
+    # test_my_som()
+
+    # test_windows_env()
+
+    # test_som_transform()
+
+    # test_pipeline0()
+
+    # test_pipeline1()
+
+    # test_pipeline2()
 
     print('done')
