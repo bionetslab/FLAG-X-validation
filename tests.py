@@ -1720,7 +1720,105 @@ def test_pipeline2():
         plt.close('all')
 
 
+def test_pipeline_save_load():
+    import os
+    import readfcs
+    from flagx import GatingPipeline
+
+    train_data_p = os.path.join(os.getcwd(), 'data/raw/test')
+
+    save_p = os.path.join(os.getcwd(), 'results/test/test_pipeline_sl')
+    save_p_fdm = os.path.join(save_p, 'train_fdm')
+    os.makedirs(save_p_fdm, exist_ok=True)
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+    label_key = 'population'
+
+    relabel_data_kwargs = {
+        'old_to_new_label_mapping': {1: 0, 2: 0, 3: 0, 4: 0, 5: 1, 6: 1, 7: 1, 8: 1},
+        'new_label_key': 'relabeled_label'
+    }
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}, 'save_raw_to_layer': 'no_trafo'}
+
+    gating_method_kwargs = {'som_dimensions': (3, 3), 'n_epochs': 10, 'radius_0': -0.6, 'radius_n': 0.01}
+
+    gp = GatingPipeline(
+        train_data_file_path=train_data_p,
+        train_data_file_names=None,  # all files in dir
+        train_data_file_type='fcs',
+        train_data_manager_save_path=save_p_fdm,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,  # relabel_data_kwargs,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='som',
+        gating_method_kwargs=gating_method_kwargs,
+        verbosity=2,
+    )
+
+    gp.train()
+
+    dim_red_methods = ('som', 'pca')
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=None,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=save_p,
+        save_filenames='pre_save_train_data_anno.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    fcs0 = readfcs.view(os.path.join(save_p, 'pre_save_train_data_anno.fcs'))
+    # print("# ### Pre save:\n", fcs0)
+    # print("# Channels:\n", fcs0[1].columns)
+    print('# Attributes')
+    for attr, value in gp.__dict__.items():
+        print(f"{attr}: {value}")
+
+    gp.save(filename='gp.pkl', filepath=save_p)
+
+    del gp
+
+    gp = GatingPipeline.load(filename='gp.pkl', filepath=save_p)
+
+    dim_red_methods = ('som', 'pca')
+
+    gp.inference(
+        data_file_path=train_data_p,
+        data_file_names=None,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=save_p,
+        save_filenames='after_save_train_data_anno.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    fcs0 = readfcs.view(os.path.join(save_p, 'after_save_train_data_anno.fcs'))
+    # print("# ### After save:\n", fcs0)
+    # print("# Channels:\n", fcs0[1].columns)
+    print('# Attributes')
+    for attr, value in gp.__dict__.items():
+        print(f"{attr}: {value}")
+
+
+
+
+
+
 # Todo:
+#  - Go over other flagx modules e.g. plot and add some plotting functionalities
 #  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
 #  - Go over which plotting/cal funct may be needed in flagx, (adjust __init__ of plt and utils)
 #  - Main: Refactor main scripts, add proposed experiments (grid of n samples and  downsampling frac, fit and analyze results, write toolbox simultaneously) !!!!!!
@@ -1734,11 +1832,6 @@ def test_pipeline2():
 #      (plot precision vs recall, works only for the binary case,
 #       include as use case in study: usually interested in rough gating to some population,
 #       in comparison to DL, SOM probs are interpretable)
-#  - start manuscript
-
-# Todo:
-#  - Start n_samples for som when ramses is free  #
-#  - Finnish toolbox
 #  - Write manuscript and run analysis in parallel (tuning etc on workstations, benchmark runs locally)
 
 
@@ -1799,5 +1892,7 @@ if __name__ == '__main__':
     # test_pipeline1()
 
     # test_pipeline2()
+
+    test_pipeline_save_load()
 
     print('done')
