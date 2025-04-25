@@ -5,10 +5,11 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 
+from itertools import accumulate
 from sklearn.exceptions import NotFittedError
 
 from ._legacy_typing import List, Tuple, Dict, Union, Literal, Any
-from .io import FlowDataManager
+from .io import FlowDataManager, export_to_fcs
 from .gating import SomClassifier, SoftmaxClassifier
 from .dimred import PCA, UMAP, TSNE, Isomap, LocallyLinearEmbedding, MDS, SpectralEmbedding
 
@@ -59,22 +60,8 @@ class GatingPipeline:
 
         self.verbosity = verbosity
 
-        if self.label_key is None and self.gating_method == 'som':
-            raise ValueError()  # Todo
-
         self.is_trained_ = False
         self.gating_module_ = None
-
-
-        # Todo:
-        #  - Load and process data
-        #  - Train on processed train data
-        #  - When new data is presented:
-        #    - Gate
-        #    - Compute dim red
-        #    - Export to fcs (gating and 2d coordinates), add function to fdm!!!
-        #  - For the special case where SOM should be used as template add function export SOM
-
 
     def train(self):
 
@@ -99,7 +86,7 @@ class GatingPipeline:
             if self.label_key is None:
                 raise ValueError(
                     "'label_key' is required when gating_method is 'fcnn_softmax'. "
-                    "Unsupervised training is not possible for a NN."
+                    "Unsupervised training is not possible for a FCNN."
                 )
             self.gating_module_ = SoftmaxClassifier(**self.gating_method_kwargs)
         else:
@@ -114,28 +101,142 @@ class GatingPipeline:
         self.is_trained_ = True
 
 
-    def gate_and_reduce_dimension(
+    def inference(
             self,
             data_file_path: Union[str, None] = None,  # default: cwd
             data_file_names: Union[List[str], None] = None,  # default: listdir(path)
             gate: bool = True,
-            dim_red_methods: Union[Tuple[Literal[
-                'som', 'pca', 'umap', 'tsne', 'isomap', 'locallylinearembedding', 'mds', 'spectralembedding'
-            ]], None] = ('umap', ),
+            dim_red_methods: Union[
+                Tuple[
+                    Literal[
+                        'som', 'pca', 'umap', 'tsne', 'isomap', 'locallylinearembedding', 'mds', 'spectralembedding'
+                    ],
+                    ...
+                ],
+                None
+            ] = ('umap', ),
+            dim_red_method_kwargs: Union[Tuple[Union[Dict[str, Any], None], ...], None] = None,
+            save_sample_wise: bool = False,  # whether to save to individual or one fcs file
+            save_path: Union[str, None] = None,
+            save_filenames: Union[str, List[str], None] = None,
+            val_range: Tuple[float, float] = (0.0, 2 ** 20),
+            keep_unscaled: bool = False,
+            fcs_metadata_dicts: Union[Dict, List[Dict], None] = None
     ):
 
-        if gate:
-            # Todo
-            pass
+        if dim_red_method_kwargs is None:
+            dim_red_method_kwargs = ({}, ) * len(dim_red_methods)
+        else:
+            if len(dim_red_methods) != len(dim_red_method_kwargs):
+                raise ValueError("Mismatch: 'dim_red_methods' and 'dim_red_method_kwargs' must have the same length.")
+
+        # Load and process the data
+        fdm_save_p = os.path.join(self.train_data_manager_save_path, 'inference')
+        os.makedirs(fdm_save_p, exist_ok=True)
+
+        # Load and process the data
+        fdm, _, _ = self._data_pipeline(
+            data_file_path=data_file_path,
+            data_file_names=data_file_names,
+            data_file_type=self.train_data_file_type,
+            label_key=None,  # No labels here
+            data_manager_save_path=fdm_save_p,
+            fn_prefix_saving=None,
+            save_meta_info=False,
+        )
+
+        xs = []
+        for i, adata in enumerate(fdm.anndata_list_):
+            dl = fdm.get_data_loader_worker(
+                data_list=[adata, ],
+                channels=self.channels,
+                layer_key=None,
+                label_key=None,
+                label_layer_key=None,
+                batch_size=-1,
+                shuffle=False,
+                return_data_loader='np_array',
+                on_disk=False,
+                filename_np=None,
+                # **kwargs  # No data loader kwargs needed here
+            )
+            x = next(iter(dl))
+            xs.append(x)
+
+        if gate and self.label_key is not None:
+            if not self.is_trained_:
+                raise NotFittedError("This pipeline instance is not trained yet. Call 'train' before gating.")
+
+            y_preds = self._gating_helper(xs=xs)
+
+        else:
+            if self.label_key is None:
+                warnings.warn(
+                    "Gating was requested (gate=True), but 'label_key' is None. Skipping gating step.",
+                    UserWarning
+                )
+
+            y_preds = None
 
         if dim_red_methods is not None:
-            for dim_red_method in dim_red_methods:
-                # Todo
-                pass
+            x_dimreds = []
+            other_annotations = []
+            other_annotations_names = []
+            for dim_red_method, kwargs_dict in zip(dim_red_methods, dim_red_method_kwargs):
 
-        # Todo: no return, save to fcs/csv
-        #  -> export.py
-        pass
+                out = self._reduce_dimension_helper(
+                    xs=xs,
+                    dim_red_method=dim_red_method,
+                    dim_red_method_kwargs=kwargs_dict,
+                )
+
+                if dim_red_method == 'som':
+                    x_dimred, x_dimred_scattered, som_unit_ids, radii = out
+
+                    x_dimreds.append(x_dimred_scattered)
+
+                    other_annotations.append([x[:, 0] for x in x_dimred])
+                    other_annotations_names.append('som_no_scatter_1')
+                    other_annotations.append([x[:, 1] for x in x_dimred])
+                    other_annotations_names.append('som_no_scatter_2')
+
+                    other_annotations.append(som_unit_ids)
+                    other_annotations_names.append('som_unit_id')
+
+                else:
+                    x_dimred = out
+                    x_dimreds.append(x_dimred)
+
+            # If 'som' was not in dim_red_methods, set other_annotations to None
+            if not other_annotations:
+                other_annotations = None
+                other_annotations_names = None
+        else:
+            x_dimreds = None
+            other_annotations = None
+            other_annotations_names = None
+
+        # Get the key of the layer where the raw data (no transformation) was stored
+        if self.preprocessing_kwargs is not None:
+            raw_layer_key = self.preprocessing_kwargs.get('save_raw_to_layer', 'raw')
+        else:
+            raw_layer_key = None
+
+        export_to_fcs(
+            data_list=fdm.anndata_list_,
+            layer_key=raw_layer_key,
+            val_range=val_range,
+            keep_unscaled=keep_unscaled,
+            sample_wise=save_sample_wise,
+            y_preds=y_preds,
+            dim_red_coords=x_dimreds,
+            dim_red_names=dim_red_methods,
+            other_annotations=other_annotations,
+            other_annotations_names=other_annotations_names,
+            save_path=save_path,
+            save_filenames=save_filenames,
+            fcs_metadata_dicts=fcs_metadata_dicts,
+        )
 
 
     def _data_pipeline(
@@ -266,62 +367,25 @@ class GatingPipeline:
         return fdm, x_train, y_train
 
 
-    def _gate(
-            self,
-            data_file_path: Union[str, None] = None,  # default: cwd
-            data_file_names: Union[List[str], None] = None,  # default: listdir(path)
-    ) -> List[np.ndarray]:
-
-        if not self.is_trained_:
-            raise NotFittedError("This pipeline instance is not trained yet. Call 'train' before using 'gate'.")
-
-        fdm_save_p = os.path.join(self.train_data_manager_save_path, 'gating')
-        os.makedirs(fdm_save_p, exist_ok=True)
-
-        # Load and process the data
-        fdm, _, _ = self._data_pipeline(
-            data_file_path=data_file_path,
-            data_file_names=data_file_names,
-            data_file_type=self.train_data_file_type,
-            label_key=None,  # No labels here
-            data_manager_save_path=fdm_save_p,
-            fn_prefix_saving=None,
-            save_meta_info=False,
-        )
+    def _gating_helper(self, xs: List[np.ndarray]) -> List[np.ndarray]:
 
         # Iterate over the data list and gate
         y_preds = []
-        for adata in fdm.anndata_list_:
-            dl = fdm.get_data_loader_worker(
-                data_list=[adata, ],
-                channels=self.channels,
-                layer_key=None,
-                label_key=None,
-                label_layer_key=None,
-                batch_size=-1,
-                shuffle=False,
-                return_data_loader='np_array',
-                on_disk=False,
-                filename_np=None,
-                # **kwargs  # No data loader kwargs needed here
-            )
-
-            x = next(iter(dl))
+        for x in xs:
             y_pred = self.gating_module_.predict(X=x)
             y_preds.append(y_pred)
 
         return y_preds
 
 
-    def _reduce_dimension(
+    def _reduce_dimension_helper(
             self,
-            data_file_path: Union[str, None] = None,  # default: cwd
-            data_file_names: Union[List[str], None] = None,  # default: listdir(path)
+            xs: List[np.ndarray],
             dim_red_method: Literal[
                 'som', 'pca', 'umap', 'tsne', 'isomap', 'locallylinearembedding', 'mds', 'spectralembedding'
             ] = 'umap',
             dim_red_method_kwargs: Union[Dict[str, Any], None] = None,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    ) -> Union[List[np.ndarray], Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray], List[np.ndarray]]]:
 
         # Usually new data
         # If som is som for dim red, scatter coordinates
@@ -336,50 +400,20 @@ class GatingPipeline:
                     "Call 'train' before using 'reduce_dimension'."
                 )
 
-        # Load and process the data
-        fdm_save_p = os.path.join(self.train_data_manager_save_path, 'dimred')
-        os.makedirs(fdm_save_p, exist_ok=True)
-
-        # Load and process the data
-        fdm, _, _ = self._data_pipeline(
-            data_file_path=data_file_path,
-            data_file_names=data_file_names,
-            data_file_type=self.train_data_file_type,
-            label_key=None,  # No labels here
-            data_manager_save_path=fdm_save_p,
-            fn_prefix_saving=None,
-            save_meta_info=False,
-        )
-
-        xs = []
-        for adata in fdm.anndata_list_:
-            dl = fdm.get_data_loader_worker(
-                data_list=[adata, ],
-                channels=self.channels,
-                layer_key=None,
-                label_key=None,
-                label_layer_key=None,
-                batch_size=-1,
-                shuffle=False,
-                return_data_loader='np_array',
-                on_disk=False,
-                filename_np=None,
-                # **kwargs  # No data loader kwargs needed here
-            )
-
-            x = next(iter(dl))
-            xs.append(x)
-
         x_all = np.concatenate(xs, axis=0)
 
         if dim_red_method == 'som':
 
-            # Todo
+            x_dimred, x_dimred_scattered, som_unit_ids, radii = self.gating_module_.transform(x_all)
 
-            x_dimred = np.zeros((x_all.shape[0], 2))
-            som_unit_labels = np.zeros((x_all.shape[0], ))
+            lengths = [x.shape[0] for x in xs]
+            starts = list(accumulate([0] + lengths[:-1]))
+            x_dimred = [x_dimred[start:start + length, :].copy() for start, length in zip(starts, lengths)]
+            x_dimred_scattered = [x_dimred_scattered[start:start + length, :].copy() for start, length in zip(starts, lengths)]
+            som_unit_ids = [som_unit_ids[start:start + length].copy() for start, length in zip(starts, lengths)]
+            radii = [radii[start:start + length].copy() for start, length in zip(starts, lengths)]
 
-            return x_dimred, som_unit_labels
+            return x_dimred, x_dimred_scattered, som_unit_ids, radii
 
         else:
 
@@ -394,6 +428,8 @@ class GatingPipeline:
                 reducer = TSNE(n_components=2, **dim_red_method_kwargs)
             elif dim_red_method == 'isomap':
                 reducer = Isomap(n_components=2, **dim_red_method_kwargs)
+            elif dim_red_method == 'locallylinearembedding':
+                reducer = LocallyLinearEmbedding(n_components=2, **dim_red_method_kwargs)
             elif dim_red_method == 'spectralembedding':
                 reducer = SpectralEmbedding(n_components=2, **dim_red_method_kwargs)
             elif dim_red_method == 'mds':
@@ -401,13 +437,16 @@ class GatingPipeline:
             else:
                 raise NotImplementedError(f"Dimensionality reduction method '{dim_red_method}' is not implemented.")
 
+            if self.verbosity >= 2:
+                print(f'# ### Computing {dim_red_method} ...')
+
             x_dimred = reducer.fit_transform(x_all)
 
+            lengths = [x.shape[0] for x in xs]
+            starts = list(accumulate([0] + lengths[:-1]))
+            x_dimred = [x_dimred[start:start + length, :].copy() for start, length in zip(starts, lengths)]
+
             return x_dimred
-
-        # Todo
-        # Todo: should just return x, y arrays, optional som node array
-
 
 
 

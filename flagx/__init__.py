@@ -4,5 +4,6 @@ from . import gating
 from . import dimred
 from . import plt
 from . import utils
+from .pipeline import GatingPipeline
 
-__all__ = ["io", "gating", "dimred", "plt"]
+__all__ = ['io', 'gating', 'dimred', 'plt', 'GatingPipeline']
