@@ -1,6 +1,7 @@
 
 import os
 import warnings
+import pickle
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -448,16 +449,71 @@ class GatingPipeline:
 
             return x_dimred
 
+    def save(
+            self,
+            filename: str = 'gating_pipeline.pkl',
+            filepath: Union[str, None] = None,
+    ):
 
+        """Save the full pipeline to a pickle file, handling gating module separately if needed."""
 
-# Todo:
-#  - save and load methods (save clf separately, delete before saving pipeline)
-#  - Accommodate all cases here: supervised, semi-supervised, unsupervised
-#  - When and where to include .fcs export?
-#  - Add export to fcs in io: data list, dim red, pred, and range etc as input
-#  - Go over other flagx modules e.g. plot and add some plotting functionalities
-#  - Note:
-#    - gating method should be fixed per pipeline (needs training)
-#    - dim red can vary, but if gating method is not SOM then SOM is unavailable for dim red
+        if filepath is None:
+            filepath = os.getcwd()
+
+        # Save classifier separately if it has a custom save method
+        if self.gating_module_ is not None and hasattr(self.gating_module_, 'save'):
+            self.gating_module_.save(
+                filename='gating_module_' + filename, filepath=filepath
+            )
+            classifier_saved_separately = True
+            gating_module_backup = self.gating_module_
+            self.gating_module_ = None  # Temporarily remove for pickling
+        else:
+            classifier_saved_separately = False
+            gating_module_backup = None  # nothing to restore
+
+        # Save the rest of the pipeline
+        with open(os.path.join(filepath, filename), 'wb') as f:
+            pickle.dump({
+                'pipeline': self,
+                'classifier_saved_separately': classifier_saved_separately
+            }, f)
+
+        # Restore gating module after saving
+        if classifier_saved_separately:
+            self.gating_module_ = gating_module_backup
+
+    @classmethod
+    def load(
+            cls,
+            filename: str = 'gating_pipeline.pkl',
+            filepath: Union[str, None] = None,
+    ):
+
+        """Load the full pipeline from a pickle file. Load gating module separately if needed."""
+
+        if filepath is None:
+            filepath = os.getcwd()
+
+        with open(os.path.join(filepath, filename), 'rb') as f:
+            obj = pickle.load(f)
+
+        pipeline = obj['pipeline']
+        classifier_saved_separately = obj.get('classifier_saved_separately', False)
+
+        # Load classifier if saved separately
+        if classifier_saved_separately:
+            if pipeline.gating_method == 'som':
+                pipeline.gating_module_ = SomClassifier.load(
+                    filename='gating_module_' + filename, filepath=filepath,
+                )
+            elif pipeline.gating_method == 'fcnn_softmax':
+                pipeline.gating_module_ = SoftmaxClassifier.load(
+                    filename='gating_module_' + filename, filepath=filepath,
+                )
+            else:
+                raise NotImplementedError(f"No load method defined for {pipeline.gating_method}")
+
+        return pipeline
 
 
