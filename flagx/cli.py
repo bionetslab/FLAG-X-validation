@@ -6,8 +6,47 @@ from .pipeline import GatingPipeline
 
 
 def load_yaml(path):
+    """
+    Load YAML config and auto-convert specific list fields to tuples:
+    - gating_method_kwargs.som_dimensions
+    - gating_method_kwargs.layer_sizes
+    - dim_red_methods
+    - val_range
+
+    Args:
+        path (str): Path to the YAML file.
+
+    Returns:
+        dict: Processed configuration dictionary.
+    """
+
     with open(path, 'r') as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+
+    # Auto-convert som_dimensions from list to tuple if present
+    gating_kwargs = cfg.get('gating_method_kwargs', {})
+    som_dims = gating_kwargs.get('som_dimensions', None)
+    if som_dims is not None and isinstance(som_dims, list):
+        gating_kwargs['som_dimensions'] = tuple(som_dims)
+
+    # Auto-convert layer_sizes from list to tuple if present
+    layer_sizes = gating_kwargs.get('layer_sizes', None)
+    if layer_sizes is not None and isinstance(layer_sizes, list):
+        gating_kwargs['layer_sizes'] = tuple(layer_sizes)
+
+    cfg['gating_method_kwargs'] = gating_kwargs
+
+    # Auto-convert dim_red_methods from list to tuple if present
+    dim_red_methods = cfg.get('dim_red_methods', None)
+    if dim_red_methods is not None and isinstance(dim_red_methods, list):
+        cfg['dim_red_methods'] = tuple(dim_red_methods)
+
+    # Auto-convert val_range from list to tuple if present
+    val_range = cfg.get('val_range', None)
+    if val_range is not None and isinstance(val_range, list):
+        cfg['val_range'] = tuple(val_range)
+
+    return cfg
 
 
 @click.group()
