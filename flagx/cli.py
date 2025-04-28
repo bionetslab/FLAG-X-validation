@@ -41,6 +41,11 @@ def load_yaml(path):
     if dim_red_methods is not None and isinstance(dim_red_methods, list):
         cfg['dim_red_methods'] = tuple(dim_red_methods)
 
+    # Auto-convert dim_red_method_kwargs from list to tuple if present
+    dim_red_method_kwargs = cfg.get('dim_red_method_kwargs', None)
+    if dim_red_method_kwargs is not None and isinstance(dim_red_method_kwargs, list):
+        cfg['dim_red_method_kwargs'] = tuple(dim_red_method_kwargs)
+
     # Auto-convert val_range from list to tuple if present
     val_range = cfg.get('val_range', None)
     if val_range is not None and isinstance(val_range, list):
@@ -57,12 +62,24 @@ def cli():
 # ----- Step-by-step Commands -----
 
 @cli.command()
-@click.option('--config', required=True, type=click.Path(exists=True), help='YAML for initialization')
-@click.option('--save-dir', required=True, type=click.Path(), help='Directory to save the pipeline')
-@click.option('--filename', default='gating_pipeline.pkl', help='Filename to save the pipeline')
+@click.option('--config', required=True, type=click.Path(exists=True), help='YAML for initialization. Includes train parameters.')
+@click.option('--save-dir', type=click.Path(), help='Directory to save the pipeline (overrides YAML)')
+@click.option('--filename', type=str, help='Filename to save the pipeline (overrides YAML)')
 def init(config, save_dir, filename):
-    """Instantiate a new pipeline and save it."""
+    """
+    Instantiate a new pipeline and save it.
+    Save path and filename can be provided via YAML or overridden by CLI flags.
+    """
     cfg = load_yaml(config)
+
+    gp_save_dir = cfg.pop('pipeline_save_path', None)
+    gp_file_name = cfg.pop('pipeline_filename', None)
+
+    # If CLI flags provided, they override
+    save_dir = save_dir or gp_save_dir or '.'
+    filename = filename or gp_file_name or 'gating_pipeline.pkl'
+
+    # Instantiate the pipeline and save
     gp = GatingPipeline(**cfg)
     gp.save(filepath=save_dir, filename=filename)
     click.echo(f"# ### Pipeline instantiated and saved to {os.path.join(save_dir, filename)}")
@@ -70,8 +87,8 @@ def init(config, save_dir, filename):
 
 @cli.command()
 @click.option('--load-dir', required=True, type=click.Path(exists=True), help='Directory to load the pipeline from')
-@click.option('--filename', default='gating_pipeline.pkl', help='Filename to load the pipeline')
-def train(load_dir, filename, config):
+@click.option('--filename', type=str, default='gating_pipeline.pkl', help='Filename to load the pipeline')
+def train(load_dir, filename):
     """Load a pipeline, train it, and save it back."""
     gp = GatingPipeline.load(filepath=load_dir, filename=filename)
     filename = 'trained_' + filename
@@ -80,53 +97,107 @@ def train(load_dir, filename, config):
 
 
 @cli.command()
-@click.option('--load-dir', required=True, type=click.Path(exists=True), help='Directory to load the pipeline from')
-@click.option('--filename', default='trained_gating_pipeline.pkl', help='Filename to load the pipeline')
 @click.option('--config', required=True, type=click.Path(exists=True), help='YAML for inference')
-def infer(load_dir, filename, config):
-    """Load a pipeline and run inference."""
+@click.option('--load-dir', type=click.Path(), help='Directory to load the pipeline from (overrides YAML)')
+@click.option('--filename', type=str, help='Filename to load the pipeline from (overrides YAML)')
+def infer(config, load_dir, filename):
+    """
+    Load a trained pipeline and run inference.
+    Load path and filename can be provided via YAML or overridden by CLI flags.
+    """
+
+    # Load the config YAML
+    cfg = load_yaml(config)
+
+    # Try getting load args from YAML first
+    gp_load_dir = cfg.pop('pipeline_load_path', None)
+    gp_file_name = cfg.pop('pipeline_filename', None)
+
+    load_dir = load_dir or gp_load_dir or '.'
+    filename = filename or gp_file_name or 'trained_gating_pipeline.pkl'
+
     gp = GatingPipeline.load(filepath=load_dir, filename=filename)
-    infer_kwargs = load_yaml(config)
-    results_path = infer_kwargs.get('save_path', os.getcwd())
-    gp.inference(**infer_kwargs)
+    results_path = cfg.get('save_path', os.getcwd())
+    gp.inference(**cfg)
     click.echo(f"# ### Inference complete. Results saved to {results_path}")
 
 
-# ----- One-shot Workflow Command -----
+# ----- Multi-step Workflow Command -----
+@cli.command()
+@click.option('--config', required=True, type=click.Path(exists=True), help='YAML for initialization. Includes train parameters.')
+@click.option('--save-dir', type=click.Path(), help='Directory to save the pipeline (overrides YAML)')
+@click.option('--filename', type=str, help='Filename to save the pipeline (overrides YAML)')
+def init_train(config, save_dir, filename):
+    """
+    Instantiate a new pipeline, train and save.
+    Save path and filename can be provided via YAML or overridden by CLI flags.
+    """
+    cfg = load_yaml(config)
+
+    gp_save_dir = cfg.pop('pipeline_save_path', None)
+    gp_file_name = cfg.pop('pipeline_filename', None)
+
+    # If CLI flags provided, they override
+    save_dir = save_dir or gp_save_dir or '.'
+    filename = filename or gp_file_name or 'trained_gating_pipeline.pkl'
+
+    # Instantiate the pipeline, train and save
+    gp = GatingPipeline(**cfg)
+    gp.train()
+    gp.save(filepath=save_dir, filename=filename)
+    click.echo(f"# ### Pipeline instantiated, trained and saved to {os.path.join(save_dir, filename)}")
+
 
 @cli.command()
-@click.option('--init-config', type=click.Path(exists=True), help='YAML for pipeline initialization')
-@click.option('--load-config', type=click.Path(exists=True), help='YAML for loading an existing pipeline')
-@click.option('--infer-config', type=click.Path(exists=True), help='YAML for inference step')
-def pipeline(init_config, load_config, train_config, infer_config, save_config):
+@click.option('--init-config', required=True, type=click.Path(exists=True), help='YAML for initialization. Includes train parameters.')
+@click.option('--infer-config', required=True, type=click.Path(exists=True), help='YAML for inference')
+@click.option('--save-dir', type=click.Path(), help='Directory to save the pipeline (overrides YAML)')
+@click.option('--filename', type=str, help='Filename to save the pipeline (overrides YAML)')
+def init_train_infer(init_config, infer_config, save_dir, filename):
     """
-    Full pipeline run: instantiate or load → train → infer
+    Instantiate a new pipeline, train save, and run inference on the train data.
+    Save path and filename can be provided via YAML or overridden by CLI flags.
     """
 
-    if init_config and load_config:
-        raise click.UsageError("Use only one of --init-config or --load-config.")
+    cfg_init = load_yaml(init_config)
 
-    if init_config:
-        init_kwargs = load_yaml(init_config)
-        gp = GatingPipeline(**init_kwargs)
-        click.echo("# ### Pipeline instantiated.")
-    elif load_config:
-        load_kwargs = load_yaml(load_config)
-        gp = GatingPipeline.load(**load_kwargs)
-        click.echo("# ### Pipeline loaded.")
-    else:
-        raise click.UsageError("You must provide either --init-config or --load-config.")
+    gp_save_dir = cfg_init.pop('pipeline_save_path', None)
+    gp_file_name = cfg_init.pop('pipeline_filename', None)
 
-    if train_config:
-        gp.train()
-        click.echo("# ### Training complete.")
+    # If CLI flags provided, they override
+    save_dir = save_dir or gp_save_dir or '.'
+    filename = filename or gp_file_name or 'trained_gating_pipeline.pkl'
 
-    if infer_config:
-        infer_kwargs = load_yaml(infer_config)
-        gp.inference(**infer_kwargs)
-        click.echo("# ### Inference complete.")
+    # Instantiate the pipeline and save
+    gp = GatingPipeline(**cfg_init)
+    gp.train()
+    gp.save(filepath=save_dir, filename=filename)
 
-    # Todo: saving
+    # Run inference on the train data
+    cfg_infer = load_yaml(infer_config)
+
+    # Overwrite some of the arguments to make sure the train data is used
+    cfg_infer['data_file_path'] = cfg_init['train_data_file_path']
+    cfg_infer['data_file_names'] = cfg_init['train_data_file_names']
+
+    # Set some defaults for inference, if none were passed
+    cfg_infer.setdefault('gate', True)
+    cfg_infer.setdefault('dim_red_methods', ('pca', 'tsne'))
+    cfg_infer.setdefault('dim_red_method_kwargs', (None, {'n_jobs': -1}))
+    cfg_infer.setdefault('save_sample_wise', False)
+    cfg_infer.setdefault('save_path', save_dir)  # Save into train save_dir if no save_dir was passed
+    cfg_infer.setdefault('save_filenames', 'train_data.fcs')
+    cfg_infer.setdefault('val_range', (0.0, 2**20))
+    cfg_infer.setdefault('keep_unscaled', True)
+    cfg_infer.setdefault('fcs_metadata_dicts', None)
+
+    gp.inference(**cfg_infer)
+
+    click.secho(
+        f"# ### Pipeline instantiated, trained and inference ran on train data. "
+        f"Results saved to {os.path.join(save_dir, filename)}",
+        fg = 'green'
+    )
 
 
 if __name__ == '__main__':
