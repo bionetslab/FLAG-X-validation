@@ -23,18 +23,20 @@ def load_yaml(path):
     with open(path, 'r') as f:
         cfg = yaml.safe_load(f)
 
-    # Auto-convert som_dimensions from list to tuple if present
-    gating_kwargs = cfg.get('gating_method_kwargs', {})
-    som_dims = gating_kwargs.get('som_dimensions', None)
-    if som_dims is not None and isinstance(som_dims, list):
-        gating_kwargs['som_dimensions'] = tuple(som_dims)
+    # Auto-convert som_dimensions and layer_sizes from list to tuple if present
+    if 'gating_method_kwargs' in cfg:
 
-    # Auto-convert layer_sizes from list to tuple if present
-    layer_sizes = gating_kwargs.get('layer_sizes', None)
-    if layer_sizes is not None and isinstance(layer_sizes, list):
-        gating_kwargs['layer_sizes'] = tuple(layer_sizes)
+        gating_kwargs = cfg['gating_method_kwargs']
 
-    cfg['gating_method_kwargs'] = gating_kwargs
+        som_dims = gating_kwargs.get('som_dimensions', None)
+        if som_dims is not None and isinstance(som_dims, list):
+            gating_kwargs['som_dimensions'] = tuple(som_dims)
+
+        layer_sizes = gating_kwargs.get('layer_sizes', None)
+        if layer_sizes is not None and isinstance(layer_sizes, list):
+            gating_kwargs['layer_sizes'] = tuple(layer_sizes)
+
+        cfg['gating_method_kwargs'] = gating_kwargs
 
     # Auto-convert dim_red_methods from list to tuple if present
     dim_red_methods = cfg.get('dim_red_methods', None)
@@ -79,6 +81,11 @@ def init(config, save_dir, filename):
     save_dir = save_dir or gp_save_dir or '.'
     filename = filename or gp_file_name or 'gating_pipeline.pkl'
 
+    # If 'train_data_manager_save_path' is None set to 'save_dir'
+    tdm_sp = cfg.get('train_data_manager_save_path', None)
+    if tdm_sp is None:
+        cfg['train_data_manager_save_path'] = save_dir
+
     # Instantiate the pipeline and save
     gp = GatingPipeline(**cfg)
     gp.save(filepath=save_dir, filename=filename)
@@ -91,6 +98,7 @@ def init(config, save_dir, filename):
 def train(load_dir, filename):
     """Load a pipeline, train it, and save it back."""
     gp = GatingPipeline.load(filepath=load_dir, filename=filename)
+    gp.train()
     filename = 'trained_' + filename
     gp.save(filepath=load_dir, filename=filename)
     click.echo(f"# ### Training complete and pipeline saved to {os.path.join(load_dir, filename)}")
