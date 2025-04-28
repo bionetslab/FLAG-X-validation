@@ -1025,7 +1025,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         x_labeled = X[~nan_mask, :]
         y_labeled = y[~nan_mask]
 
-        if verbosity >= 1:
+        if verbosity >= 2:
             n_total = y.shape[0]
             n_labeled = y_labeled.shape[0]
             n_unlabeled = n_total - n_labeled
