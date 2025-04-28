@@ -349,24 +349,29 @@ class FlowDataManager:
         return adata, log_df
 
     def check_og_channel_names_df(self) -> None:
-        FlowDataManager.check_og_channel_names_df_worker(self.og_channel_names_)
+        FlowDataManager.check_og_channel_names_df_worker(
+            og_channel_names=self.og_channel_names_,
+            verbosity=self.verbosity
+        )
 
     @staticmethod
-    def check_og_channel_names_df_worker(og_filenames: pd.DataFrame) -> None:
-        for i, col in enumerate(og_filenames.columns):
+    def check_og_channel_names_df_worker(og_channel_names: pd.DataFrame, verbosity: int = 1) -> None:
+        for i, col in enumerate(og_channel_names.columns):
             if col == 'filename':
                 continue
 
-            value_counts = og_filenames[col].value_counts()
+            value_counts = og_channel_names[col].value_counts()
 
             if value_counts.size >= 2:
                 msg = f'# ### The channel names for channel {i} were not consistent across samples\n'
                 msg += f'# ### Channel: {i} ### #\n'
                 for value, count in value_counts.items():
                     msg += f'# ### Name: {value}, Count: {count}\n'
-                warnings.warn(msg, UserWarning)
+                if verbosity >= 1:
+                    warnings.warn(msg, UserWarning)
             else:
-                print(f'# ### Channel: {i}, Name: {value_counts.index[0]} is consistent across samples\n')
+                if verbosity >= 2:
+                    print(f'# ### Channel: {i}, Name: {value_counts.index[0]} is consistent across samples\n')
 
     # ### sample_wise_preprocessing() ##################################################################################
     def sample_wise_preprocessing(
