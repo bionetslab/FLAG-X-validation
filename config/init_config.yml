@@ -1,0 +1,46 @@
+
+train_data_file_path: "./data/raw/test"
+train_data_file_names: null  # Use all files in the dir for training
+train_data_file_type: "fcs"
+channels: ["FS INT", "SS INT", "16-FITC", "56-PE", "3-ECD", "4-PC7", "19-APC", "14-APC700", "8-PB", "45-CO"]
+label_key: "population"
+
+channel_names_alignment_kwargs:
+  reference_channel_names: 0  # Use the 1st file that is loaded as reference for the channel names
+
+relabel_data_kwargs: null  # No relabeling, keep the original labels ({'old_to_new_label_mapping': Dict, 'new_label_key': str})
+
+preprocessing_kwargs:
+  flavour: "arcsinh"
+  flavour_kwargs:
+    cofactor: 150
+  save_raw_to_layer: null  # Use default ('raw'), only relevant internally
+
+gating_method: "som"
+gating_method_kwargs:
+  som_topology: "planar"
+  som_grid_type: "rectangular"
+  som_dimensions: [10, 10]
+  neighborhood: "gaussian"
+  gaussian_neighborhood_sigma: 0.1
+  initialization: "pca"
+  initial_codebook: null
+  n_epochs: 10,
+  radius_0: -0.75
+  radius_n: 0.01
+  radius_cooling: "linear"
+  learning_rate_0: 1.0
+  learning_rate_n: 0.01
+  learning_rate_decay: "exponential"
+  kernel_type: 0,  # 0 ~= CPU, 1 ~= GPU
+  unlabeled_label: -999,
+  verbosity: 2,
+
+verbosity: 2
+
+
+
+
+
+
+
