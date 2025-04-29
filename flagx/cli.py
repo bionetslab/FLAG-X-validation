@@ -107,8 +107,10 @@ def train(load_dir, filename):
 @cli.command()
 @click.option('--config', required=True, type=click.Path(exists=True), help='YAML for inference')
 @click.option('--load-dir', type=click.Path(), help='Directory to load the pipeline from (overrides YAML)')
-@click.option('--filename', type=str, help='Filename to load the pipeline from (overrides YAML)')
-def infer(config, load_dir, filename):
+@click.option('--load-filename', type=str, help='Filename to load the pipeline from (overrides YAML)')
+@click.option('--save-dir', type=click.Path(), help='Directory to save the results to (overrides YAML)')
+@click.option('--save-filename', type=str, help='Filename(s) to save the results to (overrides YAML)')
+def infer(config, load_dir, load_filename, save_dir, save_filename):
     """
     Load a trained pipeline and run inference.
     Load path and filename can be provided via YAML or overridden by CLI flags.
@@ -121,13 +123,21 @@ def infer(config, load_dir, filename):
     gp_load_dir = cfg.pop('pipeline_load_path', None)
     gp_file_name = cfg.pop('pipeline_filename', None)
 
+    # Set load args, cli input has precedence
     load_dir = load_dir or gp_load_dir or '.'
-    filename = filename or gp_file_name or 'trained_gating_pipeline.pkl'
+    filename = load_filename or gp_file_name or 'trained_gating_pipeline.pkl'
 
+    # Load the pre-trained pipeline
     gp = GatingPipeline.load(filepath=load_dir, filename=filename)
-    results_path = cfg.get('save_path', os.getcwd())
+
+    # Set the path and filename where to save results to, cli input has precedence
+    if save_dir is not None:
+        cfg['save_path'] = save_dir
+    if save_filename is not None:
+        cfg['save_filenames'] = save_filename
+
     gp.inference(**cfg)
-    click.echo(f"# ### Inference complete. Results saved to {results_path}")
+    click.echo(f"# ### Inference complete. Results saved to {cfg.get('save_path', os.getcwd())}")
 
 
 # ----- Multi-step Workflow Command -----
@@ -148,6 +158,11 @@ def init_train(config, save_dir, filename):
     # If CLI flags provided, they override
     save_dir = save_dir or gp_save_dir or '.'
     filename = filename or gp_file_name or 'trained_gating_pipeline.pkl'
+
+    # If 'train_data_manager_save_path' is None set to 'save_dir'
+    tdm_sp = cfg.get('train_data_manager_save_path', None)
+    if tdm_sp is None:
+        cfg['train_data_manager_save_path'] = save_dir
 
     # Instantiate the pipeline, train and save
     gp = GatingPipeline(**cfg)
@@ -175,6 +190,11 @@ def init_train_infer(init_config, infer_config, save_dir, filename):
     # If CLI flags provided, they override
     save_dir = save_dir or gp_save_dir or '.'
     filename = filename or gp_file_name or 'trained_gating_pipeline.pkl'
+
+    # If 'train_data_manager_save_path' is None set to 'save_dir'
+    tdm_sp = cfg_init.get('train_data_manager_save_path', None)
+    if tdm_sp is None:
+        cfg_init['train_data_manager_save_path'] = save_dir
 
     # Instantiate the pipeline and save
     gp = GatingPipeline(**cfg_init)
