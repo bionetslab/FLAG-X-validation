@@ -91,7 +91,7 @@ def init(config, save_dir, filename):
     # Instantiate the pipeline and save
     gp = GatingPipeline(**cfg)
     gp.save(filepath=save_dir, filename=filename)
-    click.echo(f"# ### Pipeline instantiated and saved to {os.path.join(save_dir, filename)}")
+    click.secho(f"# ### Pipeline instantiated and saved to {os.path.join(save_dir, filename)}", fg='green')
 
 
 @cli.command()
@@ -103,7 +103,7 @@ def train(load_dir, filename):
     gp.train()
     filename = 'trained_' + filename
     gp.save(filepath=load_dir, filename=filename)
-    click.echo(f"# ### Training complete and pipeline saved to {os.path.join(load_dir, filename)}")
+    click.secho(f"# ### Training complete and pipeline saved to {os.path.join(load_dir, filename)}", fg='green')
 
 
 @cli.command()
@@ -139,7 +139,7 @@ def infer(config, load_dir, load_filename, save_dir, save_filename):
         cfg['save_filenames'] = save_filename
 
     gp.inference(**cfg)
-    click.echo(f"# ### Inference complete. Results saved to {cfg.get('save_path', os.getcwd())}")
+    click.secho(f"# ### Inference complete. Results saved to {cfg.get('save_path', os.getcwd())}", fg='green')
 
 
 # ----- Multi-step Workflow Command -----
@@ -170,7 +170,7 @@ def init_train(config, save_dir, filename):
     gp = GatingPipeline(**cfg)
     gp.train()
     gp.save(filepath=save_dir, filename=filename)
-    click.echo(f"# ### Pipeline instantiated, trained and saved to {os.path.join(save_dir, filename)}")
+    click.secho(f"# ### Pipeline instantiated, trained and saved to {os.path.join(save_dir, filename)}", fg='green')
 
 
 @cli.command()
@@ -228,8 +228,8 @@ def init_train_infer(init_config, infer_config, save_dir, filename):
 
     click.secho(
         f"# ### Pipeline instantiated, trained and inference ran on train data. "
-        f"Results saved to {os.path.join(save_dir, filename)}",
-        fg = 'green'
+        f"Results saved to {save_dir}",
+        fg='green'
     )
 
 
