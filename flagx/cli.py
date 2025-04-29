@@ -175,7 +175,7 @@ def init_train(config, save_dir, filename):
 
 @cli.command()
 @click.option('--init-config', required=True, type=click.Path(exists=True), help='YAML for initialization. Includes train parameters.')
-@click.option('--infer-config', required=True, type=click.Path(exists=True), help='YAML for inference')
+@click.option('--infer-config', type=click.Path(exists=True), help='YAML for inference')
 @click.option('--save-dir', type=click.Path(), help='Directory to save the pipeline (overrides YAML)')
 @click.option('--filename', type=str, help='Filename to save the pipeline (overrides YAML)')
 def init_train_infer(init_config, infer_config, save_dir, filename):
@@ -204,7 +204,10 @@ def init_train_infer(init_config, infer_config, save_dir, filename):
     gp.save(filepath=save_dir, filename=filename)
 
     # Run inference on the train data
-    cfg_infer = load_yaml(infer_config)
+    if infer_config is not None:
+        cfg_infer = load_yaml(infer_config)
+    else:
+        cfg_infer = dict()
 
     # Overwrite some of the arguments to make sure the train data is used
     cfg_infer['data_file_path'] = cfg_init['train_data_file_path']
