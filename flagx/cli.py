@@ -2,6 +2,8 @@
 import click
 import yaml
 import os
+import matplotlib
+matplotlib.use('Agg')
 from .pipeline import GatingPipeline
 
 
