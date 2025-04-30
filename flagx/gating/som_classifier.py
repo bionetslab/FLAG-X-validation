@@ -39,7 +39,6 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             learning_rate_n: float = 0.01,
             learning_rate_decay: Literal['linear', 'exponential'] = 'linear',
             kernel_type: int = 0,  # 0 ~= CPU, 1 ~= GPU
-            # cores: Union[List[int], None] = None,
             unlabeled_label: Any = -999,
             verbosity: int = 1,
     ):
@@ -53,15 +52,6 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         self.initialization = initialization
         self.initial_codebook = initial_codebook
         self.kernel_type = kernel_type
-        # self.cores = cores
-        # if self.cores is None:
-        #     # Use half of all available cores
-        #     n_cpus = ceil(multiprocessing.cpu_count() / 2)
-        #     self.cores = list(range(n_cpus))
-        #     logger.info(f'# ### The cores 0-{multiprocessing.cpu_count() - 1} are available, '
-        #                 f'using half of them (0-{n_cpus})')
-        # Set CPU affinity
-        # self.set_cpu_affinity()
         self.unlabeled_label = unlabeled_label
         self.verbosity = verbosity
 
