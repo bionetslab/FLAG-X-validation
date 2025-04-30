@@ -21,7 +21,8 @@ class GatingPipeline:
             train_data_file_path: Union[str, None] = None,   # default: cwd
             train_data_file_names: Union[List[str], None] = None,  # default: listdir(path)
             train_data_file_type: Union[Literal['fcs', 'csv'], None] = None,
-            train_data_manager_save_path: Union[str, None] = None,  # default: cwd
+
+            save_path: Union[str, None] = None,
 
             channels: Union[List[int], List[str], None] = None,
             label_key: Union[int, str, None] = None,
@@ -46,7 +47,11 @@ class GatingPipeline:
         self.train_data_file_path = train_data_file_path
         self.train_data_file_names = train_data_file_names
         self.train_data_file_type = train_data_file_type
-        self.train_data_manager_save_path = train_data_manager_save_path
+
+        # Initialize the save paths
+        self.save_path = save_path
+        self.train_data_manager_save_path = None
+        self._init_save_paths()
 
         self.channel_names_alignment_kwargs = channel_names_alignment_kwargs
         self.preprocessing_kwargs = preprocessing_kwargs
@@ -63,6 +68,17 @@ class GatingPipeline:
 
         self.is_trained_ = False
         self.gating_module_ = None
+
+
+    def _init_save_paths(self):
+
+        if self.save_path is None:
+            self.save_path = os.getcwd()
+
+        os.makedirs(self.save_path, exist_ok=True)
+
+        self.train_data_manager_save_path = os.path.join(self.save_path, 'train_data_manager_output')
+
 
     def train(self):
 
@@ -132,7 +148,7 @@ class GatingPipeline:
                 raise ValueError("Mismatch: 'dim_red_methods' and 'dim_red_method_kwargs' must have the same length.")
 
         # Load and process the data
-        fdm_save_p = os.path.join(self.train_data_manager_save_path, 'inference')
+        fdm_save_p = os.path.join(self.save_path, 'inference_data_manager_output')
         os.makedirs(fdm_save_p, exist_ok=True)
 
         # Load and process the data
@@ -458,7 +474,7 @@ class GatingPipeline:
         """Save the full pipeline to a pickle file, handling gating module separately if needed."""
 
         if filepath is None:
-            filepath = os.getcwd()
+            filepath = self.save_path
 
         # Save classifier separately if it has a custom save method
         if self.gating_module_ is not None and hasattr(self.gating_module_, 'save'):
