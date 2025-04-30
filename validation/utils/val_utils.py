@@ -558,7 +558,11 @@ def n_samples_experiment_helper(
         os.makedirs(current_save_p, exist_ok=True)
 
         # ### Load the train data
-        data_p_ds = os.path.join(data_p, 'downsampled', downsampled_data_subdirs[i], 'sample_wise_train')
+        if downsampled_data_subdirs[i] != '1_0':  # Use downsampled data
+            data_p_ds = os.path.join(data_p, 'downsampled', downsampled_data_subdirs[i], 'sample_wise_train')
+        else:  # Use non downsampled data
+            data_p_ds = os.path.join(data_p, 'sample_wise_train')
+
         if random_sample_order:
             # n_samples_train = len([f for f in os.listdir(data_p_ds) if f.startswith('x_')])
             sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
