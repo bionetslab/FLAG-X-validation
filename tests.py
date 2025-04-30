@@ -1813,8 +1813,157 @@ def test_pipeline_save_load():
         print(f"{attr}: {value}")
 
 
+def test_cli():
+
+    import os
+
+    INIT_CONFIG = './configs/init_config.yml'
+    INFER_CONFIG = './configs/infer_config.yml'
 
 
+    print('# ###### Testing step-by-step ###### #')
+
+    print(
+        "\n# ### CASE1: "
+        "init: 'save_dir', 'pipeline_filename'; "
+        "infer: 'load_dir', 'pipeline_filename', 'save_dir', 'save_filename' "
+        "in YAML ### #"
+    )
+
+    # Config files are set to the /00 dir and gating_pipeline_00.pkl fn, later set the dir and fn via cli
+    os.makedirs("./results/test/test_cli/00", exist_ok=True)
+
+    # 1. Test `init`
+    print('\n[STEP 1] Running: init...')
+    os.system(f'python -m flagx.cli init --config {INIT_CONFIG}')
+
+    # 2. Test `train`
+    print("\n[STEP 2] Running: train...")
+    # Here the dir and fn must be passed
+    sd = "./results/test/test_cli/00"
+    fn = "gating_pipeline_00.pkl"
+    os.system(f"python -m flagx.cli train --load-dir {sd} --filename {fn}")
+
+    # 3. Test `infer`
+    print("\n[STEP 3] Running: infer...")
+    os.system(f"python -m flagx.cli infer --config {INFER_CONFIG}")
+
+    print(
+        "\n# ### CASE2: "
+        "init: 'save_dir', 'pipeline_filename'; "
+        "infer: 'load_dir', 'pipeline_filename', 'save_dir', 'save_filename' "
+        "via CLI ### #"
+    )
+
+    sd = "./results/test/test_cli/01"
+    os.makedirs(sd, exist_ok=True)
+    fn = "gating_pipeline_01.pkl"
+    infer_out_fn = 'annotated_train_sample.fcs'
+
+    # 1. Test `init`
+    print("\n[STEP 1] Running: init...")
+    os.system(f"python -m flagx.cli init --config {INIT_CONFIG} --save-dir {sd} --filename {fn}")
+
+    # 2. Test `train`
+    print("\n[STEP 2] Running: train...")
+    os.system(f"python -m flagx.cli train --load-dir {sd} --filename {fn}")
+
+    # 3. Test `infer`
+    print("\n[STEP 3] Running: infer...")
+    fn_infer = 'trained_' + fn
+    os.system(f"python -m flagx.cli infer --config {INFER_CONFIG} --load-dir {sd} --load-filename {fn_infer} --save-dir {sd} --save-filename {infer_out_fn}")
+    
+
+    print('# ###### Testing multi-step workflow commands ###### #')
+
+    print("# ### CASE1: init_train ### #")
+
+    sd = "./results/test/test_cli/02"
+    os.makedirs(sd, exist_ok=True)
+    fn = "trained_gating_pipeline_02.pkl"
+    infer_out_fn = 'annotated_train_sample.fcs'
+
+    # 1. Test `init_train`
+    print("\n[STEP 1] Running: init_train...")
+
+    os.system(f"python -m flagx.cli init-train --config {INIT_CONFIG} --save-dir {sd} --filename {fn}")
+
+    # 2. Test `infer`
+    print("\n[STEP 2] Running: infer...")
+    os.system(f"python -m flagx.cli infer --config {INFER_CONFIG} --load-dir {sd} --load-filename {fn} --save-dir {sd} --save-filename {infer_out_fn}")
+    
+
+    print("# ### CASE2: init_train_infer with infer YAML ### #")
+
+    sd = "./results/test/test_cli/03"
+    os.makedirs(sd, exist_ok=True)
+    fn = "trained_gating_pipeline_03.pkl"
+    infer_config = './configs/infer_config_no_pipeline_loading.yml'
+
+    # 1. Test `init_train_infer`
+    print("\n[STEP 1] Running: init_train_infer...")
+
+    os.system(f"python -m flagx.cli init-train-infer --init-config {INIT_CONFIG} --infer-config {infer_config} --save-dir {sd} --filename {fn}")
+
+
+    print("# ### CASE3: init_train_infer, without infer YAML ### #")
+
+    # 1. Test `init_train_infer`
+    print("\n[STEP 1] Running: init_train_infer...")
+    sd = "./results/test/test_cli/04"
+    os.makedirs(sd, exist_ok=True)
+    fn = "trained_gating_pipeline_04.pkl"
+    os.system(
+        f"python -m flagx.cli init-train-infer --init-config {INIT_CONFIG} --save-dir {sd} --filename {fn}")
+
+
+    print("\n✅  All CLI functions tested.")
+
+
+def test_runtime_error():
+
+    """
+    Error log:
+    - Matplotlib tries to use interactive backend (default: TkAgg) in CLI mode. No GUI eventloop is running
+        => Tkinter tries to operate outside the main thread and crashes when Python exits.
+    - Also, problem only arises when using the cli via WSL terminal, because DISPLAY=:0 is set but should not be used.
+    - Solution: Use non-interactive backend for cli, e.g. Agg
+    """
+
+    import os
+    from flagx.pipeline import GatingPipeline  # (or wherever your class is)
+    from flagx.cli import load_yaml
+
+    save_p = './results/test/test_runtime_error'
+    os.makedirs(save_p, exist_ok=True)
+
+    # 1. Load your training configuration
+    init_cfg = load_yaml('./configs/init_config.yml')  # Your training config
+
+    # 2. Train
+    # Remove and add kwargs
+    init_cfg.pop('pipeline_save_path', '.')
+    init_cfg.pop('pipeline_filename', 'trained_pipeline.pkl')
+    init_cfg['train_data_manager_save_path'] = save_p
+
+    gp = GatingPipeline(**init_cfg)
+    gp.train()
+    gp.save(filepath=save_p, filename='trained_pipeline.pkl')
+
+    print("Training and saving complete.")
+
+    # 3. Load your inference configuration
+    infer_cfg = load_yaml('./configs/infer_config_no_pipeline_loading.yml')
+
+    # 4. Adjust inference config if needed
+    infer_cfg['save_path'] = save_p
+    infer_cfg['save_filenames'] = "inference_output.fcs"
+
+
+    # 5. Run inference
+    gp.inference(**infer_cfg)
+
+    print("Inference complete.")
 
 
 # Todo:
@@ -1833,7 +1982,11 @@ def test_pipeline_save_load():
 #       include as use case in study: usually interested in rough gating to some population,
 #       in comparison to DL, SOM probs are interpretable)
 #  - Write manuscript and run analysis in parallel (tuning etc on workstations, benchmark runs locally)
+#  - Todo: include channel-wise cutoff as default flavour (for cli) !!!!
 
+# Todo: (End of week)
+#  - Remove threshold option in som, remove kernel type option
+#  - Go over all code, provide standalone flagx version -> for student
 
 
 
@@ -1893,6 +2046,10 @@ if __name__ == '__main__':
 
     # test_pipeline2()
 
-    test_pipeline_save_load()
+    # test_pipeline_save_load()
+
+    test_cli()
+
+    # test_runtime_error()
 
     print('done')
