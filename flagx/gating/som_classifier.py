@@ -24,7 +24,6 @@ from numba import njit, prange
 class SomClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
             self,
-            confidence_threshold: float = 0.0,
             som_topology: Literal['planar', 'toroid'] = 'planar',
             som_grid_type: Literal['rectangular', 'hexagonal'] = 'rectangular',
             som_dimensions: Tuple[int, int] = (10, 10),
@@ -46,7 +45,6 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
     ):
         super().__init__()
         # ### Initialize parameters
-        self._confidence_threshold = confidence_threshold
         self.som_topology = som_topology
         self.som_grid_type = som_grid_type
         self.som_dimensions = som_dimensions
@@ -216,26 +214,13 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             # Get original labels
             y_pred = np.vectorize(self.new_to_og_classes_dict_.get)(y_pred)
 
-            if self._confidence_threshold == 0:
-                # Raise UserWarning if label less-unit is BMU at prediction time
-                if np.any(y_pred == -1):
-                    warnings.warn(
-                        f"For events {np.argwhere(y_pred == -1).flatten().tolist()} the BMU has no label "
-                        f"(support of the unit during training was 0). "
-                        f"Its predicted class is -1 ~= unknown/undeterminable from the training data",
-                        UserWarning)
-            else:
-                # If the confidence is below the threshold change prediction to 'unknown' = -1
-                # Calculate the fraction of each class at each SOM unit
-                unit_wise_class_probabilities = np.divide(
-                    self.class_counts_per_unit_,
-                    self.class_counts_per_unit_.sum(axis=2, keepdims=True),
-                    where=self.class_counts_per_unit_.sum(axis=2, keepdims=True) != 0
-                )
-                y_proba = unit_wise_class_probabilities[tuple(bmus[:, 0]), tuple(bmus[:, 1]), :]
-                y_proba_max = y_proba.max(axis=1)
-                low_confidence_bool = (y_proba_max <= self._confidence_threshold)
-                y_pred[low_confidence_bool] = -1
+            # Raise UserWarning if label less-unit is BMU at prediction time
+            if np.any(y_pred == -1):
+                warnings.warn(
+                    f"For events {np.argwhere(y_pred == -1).flatten().tolist()} the BMU has no label "
+                    f"(support of the unit during training was 0). "
+                    f"Its predicted class is -1 ~= unknown/undeterminable from the training data",
+                    UserWarning)
 
         # No labeled training data, return a dummy prediction vector and raise UserWarning
         else:
@@ -990,17 +975,6 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         self.som_unit_labels_ = None
         self.epoch_wise_som_training_metrics_ = None
         self.grid_search_ = None
-
-    # 'confidence_threshold' may be changed after training, define property and setter
-    @property
-    def confidence_threshold(self) -> float:
-        return self._confidence_threshold
-
-    @confidence_threshold.setter
-    def confidence_threshold(self, threshold: float) -> None:
-        if threshold < 0 or threshold > 1:
-            raise ValueError('confidence_threshold must be between 0 and 1')
-        self._confidence_threshold = threshold
 
     # ### Auxiliary functions ##########################################################################################
     def _reset_to_unlabeled(self):
