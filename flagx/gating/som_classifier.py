@@ -38,7 +38,6 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             learning_rate_0: float = 0.1,
             learning_rate_n: float = 0.01,
             learning_rate_decay: Literal['linear', 'exponential'] = 'linear',
-            kernel_type: int = 0,  # 0 ~= CPU, 1 ~= GPU
             unlabeled_label: Any = -999,
             verbosity: int = 1,
     ):
@@ -51,7 +50,6 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         self.gaussian_neighborhood_sigma = gaussian_neighborhood_sigma
         self.initialization = initialization
         self.initial_codebook = initial_codebook
-        self.kernel_type = kernel_type
         self.unlabeled_label = unlabeled_label
         self.verbosity = verbosity
 
@@ -96,7 +94,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             std_coeff=self.gaussian_neighborhood_sigma,
             initialization=self.initialization,
             initialcodebook=copy.deepcopy(self.initial_codebook),
-            kerneltype=self.kernel_type,
+            kerneltype=0,  # Only cpu training
             verbose=self.verbosity,
         )
 
