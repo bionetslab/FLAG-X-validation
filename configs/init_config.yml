@@ -1,11 +1,11 @@
 
-pipeline_save_path: "./results/test/test_cli/00"
+save_dir: "./results/test/test_cli/00"
 pipeline_filename: "gating_pipeline_00.pkl"
 
 train_data_file_path: "./data/raw/test"
 train_data_file_names: null  # Use all files in the dir for training
 train_data_file_type: "fcs"
-train_data_manager_save_path: null  # Dir where meta info n the train data is stored, if none it is set to the pipeline_save_path
+
 channels: ["FS INT", "SS INT", "16-FITC", "56-PE", "3-ECD", "4-PC7", "19-APC", "14-APC700", "8-PB", "45-CO"]
 label_key: "population"
 
@@ -36,7 +36,6 @@ gating_method_kwargs:
   learning_rate_0: 1.0
   learning_rate_n: 0.01
   learning_rate_decay: "exponential"
-  kernel_type: 0  # 0 ~= CPU, 1 ~= GPU
   unlabeled_label: -999
   verbosity: 1
 
