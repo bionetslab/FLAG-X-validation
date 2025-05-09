@@ -338,19 +338,18 @@ class GatingPipeline:
         # Apply sample wise preprocessing transformation, if preprocessing_kwargs is not None
         if self.preprocessing_kwargs is not None:
             flavour = self.preprocessing_kwargs['flavour']
-            save_raw_to_layer = self.preprocessing_kwargs.get('save_raw_to_layer', 'raw')
             flavour_kwargs = self.preprocessing_kwargs.get('flavour_kwargs', {})
 
             fdm.sample_wise_preprocessing(
                 flavour=flavour,
-                save_raw_to_layer=save_raw_to_layer,
+                save_raw_to_layer='raw',  # Save raw data to layer 'raw'
                 **flavour_kwargs,
             )
 
-        # Get the label_layer_key
-        if self.preprocessing_kwargs is not None and label_key is not None:
-            label_layer_key = self.preprocessing_kwargs.get('save_raw_to_layer', 'raw')
+            label_layer_key = 'raw'
+
         else:
+
             label_layer_key = None
 
         # Create dataloader
