@@ -1,0 +1,39 @@
+# Step 1: Create the Conda environment and install packages
+conda create -n gmc python r-base=4.4 r-essentials r-devtools bioconda::bioconductor-batchelor numpy pandas scikit-learn matplotlib -y
+
+# Step 2: Activate the Environment and check versions
+conda activate gmc
+conda list python
+conda list r-base
+which R
+
+# Step 3: Install rpy2 with pip
+pip install rpy2==3.5.11
+
+# Step 4: Verify rpy2 detects the correct R version
+python -c "import rpy2.robjects as ro; print(ro.r('version'))"
+
+# Step 5: Install GateMeClass from GitHub using devtools in R
+R -e "devtools::install_github('https://github.com/simo1c/GateMeClass')"
+
+# Step 6: Verify installation in R
+R -e "library(GateMeClass); library(batchelor); print(installed.packages())"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
