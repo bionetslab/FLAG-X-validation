@@ -1,8 +1,3 @@
-import numpy as np
-
-
-# Todo: write proper unittests for main classes of package
-
 
 def test_load_anndata():
     import os
@@ -1967,6 +1962,7 @@ def test_runtime_error():
 
 
 # Todo:
+#  - Write proper unittests for main classes of package
 #  - Go over other flagx modules e.g. plot and add some plotting functionalities
 #  - Tool box dim red: vis module, map pred cell type to data, export to fcs (maybe sth like pipeline function)
 #  - Go over which plotting/cal funct may be needed in flagx, (adjust __init__ of plt and utils)
@@ -1985,8 +1981,8 @@ def test_runtime_error():
 #  - Todo: include channel-wise cutoff as default flavour (for cli) !!!!
 
 # Todo: (End of week)
-#  - Remove threshold option in som, remove kernel type option
-#  - Go over all code, provide standalone flagx version -> for student
+#  - Add compensation functionality to FlowDataManager
+#  - Add downsampling functionality to pipeline
 
 
 
@@ -2048,7 +2044,7 @@ if __name__ == '__main__':
 
     # test_pipeline_save_load()
 
-    test_cli()
+    # test_cli()
 
     # test_runtime_error()
 

@@ -410,12 +410,14 @@ def main_param_influence_study():
     downsampling_frac = 0.25
     n_splits = 3
 
+    trafo = 'log10_channelwisecutoff'  # 'arcsinh_cofactor150', 'log10_channelwisecutoff'
+
     # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
-    n_epochs = 6000
+    n_epochs = 6000   # arcsinh_cofactor150: 6000, log10_channelwisecutoff: 6000
     ####################################################################################################################
 
     # ### Load the train data
-    data_p = os.path.join(os.getcwd(), 'data/np_files/imstat/arcsinh_cofactor150')
+    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
 
     x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
     y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
@@ -514,17 +516,9 @@ def main_param_influence_study():
 
         ]
 
-        grids = [
-            param_grid_neigh_sigma, param_grid_r0, param_grid_rn
-        ]
-
-        grid_names = [
-            'gaussian_neighborhood_sigma', 'radius_0', 'radius_n',
-        ]
-
     # ### Perform the parameter tuning
     # Define path where results will be stored
-    save_p = os.path.join(os.getcwd(), 'results/parameter_influence_study/')
+    save_p = os.path.join(os.getcwd(), f'results/parameter_influence_study/{trafo}')
 
     for grid, grid_name in zip(grids, grid_names):
 
@@ -602,203 +596,6 @@ def main_param_influence_study():
             plt.close('all')
 
 
-def main_parm_tuning_set_wise():
-    """
-    Script for running set-wise hyperparameter tuning on the immunstatus dataset. The workflow is as follows:
-        - Preprocessed data is loaded.
-        - Data is downsampled for faster training.
-        - k-fold cross validation is performed.
-        - Results are printed and plotted.
-    Note:
-
-    The following flags are defined in the header and can be adjusted as needed:
-    - inference (bool),  whether to do the training or just load and plot previously generated results.
-    - random_seed (int)
-    - downsampling_frac (float)
-    - n_splits (int)
-    - n_epochs (int)
-
-    Returns:
-        None
-    """
-
-    import os
-    import numpy as np
-    import pandas as pd
-    import matplotlib.pyplot as plt
-
-    from itertools import product
-    from sklearn.model_selection import StratifiedKFold
-
-    from flagx.io import FlowDataManager
-    from flagx.gating import SomClassifier
-    from validation.plt import plot_cv_results_mean_vs_std_scatter, plot_param_stripplot, plot_param_heatmap
-    from validation.utils import set_pandas_print_options
-
-    # ### Set flags and variables ######################################################################################
-    inference = True  # Whether to do the hyperparameter tuning or just view the results
-
-    random_seed = 42
-    downsampling_frac = 0.001  # 0.2  # Todo
-    n_splits = 3
-
-    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
-    n_epochs = 6  # Todo
-    ####################################################################################################################
-
-    # ### Load the train data
-    data_p = os.path.join(os.getcwd(), 'data/np_files/imstat/arcsinh_cofactor150')
-
-    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
-    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
-
-    # ### Downsample for faster inference time (4864323 * 0.2 = 972864,6)
-    np.random.seed(random_seed)
-    downsampling_bool = FlowDataManager._get_downsampling_bool(y=y, fraction=downsampling_frac, stratified=True)
-    x = x[downsampling_bool, :]
-    y = y[downsampling_bool]
-
-    # ### Define parameter grids for each set of parameters
-
-    param_grid_neighborhood = {
-        'neighborhood': ['gaussian', 'bubble'],
-        'gaussian_neighborhood_sigma': [0.5, 0.25, 0.1],
-        'radius_0': [5.0, 6.0, 7.0, 8.0, 9.0],
-        'radius_n': [0.75, 0.5, 0.25, 0.1, 0.01],
-        'radius_cooling': ['linear', 'exponential'],
-        'n_epochs': [n_epochs, ],
-    }
-
-    param_grid_neighborhood = {
-        'neighborhood': ['gaussian', ],
-        'gaussian_neighborhood_sigma': [0.5, 0.1],
-        'radius_0': [5.0, 9.0],
-        'radius_n': [0.75, 0.01],
-        'radius_cooling': ['linear', 'exponential'],
-        'n_epochs': [n_epochs, ],
-    }  # Todo
-
-    param_grid_learning_rate = {
-        'learning_rate_0': [0.1, 0.2, 0.6, 1.0],
-        'learning_rate_n': [0.1, 0.01, 0.001],
-        'learning_rate_decay': ['linear', 'exponential'],
-        'n_epochs': [n_epochs, ],
-    }
-
-    grids = [param_grid_neighborhood, param_grid_learning_rate]
-    grid_names = ['neighborhood', 'learning_rate']
-
-    # ### Perform the parameter tuning
-    # Define path where results will be stored
-    save_p = os.path.join(os.getcwd(), 'results/parameter_tuning_set_wise/')
-
-    for grid, grid_name in zip(grids, grid_names):
-
-        print(f'# ### Grid name: {grid_name}')
-
-        current_save_p = os.path.join(save_p, grid_name)
-        os.makedirs(current_save_p, exist_ok=True)
-
-        if inference:
-
-            # Instantiate the SOM classifier
-            som_clf = SomClassifier(verbosity=2)
-
-            # Instantiate a stratified k-fold splitter
-            cv_splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
-
-            # Perform cross-validated grid-search
-            som_clf.hyperparameter_tuning(
-                X=x.copy(),
-                y=y.copy(),
-                param_grid=grid,
-                cv=cv_splitter,
-                scoring='internal',
-                refit=False,
-            )
-
-            # Save SOM classifier with results
-            som_clf.save(filepath=current_save_p)
-
-        else:
-            # Load the previously trained SOM classifier
-            som_clf = SomClassifier.load(filepath=current_save_p)
-
-        # ### Evaluate the performance
-        res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
-
-        res_df.to_csv(os.path.join(current_save_p, f'{grid_name}.csv'))
-
-        set_pandas_print_options()
-        print('# ### Results:\n', res_df)
-
-        plot_cv_results_mean_vs_std_scatter(res_df=res_df, score_name='macro F1', dpi=300)
-        plt.tight_layout()
-        plt.savefig(os.path.join(current_save_p, f'mean_vs_std_score.png'))
-        plt.close('all')
-
-        param_cols = [c for c in res_df.columns if c.startswith('param_')]
-        for c in param_cols:
-            plot_param_stripplot(
-                res_df=res_df,
-                id_var=c,
-                val_var='mean_test_score',
-                val_name='Mean macro F1',
-                jitter=0.2,
-                xlabel=c,
-                dpi=300,
-            )
-            plt.tight_layout()
-            plt.savefig(os.path.join(current_save_p, f'{c}.png'))
-            plt.close('all')
-
-
-        # Remove parameters that should not be plotted
-        grid.pop('learning_rate_0', None)
-        grid.pop('learning_rate_n', None)
-        grid.pop('radius_0', None)
-        grid.pop('radius_n', None)
-        grid.pop('n_epochs', None)
-
-        # Extract keys and value lists of
-        keys, values = zip(*grid.items())
-
-        # Bring keys to same format as df column names
-        keys = ['param_' + k for k in keys]
-
-        # Create all combinations
-        param_combinations = [dict(zip(keys, v)) for v in product(*values)]
-
-        # Example: print all combinations
-        for combination in param_combinations:
-            if grid_name == 'neighborhood':
-                row_key = 'param_radius_0'
-                col_key = 'param_radius_n'
-                title_fs = 9.0
-            else:
-                row_key = 'param_learning_rate_0'
-                col_key = 'param_learning_rate_n'
-                title_fs = 12.0
-
-            plot_param_heatmap(
-                res_df=res_df,
-                param_row=row_key,
-                param_col=col_key,
-                performance_score='mean_test_score',
-                title_fontsize=title_fs,
-                other_params=combination,
-                dpi=300,
-            )
-
-            plt.tight_layout()
-            fn_str = ''
-            for key, val in combination.items():
-                fn_str += f'{key[7:]}{val}_'
-            fn_str = fn_str[:-1] + '.png'
-            plt.savefig(os.path.join(current_save_p, fn_str))
-            plt.close('all')
-
-
 def main_param_tuning():
     """
     Script for running hyperparameter tuning on the immunstatus dataset. The workflow is as follows:
@@ -821,23 +618,29 @@ def main_param_tuning():
     import os
     import numpy as np
     import pandas as pd
+    import matplotlib.pyplot as plt
 
     from sklearn.model_selection import train_test_split, PredefinedSplit
 
     from flagx.io import FlowDataManager
     from flagx.gating import SomClassifier
     from validation.utils import set_pandas_print_options
+    from validation.plt import plot_param_lineplot
 
     # ### Set flags and variables ######################################################################################
     inference = True  # Whether to do the hyperparameter tuning or just view the results
     trafo = 'log10_channelwisecutoff'  # arcsinh_cofactor150, log10_channelwisecutoff
 
     random_seed = 42
-    downsampling_frac = 0.001  # 0.2  # Todo
+    downsampling_frac = 0.25
     val_frac = 0.34
 
-    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
-    n_epochs = 6  # Todo
+    grid = 'full_grid'  # 'n_epochs_dim', 'full_grid', 'dummy'
+
+    # Based on gridsearch for n_epochs with som_dimensions=(25, 25),
+    # selected n_epochs such that performance is stable:
+    # 5000 for log10_channelwisecutoff, 2000 for arcsinh_cofactor150
+    n_epochs = 5000  # 5000, 2000
     ####################################################################################################################
 
     # ### Load the train data
@@ -869,42 +672,61 @@ def main_param_tuning():
     val_fold = [-1] * x_train.shape[0] + [0] * x_val.shape[0]
     cv = PredefinedSplit(test_fold=val_fold)
 
-
     # ### Define parameter grid, based on the previous experiments
-    param_grid = {
-        'som_topology': ['planar', ],
-        'som_grid_type': ['rectangular', ],
-        'som_dimensions': [(10, 10), (20, 20), (30, 30)],
-        'neighborhood': ['gaussian', ],
-        'gaussian_neighborhood_sigma': [0.5, 0.25, 0.1],
-        'initialization': ['pca', ],
-        'n_epochs': [n_epochs, ],
-        'radius_0': [-0.5, -0.75],
-        'radius_n': [0.75, 0.01, 0.25],
-        'radius_cooling': ['linear', ],
-        'learning_rate_0': [1.0, 0.2],
-        'learning_rate_n': [0.1, 0.01],
-        'learning_rate_decay': ['linear', ],
-    }
+    if grid == 'n_epochs_dim25':
+        n_epochs_list = list(range(10, 101, 10)) + list(range(200, 1001, 100)) + list(range(2000, 15001, 1000))
+        param_grid = {
+            'som_topology': ['planar', ],
+            'som_grid_type': ['rectangular', ],
+            'som_dimensions': [(25, 25), ],
+            'neighborhood': ['gaussian', ],
+            'gaussian_neighborhood_sigma': [0.25, ],
+            'initialization': ['pca', ],
+            'n_epochs': n_epochs_list,
+            'radius_0': [-0.5, ],
+            'radius_n': [0.1, ],
+            'radius_cooling': ['linear', ],
+            'learning_rate_0': [0.1, ],
+            'learning_rate_n': [0.01, ],
+            'learning_rate_decay': ['exponential', ],
+        }
 
-    param_grid = {
-        'som_topology': ['planar', ],
-        'som_grid_type': ['rectangular', ],
-        'som_dimensions': [(10, 10), ],
-        'neighborhood': ['gaussian', ],
-        'gaussian_neighborhood_sigma': [0.5, ],
-        'initialization': ['pca', ],
-        'n_epochs': [n_epochs, ],
-        'radius_0': [-0.5, -0.75],
-        'radius_n': [0.75, ],
-        'radius_cooling': ['linear', ],
-        'learning_rate_0': [1.0, 0.2],
-        'learning_rate_n': [0.1, 0.01],
-        'learning_rate_decay': ['linear', ],
-    }  # Todo
+    elif grid == 'full_grid':
+        param_grid = {
+            'som_topology': ['planar', ],
+            'som_grid_type': ['rectangular', ],
+            'som_dimensions': [(15, 15), (20, 20), (25, 25)],
+            'neighborhood': ['gaussian', ],
+            'gaussian_neighborhood_sigma': [0.25, 0.1],
+            'initialization': ['pca', ],
+            'n_epochs': [n_epochs, ],
+            'radius_0': [-0.25, -0.5, -0.75],
+            'radius_n': [0.1, 0.01],
+            'radius_cooling': ['linear', ],
+            'learning_rate_0': [0.1, 0.5, 1.0],
+            'learning_rate_n': [0.001, 0.05, 0.1],
+            'learning_rate_decay': ['exponential', ],
+        }
+
+    else:  # dummy
+        param_grid = {
+            'som_topology': ['planar', ],
+            'som_grid_type': ['rectangular', ],
+            'som_dimensions': [(15, 15), (20, 20), (25, 25)],
+            'neighborhood': ['gaussian', ],
+            'gaussian_neighborhood_sigma': [0.5, ],
+            'initialization': ['pca', ],
+            'n_epochs': [50, ],
+            'radius_0': [-0.75, ],
+            'radius_n': [0.75, ],
+            'radius_cooling': ['linear', ],
+            'learning_rate_0': [0.1, ],
+            'learning_rate_n': [0.01, ],
+            'learning_rate_decay': ['exponential', ],
+        }
 
     # Define dir for saving the results
-    save_p = os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}')
+    save_p = os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}/{grid}')
     os.makedirs(save_p, exist_ok=True)
 
     # ### Inference
@@ -936,6 +758,23 @@ def main_param_tuning():
     print('# ### Results:\n', res_df)
     print('# ### Best parameters:\n', som_clf.grid_search_.best_params_)
     print('# ### Best score:\n', som_clf.grid_search_.best_score_)
+
+    if grid == 'n_epochs_dim25':
+        plot_param_lineplot(
+            res_df=res_df,
+            x_col='param_n_epochs',
+            y_col='mean_test_score',
+            xlog10=True,
+            xlog10plusone=False,
+            custom_x_ticks='log10_scale',
+            x_label='n_epochs',
+            y_label='Macro F1',
+            x_axis_grid=True,
+            dpi=300,
+        )
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_p, 'n_epochs_dim25.png'), dpi=300)
+        plt.close('all')
 
 
 def main_n_epochs_calibration():
@@ -1066,7 +905,6 @@ def main_som_classifier():
 
     from flagx.gating import SomClassifier
     from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise
-
     # ### Set flags and important variables here #######################################################################
     data_sets = [
         'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
@@ -1074,15 +912,13 @@ def main_som_classifier():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
-
     data_sets = [
-        'imstat',
+        'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'lymphoma_tube1', 'lymphoma_tube2', 'flowcyt'
     ]
-    others_labels = [8,]
-    pos_labels = [None,]
+    others_labels = [None, None, None, None, 5]
+    pos_labels = [1, 1, None, None, None]
 
-    preprocessing_trafos = ['arcsinh_cofactor150', ]
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     fit = True
     predict = True
@@ -1107,11 +943,27 @@ def main_som_classifier():
             if fit:
 
                 # Load training data
-                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:100000, :]  # Todo
-                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:100000]  # Todo
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
                 # Instantiate the SOM classifier
-                som_clf = SomClassifier(som_dimensions=(3, 3), n_epochs=6, verbosity=2)  # Todo: parameters
+                # Todo: parameters
+                som_clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(20, 20),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.1,
+                    initialization='pca',
+                    n_epochs=800,
+                    radius_0=-0.75,
+                    radius_n=0.01,
+                    radius_cooling='linear',
+                    learning_rate_0=1.0,
+                    learning_rate_n=0.01,
+                    learning_rate_decay='linear',
+                    verbosity=2,
+                )
 
                 # Fit and track time
                 print('# ### Starting fit ...')
@@ -1247,10 +1099,6 @@ def main_som_classifier():
 
 
 def main_som_plots():
-    pass
-
-
-def main_som_classifier_with_confidence_threshold():
     pass
 
 
@@ -1552,16 +1400,18 @@ def main_gatemeclass():
 
 
 def main_dgcytof():
+
     import os
     import time
+    import torch
     import numpy as np
     import pandas as pd
     from validation.gating.dgcytof import DgcytofClassifier
     from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise, get_error_dataframe
 
     # ### Set flags and important variables here #######################################################################
-    fit = True
-    predict = True
+    fit = False
+    predict = False
     evaluate = True
 
     data_sets = [
@@ -1578,41 +1428,12 @@ def main_dgcytof():
     others_labels = [8, ]  # Todo
     pos_labels = [None, ]  # Todo
 
-    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', ]  # Todo
+    preprocessing_trafos = ['arcsinh_cofactor150', ]  # Todo
 
-    marker_names_imstat = [
-        'FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO'
-    ]
-    marker_names_lymphoma_t1 = [
-        'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
-        'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
-    ]
-    marker_names_lymphoma_t2 = [
-        'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
-        'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
-    ]
 
-    marker_names_lymphoma_t1_binary = marker_names_lymphoma_t1
-
-    marker_names_lymphoma_t2_binary = marker_names_lymphoma_t2
-
-    marker_names_flowcyt = [
-        'FS INT', 'SS INT', 'FL1 INT_CD14-FITC', 'FL2 INT_CD19-PE', 'FL3 INT_CD13-ECD', 'FL4 INT_CD33-PC5.5',
-        'FL5 INT_CD34-PC7', 'FL6 INT_CD117-APC', 'FL7 INT_CD7-APC700', 'FL8 INT_CD16-APC750', 'FL9 INT_HLA-PB',
-        'FL10 INT_CD45-KO'
-    ]
-
-    marker_names_list = [
-        marker_names_imstat,
-        marker_names_lymphoma_t1, marker_names_lymphoma_t2,
-        marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,
-        marker_names_flowcyt,
-    ]
     ####################################################################################################################
 
-    for data_set, others_label, pos_label, marker_names in zip(
-            data_sets, others_labels, pos_labels, marker_names_list
-    ):
+    for data_set, others_label, pos_label in zip(data_sets, others_labels, pos_labels):
         for trafo in preprocessing_trafos:
 
             print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
@@ -1679,6 +1500,7 @@ def main_dgcytof():
             else:
                 # Load the SOM classifier
                 try:
+                    torch.serialization.safe_globals([DgcytofClassifier])
                     dgcytof_clf = DgcytofClassifier.load(filepath=save_p)
                 except FileNotFoundError:
                     print(f'# ### Classifier could not be trained without error. Continue.\n')
@@ -1854,13 +1676,6 @@ def main_softmax():
 
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
-    data_sets = [
-        'imstat',   # Todo
-    ]
-    pos_labels = [None, ]   # Todo
-
-    preprocessing_trafos = ['arcsinh_cofactor150', ]   # Todo
-
     fit = True
     predict = True
     evaluate = True
@@ -1884,15 +1699,15 @@ def main_softmax():
             if fit:
 
                 # Load training data
-                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:1000, :]  # Todo
-                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:1000]  # Todo
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
                 # Instantiate the Softmax classifier with default parameters
                 softmax_clf = SoftmaxClassifier(
                     layer_sizes=(128, 64, 32),
                     n_epochs=20,
                     data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
-                    device=None,  # Tries to use default cuda device, if none availabel cpu
+                    device=None,  # Tries to use default cuda device, if none available cpu
                     verbosity=2
                 )
 
@@ -2026,36 +1841,233 @@ def main_softmax():
 
 
 def main_n_samples_experiment():
-    pass
+
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from validation.utils.val_utils import n_samples_experiment_helper
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.plt import plot_n_samples_n_events
+
+    # ### Set flags and important variables here #######################################################################
+    data_set = 'lymphoma_tube1_binary'
+    # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+
+    preprocessing_trafo = 'log10_channelwisecutoff'
+    # 'arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100'
+
+    random_sample_order = True
+    sample_order_file = os.path.join(
+        os.getcwd(), 'results/n_samples_n_events', f'sample_order_{data_set}_{preprocessing_trafo}.txt'
+    )
+
+    inference = False  # !!!!!!
+
+    others_label = None
+    # 8, None, None, None, None, 5
+
+    pos_label = 1
+    # None, None, None, 1, 1, None
+
+    classifier = 'softmax'  # 'som', 'softmax'
+
+    abstention_label = -1 if classifier == 'som' else None
+
+    downsampled_data_subdirs = ['0_01', '0_05', '0_1', '0_2', '0_3', '0_4', '0_5', '0_6', '0_7', '0_8', '0_9', '1_0']
+
+    ####################################################################################################################
+
+    sample_order_str = 'random' if random_sample_order else 'ordered'
+
+    save_p = os.path.join(
+        os.getcwd(), 'results/n_samples_n_events', classifier, data_set, preprocessing_trafo, sample_order_str
+    )
+    os.makedirs(save_p, exist_ok=True)
+
+    if inference:
+        # Todo: set parameters
+        if classifier == 'som':
+            clf = SomClassifier(
+                som_topology='planar',
+                som_grid_type='rectangular',
+                som_dimensions=(3, 3),  # Todo
+                neighborhood='gaussian',
+                gaussian_neighborhood_sigma=0.1,
+                initialization='pca',
+                n_epochs=6,  # Todo
+                radius_0=-0.75,
+                radius_n=0.01,
+                radius_cooling='linear',
+                learning_rate_0=1.0,
+                learning_rate_n=0.01,
+                learning_rate_decay='linear',
+                verbosity=1,
+            )
+        else:
+            clf = SoftmaxClassifier(
+                layer_sizes=(128, 64, 32),
+                n_epochs=20,
+                data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                device=None,  # Tries to use default cuda device, if none available cpu
+                verbosity=2
+            )
+
+        n_samples_experiment_helper(
+            classifier=clf,
+            downsampled_data_subdirs=downsampled_data_subdirs,
+            data_p=os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo),
+            save_p=save_p,
+            abstention_label=abstention_label,
+            others_label=others_label,
+            pos_label=pos_label,
+            random_sample_order=random_sample_order,
+            sample_order_file=sample_order_file,
+        )
+
+    res_df = pd.read_csv(os.path.join(save_p, 'res_df_f1_binary.csv'), index_col=0)
+
+    print(res_df)
+
+    plot_n_samples_n_events(res_df=res_df, cmap_name='magma')
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'f1_binary.png'))
 
 
 def main_prec_vs_recall():
-    # Binary case: Want to gate for specific population
-    # Select all nodes for which frac of pop of interest >= threshold
-    # Vary threshold => prec-rec-tradeoff
-    # Need trained clf for this ...
-    pass
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from sklearn.metrics import RocCurveDisplay, PrecisionRecallDisplay
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.plt import plot_prec_rec_vs_thresh
+
+    # ### Set flags and important variables here #######################################################################
+    data_set = 'lymphoma_tube1_binary' # 'lymphoma_tube1_binary', 'lymphoma_tube2_binary'
+    trafo = 'log10_channelwisecutoff'  # 'arcsinh_cofactor150', 'log10_channelwisecutoff'
+
+    classifier = 'som'  # 'som', 'softmax'
+
+    # thresholds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    thresholds = np.linspace(0, 1, 20).tolist()
+    ####################################################################################################################
+
+    # Load the test data
+    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, trafo)
+
+    x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+    y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+    # Load the sample-wise test data
+    samples_p = os.path.join(data_p, 'sample_wise_test')
+    n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+    sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+    samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+    samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+    samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+    samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+    # Load the previously trained classifier
+    if classifier == 'som':
+
+        clf = SomClassifier.load(
+            filepath=os.path.join(os.getcwd(), 'results/pred_eval/som_classifier', data_set, trafo)
+        )
+
+    else:
+        clf = SoftmaxClassifier.load(
+            filepath=os.path.join(os.getcwd(), 'results/pred_eval/softmax_classifier', data_set, trafo)
+        )
+
+    # Predict probabilities and save predictions
+    save_p = os.path.join(os.getcwd(), 'results/prec_vs_recall', classifier, data_set, trafo)
+    os.makedirs(save_p, exist_ok=True)
+
+    y_proba = clf.predict_proba(X=x_test)
+
+    np.save(os.path.join(save_p, 'y_proba.npy'), y_proba)
+
+    samples_y_proba = []
+
+    for x in samples_x_test:
+        samples_y_proba.append(clf.predict_proba(X=x))
+
+    os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+    for y, sn in zip(samples_y_proba, sample_names):
+        np.save(os.path.join(save_p, 'samples_y_pred', f'y_proba_{sn}.npy'), y)
+
+    # Evaluate the prediction performance
+    y_proba = y_proba[:, 1]
+    samples_y_proba = [y[:, 1] for y in samples_y_proba]
+
+    fig, ax = plt.subplots(dpi=300)
+    RocCurveDisplay.from_predictions(
+        y_true=y_test,
+        y_pred=y_proba,
+        name='SOM classifier' if classifier == 'som' else 'Softmax classifier',
+        ax=ax,
+        plot_chance_level=True,
+    )
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'roc.png'), dpi=300)
+    plt.close('all')
+
+    fig, ax = plt.subplots(dpi=300)
+    PrecisionRecallDisplay.from_predictions(
+        y_true=y_test,
+        y_pred=y_proba,
+        name='SOM classifier' if classifier == 'som' else 'Softmax classifier',
+        ax=ax,
+        plot_chance_level=True,
+    )
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'prec_rec.png'), dpi=300)
+    plt.close('all')
+
+    fig, ax = plt.subplots(dpi=300)
+    plot_prec_rec_vs_thresh(
+        y_trues=samples_y_test,
+        y_probs=samples_y_proba,
+        thresholds=thresholds,
+        pos_label=1,
+        neg_label=0,
+        ax=ax,
+    )
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'prec_rec_thresh.png'), dpi=300)
+    plt.close('all')
+
+    print(y_test)
+
+
 
 
 if __name__ == '__main__':
 
     # main_data_preparation()
 
-    # main_param_influence_study()  # todo: binary (gmc0), dim/lr0/lrn (pi1), sigma/r0/rn (pi0)
+    # main_param_influence_study()
 
-    # main_parm_tuning_set_wise()
+    # main_param_tuning()  # todo: started full gridsearch (pt0)
 
-    # main_param_tuning()
+    # main_n_epochs_calibration()  # todo
 
-    # main_n_epochs_calibration()
+    # main_som_classifier()  # todo: generated preliminary results
 
-    # main_som_classifier()
+    # main_gatemeclass()  # todo
 
-    # main_gatemeclass()  # todo: debug this in gmc0
+    # main_dgcytof()  # todo
 
-    # main_dgcytof()
+    # main_softmax()  # todo: generated preliminary results
 
-    main_softmax()
+    # main_n_samples_experiment()
+    # todo: softmax random (weneg, ne0), softmax ordered (weneg, ne1)
+
+    # todo: need n samples no ds as well
+
+    # main_prec_vs_recall()
 
     print('done')
 
