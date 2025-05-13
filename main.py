@@ -1116,7 +1116,7 @@ def main_gatemeclass():
     predict = True
     evaluate = True
 
-    allow_abstention = True
+    allow_abstention = False
     abstention_label = -1 if allow_abstention else None
 
     data_sets = [
@@ -1126,14 +1126,6 @@ def main_gatemeclass():
     pos_labels = [None, None, None, 1, 1, None]
 
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
-
-    data_sets = [
-        'imstat',  # Todo
-    ]
-    others_labels = [8, ]  # Todo
-    pos_labels = [None, ]  # Todo
-
-    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff',]  # Todo
 
     marker_names_imstat = [
         'FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO'
@@ -1194,8 +1186,8 @@ def main_gatemeclass():
             if fit:
 
                 # Load training data
-                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:1000, :]  # Todo
-                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:1000]  # Todo
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
                 # Instantiate the GMC classifier with default parameters
                 gmc_clf = GateMeClassClassifier(
@@ -1247,7 +1239,7 @@ def main_gatemeclass():
 
             if predict:
                 # Load the test data
-                x_test = np.load(os.path.join(data_p, 'x_test.npy'))[0:1000, :]  # Todo
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
 
                 try:
                     print('# ### Starting prediction ...')
@@ -1280,7 +1272,7 @@ def main_gatemeclass():
                 n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
                 samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
-                samples_x_test = [np.load(os.path.join(samples_p, f))[0:1000, :] for f in samples_x_test_filenames]  # Todo
+                samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
 
                 samples_y_pred = []
                 samples_pred_times = []
@@ -1347,7 +1339,7 @@ def main_gatemeclass():
             if evaluate:
 
                 # Load the labels of the test data
-                y_test = np.load(os.path.join(data_p, 'y_test.npy'))[0:1000]  # Todo
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
 
                 # Compute evaluation metrics for samples concatenated to one
                 out = eval_wrapper(
@@ -1371,7 +1363,7 @@ def main_gatemeclass():
                 # Get the test samples for which the fit was successful
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
                 samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
-                samples_y_test = [np.load(os.path.join(samples_p, f))[0:1000] for f in samples_y_test_filenames]  # Todo
+                samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
 
                 # Compute sample-wise evaluation metrics
                 out_sw = eval_wrapper_sample_wise(
@@ -2056,7 +2048,7 @@ if __name__ == '__main__':
 
     # main_som_classifier()  # todo: generated preliminary results
 
-    # main_gatemeclass()  # todo
+    main_gatemeclass()
 
     # main_dgcytof()  # todo
 
