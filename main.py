@@ -629,7 +629,7 @@ def main_param_tuning():
 
     # ### Set flags and variables ######################################################################################
     inference = True  # Whether to do the hyperparameter tuning or just view the results
-    trafo = 'log10_channelwisecutoff'  # arcsinh_cofactor150, log10_channelwisecutoff
+    trafo = 'arcsinh_cofactor150'  # arcsinh_cofactor150, log10_channelwisecutoff
 
     random_seed = 42
     downsampling_frac = 0.25
@@ -639,8 +639,8 @@ def main_param_tuning():
 
     # Based on gridsearch for n_epochs with som_dimensions=(25, 25),
     # selected n_epochs such that performance is stable:
-    # 5000 for log10_channelwisecutoff, 2000 for arcsinh_cofactor150
-    n_epochs = 5000  # 5000, 2000
+    # 5000 for log10_channelwisecutoff, 1000 for arcsinh_cofactor150
+    n_epochs = 1000  # 5000, 1000
     ####################################################################################################################
 
     # ### Load the train data
@@ -809,14 +809,13 @@ def main_n_epochs_calibration():
 
     # ### Set flags and variables ######################################################################################
     inference = True  # Whether to do the hyperparameter tuning or just view the results
-    trafo = 'log10_channelwisecutoff'  # arcsinh_cofactor150, log10_channelwisecutoff
+    trafo = 'arcsinh_cofactor150'  # arcsinh_cofactor150, log10_channelwisecutoff
 
     random_seed = 42
     val_frac = 0.34
 
     # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
     n_epochs = list(range(100, 901, 100)) + list(range(1000, 10001, 1000))
-    n_epochs = [10, 100, 1000]  # Todo
     ####################################################################################################################
 
     # ### Load the train data
@@ -845,6 +844,8 @@ def main_n_epochs_calibration():
     # ### Load the previously optimized parameters and define a parameter grid with them
     som_clf_param_tuning = SomClassifier.load(filepath=os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}'))
     best_params = som_clf_param_tuning.grid_search_.best_params_
+
+    print(best_params)
 
     # Define dir for saving the results
     save_p = os.path.join(os.getcwd(), f'results/n_epoch_calibration/{trafo}')
@@ -1419,15 +1420,6 @@ def main_dgcytof():
 
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
-    data_sets = [
-        'imstat',  # Todo
-    ]
-    others_labels = [8, ]  # Todo
-    pos_labels = [None, ]  # Todo
-
-    preprocessing_trafos = ['arcsinh_cofactor150', ]  # Todo
-
-
     ####################################################################################################################
 
     for data_set, others_label, pos_label in zip(data_sets, others_labels, pos_labels):
@@ -1454,8 +1446,8 @@ def main_dgcytof():
             if fit:
 
                 # Load training data
-                x_train = np.load(os.path.join(data_p, 'x_train.npy'))[:1000, :]  # Todo
-                y_train = np.load(os.path.join(data_p, 'y_train.npy'))[:1000]  # Todo
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
                 # Instantiate the Dgcytof classifier with default parameters
                 dgcytof_clf = DgcytofClassifier(
@@ -1505,7 +1497,7 @@ def main_dgcytof():
 
             if predict:
                 # Load the test data
-                x_test = np.load(os.path.join(data_p, 'x_test.npy'))[0:1000, :]  # Todo
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
 
                 try:
                     print('# ### Starting prediction ...')
@@ -1538,8 +1530,7 @@ def main_dgcytof():
                 n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
                 samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
-                samples_x_test = [np.load(os.path.join(samples_p, f))[0:1000, :] for f in
-                                  samples_x_test_filenames]  # Todo
+                samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
 
                 samples_y_pred = []
                 samples_pred_times = []
@@ -1606,7 +1597,7 @@ def main_dgcytof():
             if evaluate:
 
                 # Load the labels of the test data
-                y_test = np.load(os.path.join(data_p, 'y_test.npy'))[0:1000]  # Todo
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
 
                 # Compute evaluation metrics for samples concatenated to one
                 out = eval_wrapper(
@@ -1629,7 +1620,7 @@ def main_dgcytof():
                 # Get the test samples for which the fit was successful
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
                 samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
-                samples_y_test = [np.load(os.path.join(samples_p, f))[0:1000] for f in samples_y_test_filenames]  # Todo
+                samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
 
                 # Compute sample-wise evaluation metrics
                 out_sw = eval_wrapper_sample_wise(
@@ -2047,15 +2038,15 @@ if __name__ == '__main__':
 
     # main_param_influence_study()
 
-    # main_param_tuning()  # todo: started full gridsearch (pt0)
+    # main_param_tuning()  # todo: started full gridsearch (pt0, pt1)
 
     # main_n_epochs_calibration()  # todo
 
     # main_som_classifier()  # todo: generated preliminary results
 
-    main_gatemeclass()
+    # main_gatemeclass()
 
-    # main_dgcytof()  # todo
+    main_dgcytof()  # todo
 
     # main_softmax()  # todo: generated preliminary results
 
