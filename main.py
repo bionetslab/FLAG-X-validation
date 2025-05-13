@@ -2044,9 +2044,9 @@ if __name__ == '__main__':
 
     # main_som_classifier()  # todo: generated preliminary results
 
-    # main_gatemeclass()
+    main_gatemeclass()
 
-    main_dgcytof()  # todo
+    # main_dgcytof()  # todo
 
     # main_softmax()  # todo: generated preliminary results
 
