@@ -1408,8 +1408,8 @@ def main_dgcytof():
     from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise, get_error_dataframe
 
     # ### Set flags and important variables here #######################################################################
-    fit = False
-    predict = False
+    fit = True
+    predict = True
     evaluate = True
 
     data_sets = [
@@ -1418,7 +1418,7 @@ def main_dgcytof():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff']
 
     ####################################################################################################################
 
@@ -1463,8 +1463,6 @@ def main_dgcytof():
                     verbosity=2,
                 )
 
-                print('###', dgcytof_clf)
-
                 try:
                     # Fit and track time
                     print('# ### Starting fit ...')
@@ -1484,7 +1482,6 @@ def main_dgcytof():
 
                 except Exception as e:
 
-                    print('# ### Error', e)
                     # Log errors
                     failure_combinations.append(f'{data_set}_{trafo}')
                     failure_points.append('fit')
@@ -2053,9 +2050,9 @@ if __name__ == '__main__':
 
     # main_som_classifier()  # todo: generated preliminary results
 
-    main_gatemeclass()
+    # main_gatemeclass()
 
-    # main_dgcytof()  # todo
+    main_dgcytof()  # todo
 
     # main_softmax()  # todo: generated preliminary results
 
