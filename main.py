@@ -1463,6 +1463,8 @@ def main_dgcytof():
                     verbosity=2,
                 )
 
+                print('###', dgcytof_clf)
+
                 try:
                     # Fit and track time
                     print('# ### Starting fit ...')
@@ -1481,6 +1483,8 @@ def main_dgcytof():
                     dgcytof_clf.save(filepath=save_p)
 
                 except Exception as e:
+
+                    print('# ### Error', e)
                     # Log errors
                     failure_combinations.append(f'{data_set}_{trafo}')
                     failure_points.append('fit')
