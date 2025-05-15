@@ -1418,10 +1418,6 @@ def main_dgcytof():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    data_sets = ['flowcyt', ]  # Todo
-    others_labels = [5, ]  # Todo
-    pos_labels = [None, ]  # Todo
-
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     ####################################################################################################################
@@ -2061,9 +2057,9 @@ if __name__ == '__main__':
 
     # main_gatemeclass()
 
-    main_dgcytof()  # todo: started inference on tinygpu
+    # main_dgcytof()  # todo: started inference on tinygpu
 
-    # main_softmax()  # todo: generated preliminary results
+    main_softmax()  # todo: started inference on tinygpu
 
     # main_n_samples_experiment()
     # todo: softmax random (weneg, ne0), softmax ordered (weneg, ne1)
