@@ -1418,13 +1418,11 @@ def main_dgcytof():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    data_sets = [
-        'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'  # Todo
-    ]
-    others_labels = [None, None, None, None, 5]  # Todo
-    pos_labels = [None, None, 1, 1, None]  # Todo
+    data_sets = ['flowcyt', ]  # Todo
+    others_labels = [5, ]  # Todo
+    pos_labels = [None, ]  # Todo
 
-    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff']
+    preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     ####################################################################################################################
 
@@ -1688,8 +1686,13 @@ def main_softmax():
 
             # Check whether train data exists for this dataset and trafo, if not continue
             data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+            alternate_data_p = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
             if not os.path.exists(data_p):
-                print(f'# ### Found no data. Continue.\n')
+                data_p = alternate_data_p
+
+            if not os.path.exists(data_p):
+                print(f'# ### No data found for dataset "{data_set}" and transformation "{trafo}". Continue.\n')
                 continue
 
             # Define path where results will be saved to
