@@ -814,8 +814,10 @@ def main_n_epochs_calibration():
     random_seed = 42
     val_frac = 0.34
 
-    # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
-    n_epochs = list(range(100, 901, 100)) + list(range(1000, 10001, 1000))
+    # Gridsearch for n_epochs
+    n_epochs = list(range(10, 101, 10)) + list(range(200, 1001, 100))
+    if trafo == 'log10_channelwisecutoff':
+        n_epochs += list(range(1100, 2001, 100)) + list(range(3000, 5001, 1000))
     ####################################################################################################################
 
     # ### Load the train data
@@ -842,10 +844,12 @@ def main_n_epochs_calibration():
     cv = PredefinedSplit(test_fold=val_fold)
 
     # ### Load the previously optimized parameters and define a parameter grid with them
-    som_clf_param_tuning = SomClassifier.load(filepath=os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}'))
+    som_clf_param_tuning = SomClassifier.load(
+        filepath=os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}/full_grid')
+    )
     best_params = som_clf_param_tuning.grid_search_.best_params_
 
-    print(best_params)
+    print('# ### Best parameters:', best_params)
 
     # Define dir for saving the results
     save_p = os.path.join(os.getcwd(), f'results/n_epoch_calibration/{trafo}')
@@ -1099,10 +1103,6 @@ def main_som_classifier():
                     cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
-def main_som_plots():
-    pass
-
-
 def main_gatemeclass():
 
     import os
@@ -1125,6 +1125,10 @@ def main_gatemeclass():
     ]
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
+
+    data_sets = ['lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt']  # Todo
+    others_labels = [None, None, None, 5]  # Todo
+    pos_labels = [None, 1, 1, None]  # Todo
 
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
@@ -1154,6 +1158,12 @@ def main_gatemeclass():
         marker_names_imstat,
         marker_names_lymphoma_t1, marker_names_lymphoma_t2,
         marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,
+        marker_names_flowcyt,
+    ]
+
+    marker_names_list = [
+        marker_names_lymphoma_t2,
+        marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,  # Todo
         marker_names_flowcyt,
     ]
     ####################################################################################################################
@@ -2041,6 +2051,94 @@ def main_prec_vs_recall():
     print(y_test)
 
 
+def main_som_plots():
+    pass
+
+
+def main_performance_plots():
+
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    import matplotlib
+    matplotlib.use('Agg')
+
+    from validation.plt import plot_performance_score_box
+
+
+    # ### Set flags and important variables here #######################################################################
+    performance_score = 'f1'  # f1, prec, rec
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    dataset_names = ['imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt']
+
+    method_names = ['DGCyTOF', 'FCNN']
+
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'imstat': 'imstat',
+        'lt1': 'lymphoma_tube1', 'lt1_b': 'lymphoma_tube1_binary',
+        'lt2': 'lymphoma_tube2', 'lt2_b': 'lymphoma_tube2_binary',
+        'flowcyt': 'flowcyt'
+    }
+    dataset_dirs = [conversion_mapping_datasets[ds] for ds in dataset_names]
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'}
+
+    method_dirs = [conversion_mapping_methods[m] for m in method_names]
+
+    # Load the results dataframes
+    base_path = os.path.join(os.getcwd(), 'results/pred_eval')
+    res_dfs = []
+    for ds in dataset_dirs:
+        res_dfs_sub = []
+        for m in method_dirs:
+            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
+            else:
+                data_trafo_load = data_trafo
+
+            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_{performance_score}.csv')
+
+            try:
+                res_df = pd.read_csv(res_df_path, index_col=0)
+            except FileNotFoundError:
+                res_df = pd.DataFrame()
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            res_dfs_sub.append(res_df)
+        res_dfs.append(res_dfs_sub)
+
+
+    conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
+
+    plot_performance_score_box(
+        sample_wise_res_dfs=res_dfs,
+        method_names=method_names,
+        dataset_names=dataset_names,
+        score_mode=performance_score_mode,
+        y_label=conversion_mapping_y_label[performance_score],
+        sns_boxplot_kwargs=None,
+        plot_points=True,
+        point_kwargs=None,
+        boxplot_alpha=0.9,
+        ax=None,
+    )
+
+    plt.savefig(os.path.join(plot_dir, f'{performance_score_mode}_{performance_score}_box_plot.png'), dpi=300)
+
+
+
 
 
 if __name__ == '__main__':
@@ -2051,7 +2149,7 @@ if __name__ == '__main__':
 
     # main_param_tuning()
 
-    # main_n_epochs_calibration()  # todo
+    # main_n_epochs_calibration()  # todo. started on ramses (ne0, ne1)
 
     # main_som_classifier()  # todo
 
@@ -2061,12 +2159,11 @@ if __name__ == '__main__':
 
     # main_softmax()
 
-    # main_n_samples_experiment()
-    # todo: softmax random (weneg, ne0), softmax ordered (weneg, ne1)
+    # main_performance_plots()
 
-    # todo: need n samples no ds as well
+    # main_n_samples_experiment() # todo
 
-    # main_prec_vs_recall()
+    # main_prec_vs_recall()  # todo
 
     print('done')
 
