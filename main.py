@@ -2049,17 +2049,17 @@ if __name__ == '__main__':
 
     # main_param_influence_study()
 
-    # main_param_tuning()  # todo: started full gridsearch (pt0, pt1)
+    # main_param_tuning()
 
     # main_n_epochs_calibration()  # todo
 
-    # main_som_classifier()  # todo: generated preliminary results
+    # main_som_classifier()  # todo
 
-    # main_gatemeclass()
+    main_gatemeclass()  # todo: started inference on woody (no abstention)
 
-    # main_dgcytof()  # todo: started inference on tinygpu
+    # main_dgcytof()
 
-    main_softmax()  # todo: started inference on tinygpu
+    # main_softmax()
 
     # main_n_samples_experiment()
     # todo: softmax random (weneg, ne0), softmax ordered (weneg, ne1)
