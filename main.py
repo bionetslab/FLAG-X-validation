@@ -1117,7 +1117,7 @@ def main_gatemeclass():
     predict = True
     evaluate = True
 
-    allow_abstention = False
+    allow_abstention = True
     abstention_label = -1 if allow_abstention else None
 
     data_sets = [
@@ -1125,10 +1125,6 @@ def main_gatemeclass():
     ]
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
-
-    data_sets = ['lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt']  # Todo
-    others_labels = [None, None, None, 5]  # Todo
-    pos_labels = [None, 1, 1, None]  # Todo
 
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
@@ -1161,13 +1157,8 @@ def main_gatemeclass():
         marker_names_flowcyt,
     ]
 
-    marker_names_list = [
-        marker_names_lymphoma_t2,
-        marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,  # Todo
-        marker_names_flowcyt,
-    ]
-    ####################################################################################################################
 
+    ####################################################################################################################
 
 
     for data_set, others_label, pos_label, marker_names  in zip(
@@ -2055,7 +2046,7 @@ def main_som_plots():
     pass
 
 
-def main_performance_plots():
+def main_performance_score_plots():
 
     import os
     import pandas as pd
@@ -2138,6 +2129,74 @@ def main_performance_plots():
     plt.savefig(os.path.join(plot_dir, f'{performance_score_mode}_{performance_score}_box_plot.png'), dpi=300)
 
 
+def main_cell_percentage_plots():
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    import matplotlib
+    matplotlib.use('Agg')
+
+    from validation.plt import plot_cell_pop_size_pred_vs_gt
+
+
+    # ### Set flags and important variables here #######################################################################
+    dataset_name = 'imstat'  # 'imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt'
+
+    method_name = 'FCNN'  # 'DGCyTOF', 'FCNN'
+
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'imstat': 'imstat',
+        'lt1': 'lymphoma_tube1', 'lt1_b': 'lymphoma_tube1_binary',
+        'lt2': 'lymphoma_tube2', 'lt2_b': 'lymphoma_tube2_binary',
+        'flowcyt': 'flowcyt'
+    }
+    dataset_dir = conversion_mapping_datasets[dataset_name]
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'}
+    method_dir = conversion_mapping_methods[method_name]
+
+    # Load the results dataframes
+    base_path_y_true = os.path.join(os.getcwd(), 'data/np_files')
+    base_path_y_pred = os.path.join(os.getcwd(), 'results/pred_eval')
+
+    # Load the sample-wise data (ground truth and prediction)
+    y_true_path = os.path.join(base_path_y_true, dataset_dir, data_trafo, 'sample_wise_test')
+
+    n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
+    y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+    y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
+
+    y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir, data_trafo, 'samples_y_pred')
+    y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+    y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
+
+
+    plot_cell_pop_size_pred_vs_gt(
+        y_trues=y_trues,
+        y_preds=y_preds,
+        percentage=True,
+        palette=None,
+        ax=None,
+    )
+
+    plt.tight_layout()
+
+    plt.savefig(os.path.join(plot_dir, f'{method_name}_{dataset_name}_population_sizes.png'), dpi=300)
+
+
 
 
 
@@ -2159,7 +2218,9 @@ if __name__ == '__main__':
 
     # main_softmax()
 
-    # main_performance_plots()
+    # main_performance_score_plots()
+
+    # main_cell_percentage_plots()
 
     # main_n_samples_experiment() # todo
 
