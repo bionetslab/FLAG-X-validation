@@ -481,7 +481,8 @@ def plot_cell_pop_size_pred_vs_gt(
         # 'Predicted vs True Cell Type Proportions'
         ax.set_title(title)
 
-    ax.legend(title='Cell Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+    # ax.legend(title='Cell Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.legend(title='Cell Type', loc='best')
     ax.set_axisbelow(True)
     ax.grid(True)
 
@@ -495,11 +496,11 @@ def plot_cell_pop_size_pred_vs_gt(
 
         if show_r2:
             r2 = r2_score(x_vals, y_vals)
-            stats_text.append(f"$R^2 = {r2:.3f}$")
+            stats_text.append(f"$R^2 = {r2:.4f}$")
 
         if show_pearson:
             r, p = pearsonr(x_vals, y_vals)
-            stats_text.append("Pearson's " + f"$r = {r:.3f}$")
+            stats_text.append("Pearson's " + f"$r = {r:.4f}$")
 
         if stats_text:
             ax.text(
@@ -645,7 +646,23 @@ def plot_n_samples_n_events(
 
 
 
-
+def annotate_mosaic(fig: plt.Figure, axd: Dict[str, plt.Axes], fontsize: Union[float, None] = None):
+    # Annotate subplot mosaic tiles with labels
+    for label, ax in axd.items():
+        # ax = fig.add_subplot(axd[label])
+        # ax.annotate(label, xy=(0.1, 1.1), xycoords='axes fraction', ha='center', fontsize=16)
+        # label physical distance to the left and up:
+        trans = mtransforms.ScaledTranslation(-20 / 72, 7 / 72, fig.dpi_scale_trans)
+        ax.text(
+            0.0,
+            0.95,
+            label,
+            transform=ax.transAxes + trans,
+            fontsize=fontsize,
+            va='bottom',
+            fontfamily='sans-serif',
+            fontweight='bold'
+        )
 
 
 
