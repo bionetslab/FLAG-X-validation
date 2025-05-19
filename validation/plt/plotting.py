@@ -15,6 +15,9 @@ import matplotlib.transforms as mtransforms
 
 from typing import Tuple, Union, Dict, Literal, List
 
+from sklearn.metrics import r2_score
+from scipy.stats import pearsonr
+
 from validation.utils.val_utils import eval_wrapper_sample_wise
 
 
@@ -268,6 +271,288 @@ def plot_param_heatmap(
 
     return ax
 
+
+########################################################################################################################
+
+def plot_performance_score_box(
+        sample_wise_res_dfs: List[List[pd.DataFrame]],
+        method_names: Union[List[str], None] = None,
+        dataset_names: Union[List[str], None] = None,
+        score_mode: Literal['macro', 'micro', 'weighted'] = 'macro',
+        y_label: Union[str, None] = None,
+        title: Union[str, None] = None,
+        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        sns_boxplot_kwargs: Union[Dict, None] = None,
+        plot_points: bool = False,
+        point_kwargs: Union[Dict, None] = None,
+        boxplot_alpha: Union[float, None] = None,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=300)
+
+    num_datasets = len(sample_wise_res_dfs)
+    num_methods = len(sample_wise_res_dfs[0])
+
+    if dataset_names is None:
+        dataset_names = [f"DS_{i + 1}" for i in range(num_datasets)]
+
+    if method_names is None:
+        method_names = [f"M_{i + 1}" for i in range(num_methods)]
+
+    # Build long-form dataframe for seaborn
+    long_data = []
+
+    for dataset_idx, dataset_dfs in enumerate(sample_wise_res_dfs):  # Iterate over the datasets
+        for method_idx in range(num_methods):
+            method_name = method_names[method_idx]
+
+            # Check if df is provided for this dataset-method combo
+            try:
+                df = dataset_dfs[method_idx]
+                if df is not None and not df.empty and score_mode in df.columns:
+                    scores = df[score_mode].dropna().tolist()
+                else:
+                    scores = []
+
+            except IndexError:
+                scores = []
+
+            # Even if scores are empty, add NaNs for consistency
+            if scores:
+                for score in scores:
+                    long_data.append({
+                        'Dataset': dataset_names[dataset_idx],
+                        'Method': method_name,
+                        'Score': score
+                    })
+            else:
+                # Add a single NaN row to preserve grouping/hue
+                long_data.append({
+                    'Dataset': dataset_names[dataset_idx],
+                    'Method': method_name,
+                    'Score': float('nan')
+                })
+
+    long_df = pd.DataFrame(long_data)
+
+
+    if palette is None:
+        palette = 'Set2'
+
+    if sns_boxplot_kwargs is None:
+        sns_boxplot_kwargs = dict()
+
+    if point_kwargs is None:
+        point_kwargs = dict()
+
+    if plot_points:
+        # Disable outliers
+        sns_boxplot_kwargs.setdefault('showfliers', False)
+
+    ax = sns.boxplot(
+        data=long_df,
+        x='Dataset',
+        y='Score',
+        hue='Method',
+        palette=palette,
+        zorder=2,
+        ax=ax,
+        **sns_boxplot_kwargs
+    )
+
+    if boxplot_alpha is not None:
+        for patch in ax.patches:  # box patches
+            patch.set_alpha(boxplot_alpha)
+        # Lines: whiskers, caps, medians (in order of plotting)
+        for line in ax.lines:
+            line.set_alpha(boxplot_alpha)
+
+        # Fliers (outlier dots)
+        for col in ax.collections:
+            col.set_alpha(boxplot_alpha)
+
+
+    # Overlay individual scores
+    if plot_points:
+        point_kwargs.setdefault('alpha', 0.4)
+        point_kwargs.setdefault('dodge', True)
+        point_kwargs.setdefault('linewidth', 0.5)
+        point_kwargs.setdefault('size', 3.0)
+        point_kwargs.setdefault('jitter', True)
+
+        ax = sns.stripplot(
+            data=long_df,
+            x='Dataset',
+            y='Score',
+            hue='Method',
+            palette=palette,
+            zorder=1,
+            ax=ax,
+            **point_kwargs
+        )
+
+        # Avoid duplicate legends
+        handles, labels = ax.get_legend_handles_labels()
+        n = len(method_names)
+        ax.legend(handles[:n], labels[:n], title='Method')
+
+    ax.set_xlabel('Dataset')
+    if y_label is None:
+        y_label = 'Score'
+    ax.set_ylabel(f'{score_mode.capitalize()} {y_label.capitalize()}')
+    ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+
+    if title is not None:
+        ax.set_title(title)
+
+    return ax
+
+
+def plot_cell_pop_size_pred_vs_gt(
+        y_trues: List[np.ndarray],
+        y_preds: List[np.ndarray],
+        percentage: bool = False,
+        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        title: Union[str, None] = None,
+        point_size: Union[float, None] = None,
+        show_r2: bool = False,
+        show_pearson: bool = False,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=300)
+
+    # Get the data
+    plot_df = _get_plot_df(y_trues=y_trues, y_preds=y_preds)
+
+    x_col = 'counts_yt'
+    y_col = 'counts_yp'
+
+    # Compute percentages
+    if percentage:
+        plot_df['percent_yt'] = plot_df['counts_yt'] / plot_df['totals']
+        plot_df['percent_yp'] = plot_df['counts_yp'] / plot_df['totals']
+
+        x_col = 'percent_yt'
+        y_col = 'percent_yp'
+
+    # Convert label column to string or categorical for better Seaborn color handling
+    plot_df['labels'] = plot_df['labels'].astype(str)
+
+    if palette is None:
+        palette = 'Set2'
+
+    # Plot
+    scatter_kwargs = dict(
+        data=plot_df,
+        x=x_col,
+        y=y_col,
+        hue='labels',
+        palette=palette,
+        alpha=0.7,
+        edgecolor='k',
+        ax=ax,
+    )
+
+    # Add size parameter
+    if point_size is not None:
+        scatter_kwargs['s'] = point_size
+
+    ax = sns.scatterplot(**scatter_kwargs)
+
+    # Diagonal reference line (ideal match)
+    max_val_x = plot_df[x_col].max()
+    max_val_y = plot_df[y_col].max()
+    ax.plot([0, max_val_x], [0, max_val_y], linestyle='--', color='grey', linewidth=1.0, zorder=0)
+
+    # Labels & formatting
+    x_label = 'True Cell Population Size'
+    y_label = 'Predicted Cell Population Size'
+    if percentage:
+        x_label += ' (%)'
+        y_label += ' (%)'
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+    if title is not None:
+        # 'Predicted vs True Cell Type Proportions'
+        ax.set_title(title)
+
+    ax.legend(title='Cell Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.set_axisbelow(True)
+    ax.grid(True)
+
+    if show_r2 or show_pearson:
+
+        # Compute and annotate stats
+        x_vals = plot_df[x_col].to_numpy()
+        y_vals = plot_df[y_col].to_numpy()
+
+        stats_text = []
+
+        if show_r2:
+            r2 = r2_score(x_vals, y_vals)
+            stats_text.append(f"$R^2 = {r2:.3f}$")
+
+        if show_pearson:
+            r, p = pearsonr(x_vals, y_vals)
+            stats_text.append("Pearson's " + f"$r = {r:.3f}$")
+
+        if stats_text:
+            ax.text(
+                0.05, 0.95, "\n".join(stats_text),
+                transform=ax.transAxes,
+                ha='left', va='top',
+                fontsize=10,
+                bbox=dict(facecolor='white', alpha=0.6, edgecolor='none')
+            )
+
+
+    return ax
+
+
+def _get_plot_df(
+        y_trues: List[np.ndarray],
+        y_preds: List[np.ndarray],
+) -> pd.DataFrame:
+
+    unique_labels = np.unique(np.concatenate(y_preds + y_trues))
+
+    sample_ids = []
+    labels = []
+    counts_yt = []
+    counts_yp = []
+    totals = []
+
+    for i, (y_true, y_pred) in enumerate(zip(y_trues, y_preds)):
+
+        total = y_true.shape[0]
+
+        yt_vals, yt_counts = np.unique(y_true, return_counts=True)
+        yp_vals, yp_counts = np.unique(y_pred, return_counts=True)
+
+        yt_count_label_count_mapping = dict(zip(yt_vals, yt_counts))
+        yp_count_label_count_mapping = dict(zip(yp_vals, yp_counts))
+
+        for label in unique_labels:
+
+            sample_ids.append(i)
+            labels.append(label)
+            counts_yt.append(yt_count_label_count_mapping.get(label, 0))
+            counts_yp.append(yp_count_label_count_mapping.get(label, 0))
+            totals.append(total)
+
+    df = pd.DataFrame()
+    df['sample_ids'] = sample_ids
+    df['labels'] = labels
+    df['counts_yt'] = counts_yt
+    df['counts_yp'] = counts_yp
+    df['totals'] = totals
+
+    return df
 
 def plot_prec_rec_vs_thresh(
         y_trues: List[np.ndarray],
