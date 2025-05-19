@@ -931,8 +931,13 @@ def main_som_classifier():
 
             # Check whether train data exists for this dataset and trafo, if not continue
             data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+            alternate_data_p = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
             if not os.path.exists(data_p):
-                print(f'# ### Found no data. Continue.\n')
+                data_p = alternate_data_p
+
+            if not os.path.exists(data_p):
+                print(f'# ### No data found for dataset "{data_set}" and transformation "{trafo}". Continue.\n')
                 continue
 
             # Define path where results will be saved to
