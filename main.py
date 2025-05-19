@@ -917,12 +917,6 @@ def main_som_classifier():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    data_sets = [
-        'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'lymphoma_tube1', 'lymphoma_tube2', 'flowcyt'
-    ]
-    others_labels = [None, None, None, None, 5]
-    pos_labels = [1, 1, None, None, None]
-
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     fit = True
@@ -952,23 +946,41 @@ def main_som_classifier():
                 y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
                 # Instantiate the SOM classifier
-                # Todo: parameters
-                som_clf = SomClassifier(
-                    som_topology='planar',
-                    som_grid_type='rectangular',
-                    som_dimensions=(20, 20),
-                    neighborhood='gaussian',
-                    gaussian_neighborhood_sigma=0.1,
-                    initialization='pca',
-                    n_epochs=800,
-                    radius_0=-0.75,
-                    radius_n=0.01,
-                    radius_cooling='linear',
-                    learning_rate_0=1.0,
-                    learning_rate_n=0.01,
-                    learning_rate_decay='linear',
-                    verbosity=2,
-                )
+                if trafo == 'arcsinh_cofactor150':
+
+                    som_clf = SomClassifier(
+                        som_topology='planar',
+                        som_grid_type='rectangular',
+                        som_dimensions=(25, 25),
+                        neighborhood='gaussian',
+                        gaussian_neighborhood_sigma=0.25,
+                        initialization='pca',
+                        n_epochs=200,
+                        radius_0=-0.25,
+                        radius_n=0.01,
+                        radius_cooling='linear',
+                        learning_rate_0=0.5,
+                        learning_rate_n=0.05,
+                        learning_rate_decay='exponential',
+                        verbosity=2,
+                    )
+                else:
+                    som_clf = SomClassifier(
+                        som_topology='planar',
+                        som_grid_type='rectangular',
+                        som_dimensions=(25, 25),
+                        neighborhood='gaussian',
+                        gaussian_neighborhood_sigma=0.1,
+                        initialization='pca',
+                        n_epochs=1000,
+                        radius_0=-0.25,
+                        radius_n=0.1,
+                        radius_cooling='linear',
+                        learning_rate_0=0.1,
+                        learning_rate_n=0.05,
+                        learning_rate_decay='exponential',
+                        verbosity=2,
+                    )
 
                 # Fit and track time
                 print('# ### Starting fit ...')
@@ -2064,9 +2076,9 @@ def main_performance_score_plots():
 
     dataset_names = ['imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt']
 
-    method_names = ['DGCyTOF', 'FCNN']
+    method_names = ['GMC na', 'GMC wa', 'DGCyTOF', 'FCNN']
 
-    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150
+    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150
 
     plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
@@ -2084,7 +2096,10 @@ def main_performance_score_plots():
     dataset_dirs = [conversion_mapping_datasets[ds] for ds in dataset_names]
 
     # Convert method names to corresponding dir names
-    conversion_mapping_methods = {'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'}
+    conversion_mapping_methods = {
+        'GMC na': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'
+    }
 
     method_dirs = [conversion_mapping_methods[m] for m in method_names]
 
@@ -2208,11 +2223,11 @@ if __name__ == '__main__':
 
     # main_param_tuning()
 
-    # main_n_epochs_calibration()  # todo. started on ramses (ne0, ne1)
+    # main_n_epochs_calibration()
 
-    # main_som_classifier()  # todo
+    main_som_classifier()  # todo
 
-    main_gatemeclass()  # todo: started inference on woody (no abstention)
+    # main_gatemeclass()  # todo: started inference on woody (no abstention)
 
     # main_dgcytof()
 
