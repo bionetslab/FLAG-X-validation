@@ -917,6 +917,12 @@ def main_som_classifier():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
+    data_sets = [
+        'lymphoma_tube2_binary', 'flowcyt'  # Todo
+    ]
+    others_labels = [None, 5]  # Todo
+    pos_labels = [1, None]  # Todo
+
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     fit = True
@@ -2077,11 +2083,11 @@ def main_performance_score_plots():
 
     # ### Set flags and important variables here #######################################################################
     performance_score = 'f1'  # f1, prec, rec
-    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+    performance_score_mode = 'binary'  # macro, micro, weighted, binary
 
-    dataset_names = ['imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt']
+    dataset_names = ['imstat', 'flowcyt', 'lt1', 'lt1_b', 'lt2', 'lt2_b']
 
-    method_names = ['GMC na', 'GMC wa', 'DGCyTOF', 'FCNN']
+    method_names = ['GMC', 'DGCyTOF', 'FCNN', 'SOM-classifier']
 
     data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150
 
@@ -2102,8 +2108,9 @@ def main_performance_score_plots():
 
     # Convert method names to corresponding dir names
     conversion_mapping_methods = {
-        'GMC na': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
-        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'
+        'GMC': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
+        'SOM-classifier': 'som_classifier_ramses',
     }
 
     method_dirs = [conversion_mapping_methods[m] for m in method_names]
@@ -2165,9 +2172,9 @@ def main_cell_percentage_plots():
     # ### Set flags and important variables here #######################################################################
     dataset_name = 'imstat'  # 'imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt'
 
-    method_name = 'FCNN'  # 'DGCyTOF', 'FCNN'
+    method_name = 'FCNN'  # 'GMC na', 'GMC wa', 'DGCyTOF', 'FCNN'
 
-    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
 
     plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
@@ -2185,7 +2192,10 @@ def main_cell_percentage_plots():
     dataset_dir = conversion_mapping_datasets[dataset_name]
 
     # Convert method names to corresponding dir names
-    conversion_mapping_methods = {'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'}
+    conversion_mapping_methods = {
+        'GMC na': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier'
+    }
     method_dir = conversion_mapping_methods[method_name]
 
     # Load the results dataframes
@@ -2209,6 +2219,10 @@ def main_cell_percentage_plots():
         y_preds=y_preds,
         percentage=True,
         palette=None,
+        title='Predicted vs True Cell Type Proportions',
+        point_size=6.0,
+        show_r2=True,
+        show_pearson=True,
         ax=None,
     )
 
@@ -2217,7 +2231,255 @@ def main_cell_percentage_plots():
     plt.savefig(os.path.join(plot_dir, f'{method_name}_{dataset_name}_population_sizes.png'), dpi=300)
 
 
+def main_time_plots():
 
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    import matplotlib
+    matplotlib.use('Agg')
+
+    from validation.plt import plot_performance_score_box
+
+    # ### Set flags and important variables here #######################################################################
+
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+
+    method_names = ['GMC', 'DGCyTOF', 'FCNN', 'SOM-clf']
+
+    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {
+        'GMC': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
+        'SOM-clf': 'som_classifier_ramses',
+    }
+
+    dataset_dirs = [conversion_mapping_datasets[ds] for ds in dataset_names]
+    method_dirs = [conversion_mapping_methods[m] for m in method_names]
+
+    # Load the results dataframes
+    base_path = os.path.join(os.getcwd(), 'results/pred_eval')
+    inference_time_dfs = []
+    train_times = []
+    table_data = []
+    for ds in dataset_dirs:
+        inference_time_dfs_sub = []
+        train_times_sub = []
+        table_data_sub = []
+        for m in method_dirs:
+            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
+            else:
+                data_trafo_load = data_trafo
+
+            inference_time_df_path = os.path.join(base_path, m, ds, data_trafo_load, 'samples_pred_times_df.csv')
+            train_time_df_path = os.path.join(base_path, m, ds, data_trafo_load, 'fit_time_df.csv')
+
+            try:
+                inference_time_df = pd.read_csv(inference_time_df_path, index_col=0)
+                train_time_df = pd.read_csv(train_time_df_path, index_col=0)
+                train_time = train_time_df.loc['fit_time', 'total s']
+            except FileNotFoundError:
+                inference_time_df = pd.DataFrame()
+                train_time_df = pd.DataFrame()
+                train_time = np.nan
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            inference_time_dfs_sub.append(inference_time_df)
+            train_times_sub.append(train_time)
+            table_data_sub.append(inference_time_df.loc['mean', 'pred_time'] if not inference_time_df.empty else np.nan)
+
+        inference_time_dfs.append(inference_time_dfs_sub)
+        train_times.append(train_times_sub)
+        table_data.append(train_times_sub)
+        table_data.append(table_data_sub)
+
+    column_tuples = [(dataset, phase) for dataset in dataset_names for phase in ['Train', 'Inference']]
+    multi_columns = pd.MultiIndex.from_tuples(column_tuples, names=['Dataset', 'Phase'])
+
+    # Create empty DataFrame with method names as rows and multi-level columns
+    df = pd.DataFrame(
+        data=np.array(table_data).T,
+        index=method_names,
+        columns=multi_columns
+    )
+
+    print(df)
+
+
+
+
+def main_performance_plots():
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    from validation.plt import plot_performance_score_box, plot_cell_pop_size_pred_vs_gt, annotate_mosaic
+
+
+    ####################################################################################################################
+    dataset_name_psize = 'Imstat'
+    dataset_names_perf = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+
+    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
+
+    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+
+    performance_score = 'f1'  # f1, prec, rec
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {
+        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
+        'SOM-classifier': 'som_classifier_ramses'
+    }
+
+    conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        CD
+        EE
+        """,
+        gridspec_kw={'height_ratios': [1/4, 1/4, 1/2]}
+    )
+
+    # ### Plot the population percentages
+    # Load the plot data
+    base_path_y_true = os.path.join(os.getcwd(), 'data/np_files')
+    base_path_y_pred = os.path.join(os.getcwd(), 'results/pred_eval')
+
+    # Load the sample-wise data (ground truth and prediction)
+    dataset_dir_psize = conversion_mapping_datasets[dataset_name_psize]
+    y_true_path = os.path.join(base_path_y_true, dataset_dir_psize, data_trafo, 'sample_wise_test')
+
+    n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
+    y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+    y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
+
+    # Define color mapping
+    color_mapping = dict(
+        (str(k), c)
+        for k, c in zip([-1] + list(range(1, 9)), sns.color_palette("Accent", 9))
+    )
+
+    for key, method in zip(['A', 'C', 'D', 'B'], method_names):
+
+        method_dir = conversion_mapping_methods[method]
+
+        y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir_psize, data_trafo, 'samples_y_pred')
+        y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+        y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
+
+        plot_cell_pop_size_pred_vs_gt(
+            y_trues=y_trues,
+            y_preds=y_preds,
+            percentage=True,
+            palette=color_mapping,
+            title=method,
+            point_size=11.0,
+            show_r2=True,
+            show_pearson=True,
+            ax=axd[key],
+        )
+
+    # ### Plot the performance scores
+    # Load the results dataframes
+    base_path = os.path.join(os.getcwd(), 'results/pred_eval')
+    dataset_dirs_perf = [conversion_mapping_datasets[ds] for ds in dataset_names_perf]
+    method_dirs_perf = [conversion_mapping_methods[method] for method in method_names]
+    res_dfs = []
+    for ds in dataset_dirs_perf:
+        res_dfs_sub = []
+        for m in method_dirs_perf:
+            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
+            else:
+                data_trafo_load = data_trafo
+
+            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_{performance_score}.csv')
+
+            try:
+                res_df = pd.read_csv(res_df_path, index_col=0)
+            except FileNotFoundError:
+                res_df = pd.DataFrame()
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            res_dfs_sub.append(res_df)
+        res_dfs.append(res_dfs_sub)
+
+    plot_performance_score_box(
+        sample_wise_res_dfs=res_dfs,
+        method_names=method_names,
+        dataset_names=dataset_names_perf,
+        score_mode=performance_score_mode,
+        y_label=conversion_mapping_y_label[performance_score],
+        sns_boxplot_kwargs=None,
+        plot_points=True,
+        point_kwargs=None,
+        boxplot_alpha=0.9,
+        ax=axd['E'],
+    )
+
+    # ### Manually adjust axis labels
+    ax_label_fontsize = 12
+
+    for key in ['A', 'B', 'C', 'D']:
+        ax = axd[key]
+        ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        ax.tick_params(labelsize=ax_label_fontsize - 2)
+
+    ax_e = axd['E']
+    ax_e.set_xlabel(None)
+    ax_e.set_ylabel(ax_e.get_ylabel(), fontsize=ax_label_fontsize)
+    ax_e.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+    ax_e.tick_params(axis='x', labelsize=ax_label_fontsize)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig('./results/plots/performance.png', dpi=fig.dpi)
+
+    # Todo: check r2 calac (uses perc or abs?)
 
 
 if __name__ == '__main__':
@@ -2230,9 +2492,9 @@ if __name__ == '__main__':
 
     # main_n_epochs_calibration()
 
-    main_som_classifier()  # todo
+    main_som_classifier()  # todo: started on woody and ramses
 
-    # main_gatemeclass()  # todo: started inference on woody (no abstention)
+    # main_gatemeclass()
 
     # main_dgcytof()
 
@@ -2242,9 +2504,15 @@ if __name__ == '__main__':
 
     # main_cell_percentage_plots()
 
+    # main_time_plots()
+
+    # main_performance_plots()
+
     # main_n_samples_experiment() # todo
 
     # main_prec_vs_recall()  # todo
+
+
 
     print('done')
 
