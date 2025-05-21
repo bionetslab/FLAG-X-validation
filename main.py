@@ -1140,7 +1140,7 @@ def main_gatemeclass():
     predict = True
     evaluate = True
 
-    allow_abstention = False
+    allow_abstention = True
     abstention_label = -1 if allow_abstention else None
 
     data_sets = [
