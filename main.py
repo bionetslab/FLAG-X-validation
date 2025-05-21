@@ -1140,7 +1140,7 @@ def main_gatemeclass():
     predict = True
     evaluate = True
 
-    allow_abstention = True
+    allow_abstention = False
     abstention_label = -1 if allow_abstention else None
 
     data_sets = [
@@ -1212,6 +1212,10 @@ def main_gatemeclass():
             abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
             save_p = os.path.join(os.getcwd(), f'results/pred_eval/gatemeclass{abstention_str}/{data_set}/{trafo}')
             os.makedirs(save_p, exist_ok=True)
+
+            # Get the number of samples
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
 
             if fit:
 
@@ -1298,8 +1302,6 @@ def main_gatemeclass():
                     continue
 
                 # Load the sample-wise test data
-                samples_p = os.path.join(data_p, 'sample_wise_test')
-                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
                 samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
                 samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
@@ -1338,8 +1340,8 @@ def main_gatemeclass():
                 print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
 
                 os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
-                for y, sn in zip(samples_y_pred, sample_names):
-                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+                for y, i in zip(samples_y_pred, successful_fit_idx):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
 
             else:
                 # Load the predictions
@@ -1350,9 +1352,8 @@ def main_gatemeclass():
                     continue
 
                 samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
-                samples_y_pred_filenames = [
-                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
-                ]
+                samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+
                 samples_y_pred = []
                 successful_fit_idx = []
                 for i, fn in enumerate(samples_y_pred_filenames):
@@ -1387,10 +1388,7 @@ def main_gatemeclass():
                 if abstention_label is not None:
                     out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
 
-                # Load the labels of the sample-wise test data
-                samples_p = os.path.join(data_p, 'sample_wise_test')
-                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
-                # Get the test samples for which the fit was successful
+                # Get the sample-wise test data for which the prediction was successful
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
                 samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
                 samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
@@ -1425,7 +1423,6 @@ def main_dgcytof():
 
     import os
     import time
-    import torch
     import numpy as np
     import pandas as pd
     from validation.gating.dgcytof import DgcytofClassifier
@@ -1472,6 +1469,10 @@ def main_dgcytof():
             save_p = os.path.join(os.getcwd(), f'results/pred_eval/dgcytof/{data_set}/{trafo}')
             os.makedirs(save_p, exist_ok=True)
 
+            # Get the number of samples
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+
             if fit:
 
                 # Load training data
@@ -1517,9 +1518,7 @@ def main_dgcytof():
                     continue
 
             else:
-                # Load the SOM classifier
                 try:
-                    torch.serialization.safe_globals([DgcytofClassifier])
                     dgcytof_clf = DgcytofClassifier.load(filepath=save_p)
                 except FileNotFoundError:
                     print(f'# ### Classifier could not be trained without error. Continue.\n')
@@ -1556,8 +1555,6 @@ def main_dgcytof():
                     continue
 
                 # Load the sample-wise test data
-                samples_p = os.path.join(data_p, 'sample_wise_test')
-                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
                 samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
                 samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
@@ -1596,8 +1593,8 @@ def main_dgcytof():
                 print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
 
                 os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
-                for y, sn in zip(samples_y_pred, sample_names):
-                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+                for y, i in zip(samples_y_pred, successful_fit_idx):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
 
             else:
                 # Load the predictions
@@ -1608,9 +1605,7 @@ def main_dgcytof():
                     continue
 
                 samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
-                samples_y_pred_filenames = [
-                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
-                ]
+                samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
                 samples_y_pred = []
                 successful_fit_idx = []
                 for i, fn in enumerate(samples_y_pred_filenames):
@@ -1644,10 +1639,7 @@ def main_dgcytof():
                 out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
                 out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
 
-                # Load the labels of the sample-wise test data
-                samples_p = os.path.join(data_p, 'sample_wise_test')
-                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
-                # Get the test samples for which the fit was successful
+                # Get the sample-wise test data for which the prediction was successful
                 sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
                 samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
                 samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
@@ -2170,24 +2162,28 @@ def main_cell_percentage_plots():
 
 
     # ### Set flags and important variables here #######################################################################
-    dataset_name = 'imstat'  # 'imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt'
+    dataset_name = 'Imstat'  # 'imstat', 'lt1', 'lt1_b', 'lt2', 'lt2_b', 'flowcyt'
 
-    method_name = 'FCNN'  # 'GMC na', 'GMC wa', 'DGCyTOF', 'FCNN'
+    method_name = 'DGCyTOF'  # 'GMC na', 'GMC wa', 'DGCyTOF', 'FCNN'
 
-    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
 
     plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
+
+
+    if dataset_name == 'Flowcyt' and data_trafo == 'log10_channelwisecutoff':
+        data_trafo = 'log10_cutoff100'
 
     # Create dir to save plots into
     os.makedirs(plot_dir, exist_ok=True)
 
     # Convert dataset names to corresponding dir names
     conversion_mapping_datasets = {
-        'imstat': 'imstat',
+        'Imstat': 'imstat',
         'lt1': 'lymphoma_tube1', 'lt1_b': 'lymphoma_tube1_binary',
         'lt2': 'lymphoma_tube2', 'lt2_b': 'lymphoma_tube2_binary',
-        'flowcyt': 'flowcyt'
+        'Flowcyt': 'flowcyt'
     }
     dataset_dir = conversion_mapping_datasets[dataset_name]
 
@@ -2211,8 +2207,18 @@ def main_cell_percentage_plots():
 
     y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir, data_trafo, 'samples_y_pred')
     y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-    y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
+    # y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
+    y_preds = []
+    for f in y_pred_filenames:
+        try:
+            y_preds.append(np.load(os.path.join(y_pred_path, f)).astype(int))
+        except FileNotFoundError:
+            print('filename not found: ', f)
+            y_preds.append(np.array([]))
 
+    # Keep elements only where the corresponding y_pred array is NOT empty
+    filtered = [(a, b) for a, b in zip(y_trues, y_preds) if b.size > 0]
+    y_trues, y_preds = map(list, zip(*filtered))
 
     plot_cell_pop_size_pred_vs_gt(
         y_trues=y_trues,
@@ -2368,7 +2374,7 @@ def main_performance_plots():
     conversion_mapping_methods = {
         'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
         'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-classifier': 'som_classifier_ramses'
+        'SOM-classifier': 'som_classifier'
     }
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
@@ -2407,9 +2413,27 @@ def main_performance_plots():
 
         method_dir = conversion_mapping_methods[method]
 
-        y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir_psize, data_trafo, 'samples_y_pred')
+        if data_trafo == 'log10_channelwisecutoff' and method == 'GateMeClass':
+            data_trafo_load = 'arcsinh_cofactor150'
+        else:
+            data_trafo_load = data_trafo
+
+        y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir_psize, data_trafo_load, 'samples_y_pred')
         y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
         y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
+        '''y_preds = []
+        for f in y_pred_filenames:
+            try:
+                y_preds.append(np.load(os.path.join(y_pred_path, f)).astype(int))
+            except FileNotFoundError:
+                y_preds.append(np.array([]))
+
+        # Keep elements only where the corresponding y_pred array is NOT empty
+        filtered = [
+            (a, b) for a, b in zip(y_trues, y_preds)
+            if b.size > 0
+        ]
+        y_trues, y_preds = map(list, zip(*filtered))'''
 
         plot_cell_pop_size_pred_vs_gt(
             y_trues=y_trues,
@@ -2432,10 +2456,14 @@ def main_performance_plots():
     for ds in dataset_dirs_perf:
         res_dfs_sub = []
         for m in method_dirs_perf:
-            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
-                data_trafo_load = 'log10_cutoff100'
+
+            if data_trafo == 'log10_channelwisecutoff' and m == 'gatemeclass_no_abstention':
+                data_trafo_load = 'arcsinh_cofactor150'
             else:
                 data_trafo_load = data_trafo
+
+            if ds == 'flowcyt' and data_trafo_load == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
 
             res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_{performance_score}.csv')
 
@@ -2479,7 +2507,365 @@ def main_performance_plots():
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
     plt.savefig('./results/plots/performance.png', dpi=fig.dpi)
 
-    # Todo: check r2 calac (uses perc or abs?)
+
+def main_performance_plots_supplement():
+
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from validation.plt import plot_performance_score_box, plot_cell_pop_size_pred_vs_gt, annotate_mosaic
+
+
+    ####################################################################################################################
+    dataset_name_psize = 'Imstat'
+    dataset_names_perf = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+
+    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
+
+    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {
+        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
+        'SOM-classifier': 'som_classifier_ramses'
+    }
+
+    conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        A
+        B
+        """,
+        gridspec_kw={'height_ratios': [1/2, 1/2]}
+    )
+
+    # ### Plot the performance scores
+    # Load the results dataframes
+    base_path = os.path.join(os.getcwd(), 'results/pred_eval')
+    dataset_dirs_perf = [conversion_mapping_datasets[ds] for ds in dataset_names_perf]
+    method_dirs_perf = [conversion_mapping_methods[method] for method in method_names]
+
+    res_dfs_prec = []
+    for ds in dataset_dirs_perf:
+        res_dfs_sub = []
+        for m in method_dirs_perf:
+            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
+            else:
+                data_trafo_load = data_trafo
+
+            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_prec.csv')
+
+            try:
+                res_df = pd.read_csv(res_df_path, index_col=0)
+            except FileNotFoundError:
+                res_df = pd.DataFrame()
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            res_dfs_sub.append(res_df)
+        res_dfs_prec.append(res_dfs_sub)
+
+    res_dfs_rec = []
+    for ds in dataset_dirs_perf:
+        res_dfs_sub = []
+        for m in method_dirs_perf:
+            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
+            else:
+                data_trafo_load = data_trafo
+
+            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_prec.csv')
+
+            try:
+                res_df = pd.read_csv(res_df_path, index_col=0)
+            except FileNotFoundError:
+                res_df = pd.DataFrame()
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            res_dfs_sub.append(res_df)
+        res_dfs_rec.append(res_dfs_sub)
+
+    plot_performance_score_box(
+        sample_wise_res_dfs=res_dfs_prec,
+        method_names=method_names,
+        dataset_names=dataset_names_perf,
+        score_mode=performance_score_mode,
+        y_label=conversion_mapping_y_label['prec'],
+        sns_boxplot_kwargs=None,
+        plot_points=True,
+        point_kwargs=None,
+        boxplot_alpha=0.9,
+        ax=axd['A'],
+    )
+
+    plot_performance_score_box(
+        sample_wise_res_dfs=res_dfs_rec,
+        method_names=method_names,
+        dataset_names=dataset_names_perf,
+        score_mode=performance_score_mode,
+        y_label=conversion_mapping_y_label['prec'],
+        sns_boxplot_kwargs=None,
+        plot_points=True,
+        point_kwargs=None,
+        boxplot_alpha=0.9,
+        ax=axd['B'],
+    )
+
+    # ### Manually adjust axis labels
+    ax_label_fontsize = 12
+
+    for key in ['A', 'B']:
+        ax = axd[key]
+        ax.set_xlabel(None, fontsize=ax_label_fontsize)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+
+        ax.tick_params(axis='x', labelsize=ax_label_fontsize)
+        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig('./results/plots/performance_supplement.png', dpi=fig.dpi)
+
+
+def main_pipeline_workflow_som():
+
+    import os
+    import random
+    import readfcs
+    import matplotlib.pyplot as plt
+    import matplotlib
+
+    matplotlib.use('Agg')
+    random.seed(42)
+
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    # ###### Initial training ###### #
+    # ### Set parameters
+    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow_som1')
+    os.makedirs(save_path, exist_ok=True)
+
+    data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
+    data_fns = sorted(os.listdir(data_dir))
+    random.shuffle(data_fns)
+
+    train_data_fns = data_fns[0:75]
+    test_data_fns = data_fns[75:78]
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+    label_key = 'population'
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}}
+
+    gating_method_kwargs = {
+        'som_topology': 'planar',
+        'som_grid_type': 'rectangular',
+        'som_dimensions': (10, 10),
+        'neighborhood': 'gaussian',
+        'gaussian_neighborhood_sigma': 0.25,
+        'initialization': 'pca',
+        'n_epochs': 200,
+        'radius_0': -0.25,
+        'radius_n': 0.01,
+        'radius_cooling': 'linear',
+        'learning_rate_0': 0.5,
+        'learning_rate_n': 0.05,
+        'learning_rate_decay': 'exponential',
+        'verbosity': 2
+    }
+
+    # ### Instantiate the pipeline, train, and save
+    gp = GatingPipeline(
+        train_data_file_path=data_dir,
+        train_data_file_names=train_data_fns,
+        train_data_file_type='fcs',
+        save_path=save_path,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='som',
+        gating_method_kwargs=gating_method_kwargs,
+        verbosity=2,
+    )
+
+    gp.train()
+
+    print("Gating som unit labels training", gp.gating_module_.som_unit_labels_)
+
+    gp.save(filename='trained_pipeline.pkl', filepath=None)
+
+    del gp
+
+    # ###### Inference with new data ###### #
+    # ### Set parameters
+    output_dir = os.path.join(save_path, 'output')
+    os.makedirs(output_dir, exist_ok=True)
+
+    dim_red_methods = ('som', 'pca', 'umap')
+    dim_red_method_kwargs = (None, None, {'n_jobs': 12})
+
+    # ### Load the pipeline
+    gp = GatingPipeline.load(filename='trained_pipeline.pkl', filepath=save_path)
+
+    print("Gating som unit labels inference", gp.gating_module_.som_unit_labels_)
+
+    gp.inference(
+        data_file_path=data_dir,
+        data_file_names=test_data_fns,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_test_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    del gp
+
+    # ###### Output validation ###### #
+
+    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    print("# ### Annotated test data:\n", annotated_test_data)
+    df = annotated_test_data[1]
+    df['pred_unscaled'] = df['pred_unscaled'].astype(int)
+    print("# Channels:\n", df.columns)
+
+    for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred_unscaled', palette='deep', ax=ax)
+        plt.legend(title='Pred', markerscale=4)
+        plt.savefig(os.path.join(output_dir, f'{drm}.png'), dpi=300)
+        plt.close('all')
+
+
+def main_pipeline_workflow_fcnn():
+
+    import os
+    import random
+    import readfcs
+    import matplotlib.pyplot as plt
+    import matplotlib
+
+    matplotlib.use('Agg')
+    random.seed(42)
+
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    # ###### Initial training ###### #
+    # ### Set parameters
+    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow_fcnn')
+    os.makedirs(save_path, exist_ok=True)
+
+    data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
+    data_fns = sorted(os.listdir(data_dir))
+    random.shuffle(data_fns)
+
+    train_data_fns = data_fns[0:25]
+    test_data_fns = data_fns[75:78]
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+    label_key = 'population'
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}}
+
+    gating_method_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cuda', 'verbosity': 2}
+
+    # ### Instantiate the pipeline, train, and save
+    gp = GatingPipeline(
+        train_data_file_path=data_dir,
+        train_data_file_names=train_data_fns,
+        train_data_file_type='fcs',
+        save_path=save_path,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='fcnn_softmax',
+        gating_method_kwargs=gating_method_kwargs,
+        verbosity=2,
+    )
+
+    gp.train()
+
+    gp.save(filename='trained_pipeline.pkl', filepath=None)
+
+    del gp
+
+    # ###### Inference with new data ###### #
+    # ### Set parameters
+    output_dir = os.path.join(save_path, 'output')
+    os.makedirs(output_dir, exist_ok=True)
+
+    dim_red_methods = ('pca', 'umap')
+    dim_red_method_kwargs = (None, {'n_jobs': 12})
+
+    # ### Load the pipeline
+    gp = GatingPipeline.load(filename='trained_pipeline.pkl', filepath=save_path)
+
+    gp.inference(
+        data_file_path=data_dir,
+        data_file_names=test_data_fns,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_test_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    del gp
+
+    # ###### Output validation ###### #
+
+    output_dir = os.path.join(save_path, 'output')
+    dim_red_methods = ('pca', 'umap')
+
+    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    print("# ### Annotated test data:\n", annotated_test_data)
+    df = annotated_test_data[1]
+
+    print(type(df))
+    df['pred_unscaled'] = df['pred_unscaled'].astype(int)
+    print("# Channels:\n", df.columns)
+
+    for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred_unscaled', palette='deep', ax=ax)
+        plt.legend(title='Pred', markerscale=4)
+        plt.savefig(os.path.join(output_dir, f'{drm}.png'), dpi=300)
+        plt.close('all')
+
 
 
 if __name__ == '__main__':
@@ -2492,9 +2878,9 @@ if __name__ == '__main__':
 
     # main_n_epochs_calibration()
 
-    main_som_classifier()  # todo: started on woody and ramses
+    # main_som_classifier()
 
-    # main_gatemeclass()
+    main_gatemeclass()
 
     # main_dgcytof()
 
@@ -2508,11 +2894,21 @@ if __name__ == '__main__':
 
     # main_performance_plots()
 
+    # main_performance_plots_supplement()
+
     # main_n_samples_experiment() # todo
 
     # main_prec_vs_recall()  # todo
 
+    # main_pipeline_workflow_som()
 
+    # main_pipeline_workflow_fcnn()
+
+    # Todo: save filenames for y_pred are wrong (fix and rerun analyses for dg and gmc)
+    # Todo: flowcyt res for som not downloaded?
+    # Todo: pipeline output for fcnn is not df?
+    # Todo: adjust scaling in export
+    # Todo: annotated.fcs an Stefan
 
     print('done')
 
