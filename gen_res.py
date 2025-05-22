@@ -1,7 +1,7 @@
 
 import argparse
 
-from main import main_som_classifier, main_dgcytof, main_softmax
+from main import main_som_classifier, main_dgcytof, main_softmax, main_gatemeclass
 
 
 
@@ -21,5 +21,7 @@ if __name__ == '__main__':
         main_dgcytof()
     elif args.m == 'softmax':
         main_softmax()
+    elif args.m == 'gatemeclass':
+        main_gatemeclass()
     else:
         print('Please specify a valid method.')

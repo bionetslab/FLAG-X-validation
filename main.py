@@ -917,12 +917,6 @@ def main_som_classifier():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    data_sets = [
-        'lymphoma_tube2_binary', 'flowcyt'  # Todo
-    ]
-    others_labels = [None, 5]  # Todo
-    pos_labels = [1, None]  # Todo
-
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     fit = True
@@ -2880,9 +2874,9 @@ if __name__ == '__main__':
 
     # main_som_classifier()
 
-    main_gatemeclass()
+    # main_gatemeclass()  # started (na, wa)
 
-    # main_dgcytof()
+    # main_dgcytof()  # started on tinygpu
 
     # main_softmax()
 
@@ -2905,8 +2899,10 @@ if __name__ == '__main__':
     # main_pipeline_workflow_fcnn()
 
     # Todo: save filenames for y_pred are wrong (fix and rerun analyses for dg and gmc)
-    # Todo: flowcyt res for som not downloaded?
     # Todo: pipeline output for fcnn is not df?
+    # Todo: add class-wise results and dataset plots
+    # Todo: continue with writing
+
     # Todo: adjust scaling in export
     # Todo: annotated.fcs an Stefan
 
