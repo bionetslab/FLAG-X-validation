@@ -2064,7 +2064,7 @@ def main_performance_score_plots():
     import matplotlib
     matplotlib.use('Agg')
 
-    from validation.plt import plot_performance_score_box
+    from validation.plt import plot_performance_score_box_plot
 
 
     # ### Set flags and important variables here #######################################################################
@@ -2116,6 +2116,7 @@ def main_performance_score_plots():
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
+                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
             except FileNotFoundError:
                 res_df = pd.DataFrame()
                 print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
@@ -2126,7 +2127,7 @@ def main_performance_score_plots():
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
 
-    plot_performance_score_box(
+    plot_performance_score_box_plot(
         sample_wise_res_dfs=res_dfs,
         method_names=method_names,
         dataset_names=dataset_names,
@@ -2231,7 +2232,7 @@ def main_cell_percentage_plots():
     plt.savefig(os.path.join(plot_dir, f'{method_name}_{dataset_name}_population_sizes.png'), dpi=300)
 
 
-def main_time_plots():
+def main_time_table():
 
     import os
     import numpy as np
@@ -2241,7 +2242,7 @@ def main_time_plots():
     import matplotlib
     matplotlib.use('Agg')
 
-    from validation.plt import plot_performance_score_box
+    from validation.plt import plot_performance_score_box_plot
 
     # ### Set flags and important variables here #######################################################################
 
@@ -2336,7 +2337,7 @@ def main_performance_plots():
     import matplotlib.pyplot as plt
     import seaborn as sns
 
-    from validation.plt import plot_performance_score_box, plot_cell_pop_size_pred_vs_gt, annotate_mosaic
+    from validation.plt import plot_performance_score_box_plot, plot_cell_pop_size_pred_vs_gt, annotate_mosaic
 
 
     ####################################################################################################################
@@ -2463,6 +2464,7 @@ def main_performance_plots():
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
+                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
             except FileNotFoundError:
                 res_df = pd.DataFrame()
                 print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
@@ -2470,7 +2472,7 @@ def main_performance_plots():
             res_dfs_sub.append(res_df)
         res_dfs.append(res_dfs_sub)
 
-    plot_performance_score_box(
+    plot_performance_score_box_plot(
         sample_wise_res_dfs=res_dfs,
         method_names=method_names,
         dataset_names=dataset_names_perf,
@@ -2508,18 +2510,17 @@ def main_performance_plots_supplement():
     import pandas as pd
     import matplotlib.pyplot as plt
 
-    from validation.plt import plot_performance_score_box, plot_cell_pop_size_pred_vs_gt, annotate_mosaic
+    from validation.plt import plot_performance_score_box_plot_cw, annotate_mosaic
 
 
     ####################################################################################################################
-    dataset_name_psize = 'Imstat'
-    dataset_names_perf = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
 
     method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
 
     data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
 
-    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+    performance_score = 'f1'  # f1, prec, rec
 
     plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
@@ -2544,89 +2545,60 @@ def main_performance_plots_supplement():
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
 
+
     # Initialize the mosaic
     fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
-        A
-        B
-        """,
-        gridspec_kw={'height_ratios': [1/2, 1/2]}
+        AB
+        CD
+        EF
+        """
     )
 
     # ### Plot the performance scores
     # Load the results dataframes
     base_path = os.path.join(os.getcwd(), 'results/pred_eval')
-    dataset_dirs_perf = [conversion_mapping_datasets[ds] for ds in dataset_names_perf]
-    method_dirs_perf = [conversion_mapping_methods[method] for method in method_names]
+    dataset_dirs = [conversion_mapping_datasets[ds] for ds in dataset_names]
+    method_dirs = [conversion_mapping_methods[method] for method in method_names]
 
-    res_dfs_prec = []
-    for ds in dataset_dirs_perf:
+    res_dfs = []
+    for ds in dataset_dirs:
         res_dfs_sub = []
-        for m in method_dirs_perf:
+        for m in method_dirs:
             if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
                 data_trafo_load = 'log10_cutoff100'
             else:
                 data_trafo_load = data_trafo
 
-            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_prec.csv')
+            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_cw_{performance_score}.csv')
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
+                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
             except FileNotFoundError:
                 res_df = pd.DataFrame()
                 print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
 
             res_dfs_sub.append(res_df)
-        res_dfs_prec.append(res_dfs_sub)
+        res_dfs.append(res_dfs_sub)
 
-    res_dfs_rec = []
-    for ds in dataset_dirs_perf:
-        res_dfs_sub = []
-        for m in method_dirs_perf:
-            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
-                data_trafo_load = 'log10_cutoff100'
-            else:
-                data_trafo_load = data_trafo
 
-            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_prec.csv')
+    for rdfl, dsn, label in zip(res_dfs, dataset_names, ['A', 'B', 'C', 'D', 'E', 'F']):
 
-            try:
-                res_df = pd.read_csv(res_df_path, index_col=0)
-            except FileNotFoundError:
-                res_df = pd.DataFrame()
-                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+        plot_performance_score_box_plot_cw(
+            sample_wise_res_dfs=rdfl,
+            method_names=method_names,
+            y_label=conversion_mapping_y_label[performance_score],
+            title=dsn,
+            sns_boxplot_kwargs=None,
+            plot_points=True,
+            point_kwargs=None,
+            boxplot_alpha=0.9,
+            ax=axd[label],
+        )
 
-            res_dfs_sub.append(res_df)
-        res_dfs_rec.append(res_dfs_sub)
-
-    plot_performance_score_box(
-        sample_wise_res_dfs=res_dfs_prec,
-        method_names=method_names,
-        dataset_names=dataset_names_perf,
-        score_mode=performance_score_mode,
-        y_label=conversion_mapping_y_label['prec'],
-        sns_boxplot_kwargs=None,
-        plot_points=True,
-        point_kwargs=None,
-        boxplot_alpha=0.9,
-        ax=axd['A'],
-    )
-
-    plot_performance_score_box(
-        sample_wise_res_dfs=res_dfs_rec,
-        method_names=method_names,
-        dataset_names=dataset_names_perf,
-        score_mode=performance_score_mode,
-        y_label=conversion_mapping_y_label['prec'],
-        sns_boxplot_kwargs=None,
-        plot_points=True,
-        point_kwargs=None,
-        boxplot_alpha=0.9,
-        ax=axd['B'],
-    )
-
-    # ### Manually adjust axis labels
+    '''# ### Manually adjust axis labels
     ax_label_fontsize = 12
 
     for key in ['A', 'B']:
@@ -2635,10 +2607,157 @@ def main_performance_plots_supplement():
         ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
 
         ax.tick_params(axis='x', labelsize=ax_label_fontsize)
-        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)'''
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig('./results/plots/performance_supplement.png', dpi=fig.dpi)
+
+    plt.savefig(f'./results/plots/performance_{performance_score}_supplement.png', dpi=fig.dpi)
+
+
+def main_dataset_size_plot_supplement():
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from validation.plt import plot_sample_sizes, annotate_mosaic
+
+
+    ####################################################################################################################
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    y_trains = []
+    y_tests = []
+    for ds in dataset_names:
+
+        # Load the sample-wise data
+        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds], 'arcsinh_cofactor150')
+
+        y_train_dir = os.path.join(base_path, 'sample_wise_train')
+        num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
+        y_train_filenames = [f'y_sample_{str(i).zfill(2)}_train.npy' for i in range(num_y_trains)]
+        y_trains.append([np.load(os.path.join(y_train_dir, f)).astype(int) for f in y_train_filenames])
+
+        y_test_dir = os.path.join(base_path, 'sample_wise_test')
+        num_y_test = len([f for f in os.listdir(y_test_dir) if f.startswith('y_')])
+        y_test_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(num_y_test)]
+        y_tests.append([np.load(os.path.join(y_test_dir, f)).astype(int) for f in y_test_filenames])
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 11), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        CD
+        EF
+        GH
+        """
+    )
+
+    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH']):
+
+        plot_sample_sizes(
+            ys=ytr, title=f'{ds} Train', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[0]]
+        )
+        plot_sample_sizes(
+            ys=yte, title=f'{ds} Test', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[1]]
+        )
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+
+    plt.savefig('./results/plots/dataset_sizes_supplement.png', dpi=fig.dpi)
+
+
+def main_dataset_balance_plot_supplement():
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from validation.plt import plot_class_balances, annotate_mosaic
+
+    ####################################################################################################################
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    y_trains = []
+    y_tests = []
+    for ds in dataset_names:
+        # Load the sample-wise data
+        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds],
+                                 'arcsinh_cofactor150')
+
+        y_train_dir = os.path.join(base_path, 'sample_wise_train')
+        num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
+        y_train_filenames = [f'y_sample_{str(i).zfill(2)}_train.npy' for i in range(num_y_trains)]
+        y_trains.append([np.load(os.path.join(y_train_dir, f)).astype(int) for f in y_train_filenames])
+
+        y_test_dir = os.path.join(base_path, 'sample_wise_test')
+        num_y_test = len([f for f in os.listdir(y_test_dir) if f.startswith('y_')])
+        y_test_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(num_y_test)]
+        y_tests.append([np.load(os.path.join(y_test_dir, f)).astype(int) for f in y_test_filenames])
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 11), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AABB
+        CCDD
+        EEFF
+        GGHH
+        IJKL
+        """
+    )
+
+    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL']):
+        plot_class_balances(
+            ys=ytr, title=f'{ds} Train', palette=None, ax=axd[labels[0]]
+        )
+        plot_class_balances(
+            ys=yte, title=f'{ds} Test', ax=axd[labels[1]]
+        )
+
+    # ### Manually adjust axis labels
+    # for key in ['F', 'G', 'H', 'J', 'K', 'L']:
+    #     ax = axd[key]
+    #     ax.set_ylabel(None)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+
+    plt.savefig('./results/plots/dataset_balances_supplement.png', dpi=fig.dpi)
+
+
+
+
+
+
 
 
 def main_pipeline_workflow_som():
@@ -2874,21 +2993,25 @@ if __name__ == '__main__':
 
     # main_som_classifier()
 
-    # main_gatemeclass()  # started (na, wa)
+    # main_gatemeclass()  # todo: started (na, wa)
 
-    # main_dgcytof()  # started on tinygpu
+    # main_dgcytof()  # todo: started on tinygpu
 
-    # main_softmax()
+    # main_softmax()  # todo: started on tinygpu
 
     # main_performance_score_plots()
 
     # main_cell_percentage_plots()
 
-    # main_time_plots()
+    # main_time_table()
 
     # main_performance_plots()
 
     # main_performance_plots_supplement()
+
+    # main_dataset_size_plot_supplement()
+
+    # main_dataset_balance_plot_supplement()
 
     # main_n_samples_experiment() # todo
 
@@ -2898,13 +3021,14 @@ if __name__ == '__main__':
 
     # main_pipeline_workflow_fcnn()
 
-    # Todo: save filenames for y_pred are wrong (fix and rerun analyses for dg and gmc)
+
     # Todo: pipeline output for fcnn is not df?
-    # Todo: add class-wise results and dataset plots
+    # Todo: add class-wise results and dataset plots -> add percentages in legend
     # Todo: continue with writing
 
     # Todo: adjust scaling in export
-    # Todo: annotated.fcs an Stefan
+    # Todo: Generate annotated.fcs an Stefan
+    # Todo: Restructure supplement to adhere to manuscript structure, adjust references
 
     print('done')
 
