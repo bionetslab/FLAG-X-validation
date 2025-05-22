@@ -274,7 +274,7 @@ def plot_param_heatmap(
 
 ########################################################################################################################
 
-def plot_performance_score_box(
+def plot_performance_score_box_plot(
         sample_wise_res_dfs: List[List[pd.DataFrame]],
         method_names: Union[List[str], None] = None,
         dataset_names: Union[List[str], None] = None,
@@ -433,8 +433,8 @@ def plot_cell_pop_size_pred_vs_gt(
 
     # Compute percentages
     if percentage:
-        plot_df['percent_yt'] = plot_df['counts_yt'] / plot_df['totals']
-        plot_df['percent_yp'] = plot_df['counts_yp'] / plot_df['totals']
+        plot_df['percent_yt'] = plot_df['counts_yt'] / plot_df['totals'] * 100
+        plot_df['percent_yp'] = plot_df['counts_yp'] / plot_df['totals'] * 100
 
         x_col = 'percent_yt'
         y_col = 'percent_yp'
@@ -469,8 +469,8 @@ def plot_cell_pop_size_pred_vs_gt(
     ax.plot([0, max_val_x], [0, max_val_y], linestyle='--', color='grey', linewidth=1.0, zorder=0)
 
     # Labels & formatting
-    x_label = 'True Cell Population Size'
-    y_label = 'Predicted Cell Population Size'
+    x_label = 'Population Size'
+    y_label = 'Predicted Population Size'
     if percentage:
         x_label += ' (%)'
         y_label += ' (%)'
@@ -510,7 +510,6 @@ def plot_cell_pop_size_pred_vs_gt(
                 fontsize=10,
                 bbox=dict(facecolor='white', alpha=0.6, edgecolor='none')
             )
-
 
     return ax
 
@@ -554,6 +553,129 @@ def _get_plot_df(
     df['totals'] = totals
 
     return df
+
+
+def plot_performance_score_box_plot_cw(
+        sample_wise_res_dfs: List[pd.DataFrame],
+        method_names: Union[List[str], None] = None,
+        y_label: Union[str, None] = None,
+        title: Union[str, None] = None,
+        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        sns_boxplot_kwargs: Union[Dict, None] = None,
+        plot_points: bool = False,
+        point_kwargs: Union[Dict, None] = None,
+        boxplot_alpha: Union[float, None] = None,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=300)
+
+    # Get the number of methods
+    num_methods = len(sample_wise_res_dfs)
+
+    # Get the classes
+    classes = []
+    for res_df in sample_wise_res_dfs:
+        for c in res_df.columns.tolist():
+            if c != -1:
+                classes.append(c)
+    classes = list(set(classes))
+    num_classes = len(classes)
+
+    if method_names is None:
+        method_names = [f"M_{i + 1}" for i in range(num_methods)]
+
+    # Build long-form dataframe
+    long_data = []
+
+    for method_idx, method_df in enumerate(sample_wise_res_dfs):
+        method_name = method_names[method_idx]
+        for class_label in method_df.columns:
+            if class_label == -1 or class_label == str(-1):
+                continue
+            scores = method_df[class_label].tolist()
+            for score in scores:
+                long_data.append({
+                    'Method': method_name,
+                    'Cell Type Label': str(int(class_label)),
+                    'Score': score
+                })
+
+    long_df = pd.DataFrame(long_data)
+
+    if palette is None:
+        palette = 'Set2'
+
+    if sns_boxplot_kwargs is None:
+        sns_boxplot_kwargs = dict()
+
+    if point_kwargs is None:
+        point_kwargs = dict()
+
+    if plot_points:
+        # Disable outliers
+        sns_boxplot_kwargs.setdefault('showfliers', False)
+
+    ax = sns.boxplot(
+        data=long_df,
+        x='Cell Type Label',
+        y='Score',
+        hue='Method',
+        palette=palette,
+        zorder=2,
+        ax=ax,
+        **sns_boxplot_kwargs
+    )
+
+    if boxplot_alpha is not None:
+        for patch in ax.patches:  # box patches
+            patch.set_alpha(boxplot_alpha)
+        # Lines: whiskers, caps, medians (in order of plotting)
+        for line in ax.lines:
+            line.set_alpha(boxplot_alpha)
+
+        # Fliers (outlier dots)
+        for col in ax.collections:
+            col.set_alpha(boxplot_alpha)
+
+
+    # Overlay individual scores
+    if plot_points:
+        point_kwargs.setdefault('alpha', 0.4)
+        point_kwargs.setdefault('dodge', True)
+        point_kwargs.setdefault('linewidth', 0.5)
+        point_kwargs.setdefault('size', 3.0)
+        point_kwargs.setdefault('jitter', True)
+
+        ax = sns.stripplot(
+            data=long_df,
+            x='Cell Type Label',
+            y='Score',
+            hue='Method',
+            palette=palette,
+            legend=False,
+            zorder=1,
+            ax=ax,
+            **point_kwargs
+        )
+
+        # Avoid duplicate legends
+        # handles, labels = ax.get_legend_handles_labels()
+        # n = len(method_names)
+        # ax.legend(handles[:n], labels[:n], title='Method')
+
+    ax.set_xlabel('Cell Type')
+    if y_label is None:
+        y_label = 'Score'
+    ax.set_ylabel(f'{y_label.capitalize()}')
+    ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+
+    if title is not None:
+        ax.set_title(title)
+
+    return ax
+
 
 def plot_prec_rec_vs_thresh(
         y_trues: List[np.ndarray],
