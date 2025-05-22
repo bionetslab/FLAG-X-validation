@@ -1433,6 +1433,12 @@ def main_dgcytof():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
+    data_sets = [
+        'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [None, None, None, 5]
+    pos_labels = [None, 1, 1, None]
+
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
     ####################################################################################################################
@@ -2995,7 +3001,7 @@ if __name__ == '__main__':
 
     # main_gatemeclass()  # todo: started (na, wa)
 
-    # main_dgcytof()  # todo: started on tinygpu
+    main_dgcytof()  # todo: started on tinygpu
 
     # main_softmax()  # todo: started on tinygpu
 
