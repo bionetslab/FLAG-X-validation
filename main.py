@@ -1434,10 +1434,10 @@ def main_dgcytof():
     pos_labels = [None, None, None, 1, 1, None]
 
     data_sets = [
-        'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+        'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'  # Todo
     ]
-    others_labels = [None, None, None, 5]
-    pos_labels = [None, 1, 1, None]
+    others_labels = [None, None, None, 5]  # Todo
+    pos_labels = [None, 1, 1, None]  # Todo
 
     preprocessing_trafos = ['arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100']
 
@@ -1856,7 +1856,6 @@ def main_softmax():
 
 
 def main_n_samples_experiment():
-
     import os
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -1866,59 +1865,99 @@ def main_n_samples_experiment():
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'lymphoma_tube1_binary'
+    data_set = 'imstat'
     # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
 
     preprocessing_trafo = 'log10_channelwisecutoff'
     # 'arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100'
 
     random_sample_order = True
-    sample_order_file = os.path.join(
-        os.getcwd(), 'results/n_samples_n_events', f'sample_order_{data_set}_{preprocessing_trafo}.txt'
-    )
-
-    inference = False  # !!!!!!
-
-    others_label = None
-    # 8, None, None, None, None, 5
-
-    pos_label = 1
-    # None, None, None, 1, 1, None
 
     classifier = 'softmax'  # 'som', 'softmax'
 
-    abstention_label = -1 if classifier == 'som' else None
+    inference = True
 
-    downsampled_data_subdirs = ['0_01', '0_05', '0_1', '0_2', '0_3', '0_4', '0_5', '0_6', '0_7', '0_8', '0_9', '1_0']
+    downsampling_fractions = [0.01, 0.25, 0.5, 0.75, 1.0]
 
     ####################################################################################################################
 
-    sample_order_str = 'random' if random_sample_order else 'ordered'
+    base_p = os.path.join(os.getcwd(), 'results/n_samples_n_events')
 
+    # Load the sample order file
+    sample_order_file = None
+    if not random_sample_order:
+        if data_set != 'lymphoma_tube1_binary':
+            print(f'No sample order available for {data_set}. Continuing with random order.')
+        else:
+            sample_order_file = os.path.join(
+                base_p, f'sample_order_{data_set}_{preprocessing_trafo}.txt'
+            )
+
+    # Set the others label
+    if data_set == 'imstat':
+        others_label = 8
+    elif data_set == 'flowcyt':
+        others_label = 5
+    else:
+        others_label = None
+
+    # Set the positive label
+    if data_set in {'lymphoma_tube1_binary', 'lymphoma_tube2_binary'}:
+        pos_label = 1
+    else:
+        pos_label = None
+
+    # Set the abstention label
+    abstention_label = -1 if classifier == 'som' else None
+
+    # Set the save_path
+    sample_order_str = 'random' if random_sample_order else 'ordered'
     save_p = os.path.join(
-        os.getcwd(), 'results/n_samples_n_events', classifier, data_set, preprocessing_trafo, sample_order_str
+        base_p, classifier, data_set, preprocessing_trafo, sample_order_str
     )
     os.makedirs(save_p, exist_ok=True)
 
+    # Set the data path
+    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo)
+
     if inference:
-        # Todo: set parameters
         if classifier == 'som':
-            clf = SomClassifier(
-                som_topology='planar',
-                som_grid_type='rectangular',
-                som_dimensions=(3, 3),  # Todo
-                neighborhood='gaussian',
-                gaussian_neighborhood_sigma=0.1,
-                initialization='pca',
-                n_epochs=6,  # Todo
-                radius_0=-0.75,
-                radius_n=0.01,
-                radius_cooling='linear',
-                learning_rate_0=1.0,
-                learning_rate_n=0.01,
-                learning_rate_decay='linear',
-                verbosity=1,
-            )
+            # Instantiate the SOM classifier
+            if preprocessing_trafo == 'arcsinh_cofactor150':
+
+                clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(25, 25),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.25,
+                    initialization='pca',
+                    n_epochs=200,
+                    radius_0=-0.25,
+                    radius_n=0.01,
+                    radius_cooling='linear',
+                    learning_rate_0=0.5,
+                    learning_rate_n=0.05,
+                    learning_rate_decay='exponential',
+                    verbosity=2,
+                )
+            else:
+                clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(25, 25),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.1,
+                    initialization='pca',
+                    n_epochs=1000,
+                    radius_0=-0.25,
+                    radius_n=0.1,
+                    radius_cooling='linear',
+                    learning_rate_0=0.1,
+                    learning_rate_n=0.05,
+                    learning_rate_decay='exponential',
+                    verbosity=2,
+                )
         else:
             clf = SoftmaxClassifier(
                 layer_sizes=(128, 64, 32),
@@ -1930,13 +1969,12 @@ def main_n_samples_experiment():
 
         n_samples_experiment_helper(
             classifier=clf,
-            downsampled_data_subdirs=downsampled_data_subdirs,
-            data_p=os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo),
+            downsampling_fractions=downsampling_fractions,
+            data_p=data_p,
             save_p=save_p,
             abstention_label=abstention_label,
             others_label=others_label,
             pos_label=pos_label,
-            random_sample_order=random_sample_order,
             sample_order_file=sample_order_file,
         )
 
@@ -2694,7 +2732,7 @@ def main_dataset_balance_plot_supplement():
     import numpy as np
     import matplotlib.pyplot as plt
 
-    from validation.plt import plot_class_balances, annotate_mosaic
+    from validation.plt import plot_class_balance, annotate_mosaic
 
     ####################################################################################################################
     dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
@@ -2743,10 +2781,10 @@ def main_dataset_balance_plot_supplement():
     )
 
     for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL']):
-        plot_class_balances(
+        plot_class_balance(
             ys=ytr, title=f'{ds} Train', palette=None, ax=axd[labels[0]]
         )
-        plot_class_balances(
+        plot_class_balance(
             ys=yte, title=f'{ds} Test', ax=axd[labels[1]]
         )
 
@@ -2758,8 +2796,6 @@ def main_dataset_balance_plot_supplement():
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
     plt.savefig('./results/plots/dataset_balances_supplement.png', dpi=fig.dpi)
-
-
 
 
 
@@ -3001,9 +3037,11 @@ if __name__ == '__main__':
 
     # main_gatemeclass()  # todo: started (na, wa)
 
-    main_dgcytof()  # todo: started on tinygpu
+    # main_dgcytof()  # todo: started on tinygpu
 
     # main_softmax()  # todo: started on tinygpu
+
+    # main_n_samples_experiment() # todo: started on ramses and weneg
 
     # main_performance_score_plots()
 
@@ -3019,9 +3057,9 @@ if __name__ == '__main__':
 
     # main_dataset_balance_plot_supplement()
 
-    # main_n_samples_experiment() # todo
 
-    # main_prec_vs_recall()  # todo
+
+    main_prec_vs_recall()  # todo
 
     # main_pipeline_workflow_som()
 
