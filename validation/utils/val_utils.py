@@ -9,6 +9,8 @@ from typing import Union, Tuple, Callable, Dict, List, Any
 
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
+from flagx.io import FlowDataManager
+
 
 def set_pandas_print_options():
     # Set pandas print options such that alls columns and rows are displayed
@@ -502,14 +504,14 @@ def get_error_dataframe(
 
 def n_samples_experiment_helper(
         classifier: Any,
-        downsampled_data_subdirs: List[str],
+        downsampling_fractions: List[float],
         data_p: Union[str, None] = None,
         save_p: Union[str, None] = None,
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
         pos_label: Union[int, None] = None,
-        random_sample_order: bool = True,
         sample_order_file: Union[str, None] = None,  # Cannot be None if random_sample_order == False
+        seed: Union[int, None] = None,
 ):
 
     if data_p is None:
@@ -517,6 +519,9 @@ def n_samples_experiment_helper(
 
     if save_p is None:
         save_p = os.getcwd()
+
+    if seed is not None:
+        np.random.seed(seed)
 
     # Load the test data
     x_test = np.load(os.path.join(data_p, 'x_test.npy'))
@@ -533,7 +538,7 @@ def n_samples_experiment_helper(
     samples_y_test = [np.load(os.path.join(samples_p_test, f)) for f in samples_y_test_filenames]
 
     # Get number of downsampling fractions to be analyzed
-    n_ds_fractions = len(downsampled_data_subdirs)
+    n_ds_fractions = len(downsampling_fractions)
 
     # Get number of train samples in the dataset
     n_samples_train = len([fn for fn in os.listdir(os.path.join(data_p, 'sample_wise_train')) if fn.startswith('x_')])
@@ -542,7 +547,7 @@ def n_samples_experiment_helper(
     iter_list = _get_expanding_iterator_list(n=n_ds_fractions, m=n_samples_train)
 
     # Init dfs to track performance, prec, rec, f1, micro, macro, weighted, binary (if available)
-    dummy_df = pd.DataFrame(np.nan, index=downsampled_data_subdirs, columns=list(range(1, n_samples_train + 1)))
+    dummy_df = pd.DataFrame(np.nan, index=downsampling_fractions, columns=list(range(1, n_samples_train + 1)))
     n_modes = 3 if pos_label is None else 4
     res_dfs = [dummy_df.copy() for _ in range(n_modes * 3)]
     metrics = ['prec', ] * n_modes + ['rec', ] * n_modes + ['f1'] * n_modes
@@ -554,24 +559,24 @@ def n_samples_experiment_helper(
         clf = copy.deepcopy(classifier)
 
         # ### Define path for saving results
-        current_save_p = os.path.join(save_p, 'detailed_res', f'dsfrac_{downsampled_data_subdirs[i]}_nsamples_{j + 1}')
+        current_save_p = os.path.join(
+            save_p,
+            'detailed_res',
+            f'dsfrac_{str(downsampling_fractions[i]).replace('.', '_')}_nsamples_{j + 1}'
+        )
         os.makedirs(current_save_p, exist_ok=True)
 
         # ### Load the train data
-        if downsampled_data_subdirs[i] != '1_0':  # Use downsampled data
-            data_p_ds = os.path.join(data_p, 'downsampled', downsampled_data_subdirs[i], 'sample_wise_train')
-        else:  # Use non downsampled data
-            data_p_ds = os.path.join(data_p, 'sample_wise_train')
+        data_p_load = os.path.join(data_p, 'sample_wise_train')
 
-        if random_sample_order:
-            # n_samples_train = len([f for f in os.listdir(data_p_ds) if f.startswith('x_')])
+        if sample_order_file is None:
             sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
 
             fns_x_train = [f'x_{sn}.npy' for sn in sample_names_train][:j + 1]
-            x_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_x_train]
+            x_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_x_train]
 
             fns_y_train = [f'y_{sn}.npy' for sn in sample_names_train][:j + 1]
-            y_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_y_train]
+            y_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_y_train]
 
         else:
 
@@ -581,7 +586,7 @@ def n_samples_experiment_helper(
 
             # Load the df that stores the mapping from old (.fcs) to new (.npy) filenames
             og_to_new_fns_df_train = pd.read_csv(
-                os.path.join(data_p, 'sample_wise_train', 'sample_names_mapping_train.csv'), index_col=0
+                os.path.join(data_p_load, 'sample_names_mapping_train.csv'), index_col=0
             )
 
             # Get the corresponding new filenames
@@ -592,15 +597,29 @@ def n_samples_experiment_helper(
 
             # Load the samples
             fns_x_train = [f'x_{sn}' for sn in sample_names_train][:j + 1]
-            x_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_x_train]
+            x_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_x_train]
 
             fns_y_train = [f'y_{sn}' for sn in sample_names_train][:j + 1]
-            y_trains = [np.load(os.path.join(data_p_ds, fn)) for fn in fns_y_train]
+            y_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_y_train]
+
+        # Downsample
+        if downsampling_fractions[i] != 1.0:
+            keep_bools = []
+            for y in y_trains:
+
+                ds_keep_bool = FlowDataManager._get_downsampling_bool(
+                    y=y, fraction=downsampling_fractions[i], stratified=True
+                )
+                keep_bools.append(ds_keep_bool)
+
+            x_trains = [x[kb, :] for x, kb in zip(x_trains, keep_bools)]
+            y_trains = [y[kb] for y, kb in zip(y_trains, keep_bools)]
 
         # Concatenate and shuffle rows
         x_train = np.concatenate(x_trains, axis=0)
         y_train = np.concatenate(y_trains, axis=0)
 
+        # Shuffle the train data row-wise
         shuffle_permutation = np.random.permutation(x_train.shape[0])
         x_train = x_train[shuffle_permutation, :]
         y_train = y_train[shuffle_permutation]
@@ -711,7 +730,7 @@ def n_samples_experiment_helper(
             else:  # f1
                 out_df = out_sw[2]
 
-            res_df.loc[downsampled_data_subdirs[i], j + 1] = out_df.loc['mean', mode]
+            res_df.loc[downsampling_fractions[i], j + 1] = out_df.loc['mean', mode]
 
             res_df.to_csv(os.path.join(save_p, f'res_df_{metric}_{mode}.csv'))
 
