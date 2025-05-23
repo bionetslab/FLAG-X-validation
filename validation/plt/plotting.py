@@ -17,6 +17,7 @@ from typing import Tuple, Union, Dict, Literal, List
 
 from sklearn.metrics import r2_score
 from scipy.stats import pearsonr
+from matplotlib.ticker import ScalarFormatter
 
 from validation.utils.val_utils import eval_wrapper_sample_wise
 
@@ -675,6 +676,148 @@ def plot_performance_score_box_plot_cw(
         ax.set_title(title)
 
     return ax
+
+
+def plot_sample_sizes(
+        ys: List[np.ndarray],
+        title: Union[str, None] = None,
+        abline_mean: bool = False,
+        abline_std: bool = False,
+        print_total: bool = False,
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=300)
+
+    # Enforce scientific notation for y axis
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_powerlimits((3, 3))
+    ax.yaxis.set_major_formatter(formatter)
+
+    sample_sizes = sorted([a.shape[0] for a in ys])
+    sample_sizes = np.array(sample_sizes)
+
+    labels = list(range(1, len(ys) + 1))
+
+    ax.bar(
+        x=labels,
+        height=sample_sizes,
+        color='lightblue',
+        edgecolor='darkgray',
+        linewidth=1.0
+    )
+
+    if print_total:
+        total = sample_sizes.sum()
+        ax.text(
+            0.98, 0.98, f'Total Events: {total}',
+            transform=ax.transAxes,  # Axes coordinates (0–1)
+            ha='right', va='top',  # Align top-right
+            fontsize=10,
+            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')  # Transparent box
+        )
+
+    if abline_mean:
+        m = sample_sizes.mean()
+        ax.axhline(y=m, color='darkred', linestyle='-', linewidth=1.5, label=f'Mean: {int(m)}')
+        ax.legend()
+
+    if abline_std:
+        m = sample_sizes.mean()
+        std = sample_sizes.std()
+
+        ax.axhline(y=m - std, color='gold', linestyle='--', linewidth=1.5, label=f'Std: {np.round(std, 3)}')
+        ax.axhline(y=m + std, color='gold', linestyle='--', linewidth=1.5)
+        ax.legend()
+
+    if title is not None:
+        ax.set_title(title)
+
+    ax.set_xlabel(f'Sample ID (1--{len(ys)})')
+
+    ax.set_ylabel('Number of Events')
+
+
+    return ax
+
+
+def plot_class_balance(
+        ys: List[np.ndarray],
+        title: Union[str, None] = None,
+        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        ax: Union[plt.Axes, None] = None,
+) -> plt.Axes:
+
+    if ax is None:
+        fig, ax = plt.subplots(dpi=300)
+
+    if palette is None:
+        palette = 'Accent'
+
+    # Enforce scientific notation for y axis
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_powerlimits((3, 3))
+    ax.yaxis.set_major_formatter(formatter)
+
+    # Concatenate label vectors
+    all_labels = np.concatenate(ys)
+    class_counts = pd.Series(all_labels).value_counts().sort_index()
+    total = class_counts.sum()
+    percentages = (class_counts / total * 100).round(2)
+
+    # Prepare DataFrame for plotting
+    plot_data = pd.DataFrame({
+        'Cell Type Label': class_counts.index,
+        'Count': class_counts.to_numpy(),
+        'Percentage': percentages.to_numpy(),
+    })
+
+    # Barplot
+    sns.barplot(
+        data=plot_data, x='Cell Type Label', y='Count', hue='Cell Type Label', palette=palette, legend=False, ax=ax
+    )
+
+    # Add vertical labels
+    max_count = plot_data['Count'].max()
+    for idx, row in plot_data.iterrows():
+        is_max = row['Count'] == max_count
+        y_pos = (row['Count'] * 0.85) if is_max else (row['Count'] + (0.01 * total))
+
+        ax.text(
+            x=idx,
+            y=y_pos,
+            s=f"{int(row['Count'])}\n{row['Percentage']}%",
+            ha='center',
+            va='bottom',
+            fontsize=8
+        )
+
+    if title is not None:
+        ax.set_title(title)
+
+
+    ax.set_ylabel('Number of Events')
+
+
+    return ax
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def plot_prec_rec_vs_thresh(

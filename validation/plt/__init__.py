@@ -4,6 +4,7 @@ from .plotting import (
     plot_prec_rec_vs_thresh, plot_n_samples_n_events,
     plot_performance_score_box_plot, plot_performance_score_box_plot_cw,
     plot_cell_pop_size_pred_vs_gt,
+    plot_sample_sizes, plot_class_balance,
     annotate_mosaic
 )
 
@@ -12,5 +13,6 @@ __all__ = [
     'plot_prec_rec_vs_thresh', 'plot_n_samples_n_events',
     'plot_performance_score_box_plot', 'plot_performance_score_box_plot_cw',
     'plot_cell_pop_size_pred_vs_gt',
+    'plot_sample_sizes', 'plot_class_balance',
     'annotate_mosaic'
 ]
