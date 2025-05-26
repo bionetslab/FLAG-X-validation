@@ -282,7 +282,7 @@ def plot_performance_score_box_plot(
         score_mode: Literal['macro', 'micro', 'weighted'] = 'macro',
         y_label: Union[str, None] = None,
         title: Union[str, None] = None,
-        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        palette: Union[str, List[str], Dict[str, str], Dict[str, Tuple[float, ...]], None] = None,  # {method: color}
         sns_boxplot_kwargs: Union[Dict, None] = None,
         plot_points: bool = False,
         point_kwargs: Union[Dict, None] = None,
@@ -415,7 +415,7 @@ def plot_cell_pop_size_pred_vs_gt(
         y_trues: List[np.ndarray],
         y_preds: List[np.ndarray],
         percentage: bool = False,
-        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        palette: Union[str, List[str], Dict[str, str], Dict[str, Tuple[float, ...]], None] = None,  # {method: color}
         title: Union[str, None] = None,
         point_size: Union[float, None] = None,
         show_r2: bool = False,
@@ -561,7 +561,7 @@ def plot_performance_score_box_plot_cw(
         method_names: Union[List[str], None] = None,
         y_label: Union[str, None] = None,
         title: Union[str, None] = None,
-        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        palette: Union[str, List[str], Dict[str, str], Dict[str, Tuple[float, ...]], None] = None,  # {method: color}
         sns_boxplot_kwargs: Union[Dict, None] = None,
         plot_points: bool = False,
         point_kwargs: Union[Dict, None] = None,
@@ -745,7 +745,7 @@ def plot_sample_sizes(
 def plot_class_balance(
         ys: List[np.ndarray],
         title: Union[str, None] = None,
-        palette: Union[str, List[str], Dict[str, str], None] = None,  # {method: color}
+        palette: Union[str, List[str], Dict[str, str], Dict[str, Tuple[float, ...]], None] = None,  # {method: color}
         ax: Union[plt.Axes, None] = None,
 ) -> plt.Axes:
 
