@@ -2117,7 +2117,7 @@ def main_performance_score_plots():
 
     dataset_names = ['imstat', 'flowcyt', 'lt1', 'lt1_b', 'lt2', 'lt2_b']
 
-    method_names = ['GMC', 'DGCyTOF', 'FCNN', 'SOM-classifier']
+    method_names = ['GMC', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
 
     data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150
 
@@ -2140,7 +2140,7 @@ def main_performance_score_plots():
     conversion_mapping_methods = {
         'GMC': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
         'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-classifier': 'som_classifier_ramses',
+        'SOM-Classifier': 'som_classifier_ramses',
     }
 
     method_dirs = [conversion_mapping_methods[m] for m in method_names]
@@ -2281,12 +2281,6 @@ def main_time_table():
     import os
     import numpy as np
     import pandas as pd
-    import matplotlib.pyplot as plt
-
-    import matplotlib
-    matplotlib.use('Agg')
-
-    from validation.plt import plot_performance_score_box_plot
 
     # ### Set flags and important variables here #######################################################################
 
@@ -2294,7 +2288,7 @@ def main_time_table():
 
     method_names = ['GMC', 'DGCyTOF', 'FCNN', 'SOM-clf']
 
-    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150
 
     plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
@@ -2315,7 +2309,7 @@ def main_time_table():
     conversion_mapping_methods = {
         'GMC': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
         'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-clf': 'som_classifier_ramses',
+        'SOM-clf': 'som_classifier',
     }
 
     dataset_dirs = [conversion_mapping_datasets[ds] for ds in dataset_names]
@@ -2331,6 +2325,10 @@ def main_time_table():
         train_times_sub = []
         table_data_sub = []
         for m in method_dirs:
+
+            # Always show results for arcsinh for gatemeclass
+            # if m == 'gatemeclass_no_abstention' and data_trafo == 'log10_channelwisecutoff':
+            #     data_trafo_load = 'arcsinh_cofactor150'
             if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
                 data_trafo_load = 'log10_cutoff100'
             else:
@@ -2368,9 +2366,9 @@ def main_time_table():
         columns=multi_columns
     )
 
+    df.to_csv(os.path.join(plot_dir, f'times_table_{data_trafo}.csv'), index=False)
+
     print(df)
-
-
 
 
 def main_performance_plots():
@@ -2388,9 +2386,9 @@ def main_performance_plots():
     dataset_name_psize = 'Imstat'
     dataset_names_perf = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
 
-    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
+    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
 
-    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
 
     performance_score = 'f1'  # f1, prec, rec
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
@@ -2413,7 +2411,7 @@ def main_performance_plots():
     conversion_mapping_methods = {
         'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
         'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-classifier': 'som_classifier'
+        'SOM-Classifier': 'som_classifier'
     }
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
@@ -2452,31 +2450,33 @@ def main_performance_plots():
 
         method_dir = conversion_mapping_methods[method]
 
-        if data_trafo == 'log10_channelwisecutoff' and method == 'GateMeClass':
+        # Always show results for arcsinh for gatemeclass
+        if method_dir == 'gatemeclass_no_abstention' and data_trafo == 'log10_channelwisecutoff':
             data_trafo_load = 'arcsinh_cofactor150'
+        elif dataset_dir_psize == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+            data_trafo_load = 'log10_cutoff100'
         else:
             data_trafo_load = data_trafo
 
         y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir_psize, data_trafo_load, 'samples_y_pred')
         y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-        y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
-        '''y_preds = []
+        # y_preds = [np.load(os.path.join(y_pred_path, f)).astype(int) for f in y_pred_filenames]
+
+        # Load the predictions, skip missing files
+        y_preds = []
         for f in y_pred_filenames:
             try:
                 y_preds.append(np.load(os.path.join(y_pred_path, f)).astype(int))
             except FileNotFoundError:
                 y_preds.append(np.array([]))
-
+                print(f'# ### No y_pred found for: {method}, {dataset_name_psize}, {data_trafo_load}, {f}')
         # Keep elements only where the corresponding y_pred array is NOT empty
-        filtered = [
-            (a, b) for a, b in zip(y_trues, y_preds)
-            if b.size > 0
-        ]
-        y_trues, y_preds = map(list, zip(*filtered))'''
+        y_trues_plot = [yt for yt, yp in zip(y_trues, y_preds) if yp.size > 0]
+        y_preds_plot = [yp for yp in y_preds if yp.size > 0]
 
         plot_cell_pop_size_pred_vs_gt(
-            y_trues=y_trues,
-            y_preds=y_preds,
+            y_trues=y_trues_plot,
+            y_preds=y_preds_plot,
             percentage=True,
             palette=color_mapping,
             title=method,
@@ -2496,13 +2496,13 @@ def main_performance_plots():
         res_dfs_sub = []
         for m in method_dirs_perf:
 
-            if data_trafo == 'log10_channelwisecutoff' and m == 'gatemeclass_no_abstention':
+            # Always show results for arcsinh for gatemeclass
+            if m == 'gatemeclass_no_abstention' and data_trafo == 'log10_channelwisecutoff':
                 data_trafo_load = 'arcsinh_cofactor150'
+            elif ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'log10_cutoff100'
             else:
                 data_trafo_load = data_trafo
-
-            if ds == 'flowcyt' and data_trafo_load == 'log10_channelwisecutoff':
-                data_trafo_load = 'log10_cutoff100'
 
             res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_avg_{performance_score}.csv')
 
@@ -2548,11 +2548,447 @@ def main_performance_plots():
     plt.savefig('./results/plots/performance.png', dpi=fig.dpi)
 
 
+def main_n_samples_plot():
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import statsmodels.api as sm
+
+    from matplotlib.lines import Line2D
+    from validation.plt import annotate_mosaic
+
+    ####################################################################################################################
+    performance_score = 'f1'  # f1, prec, rec
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    ds_fractions = [0.01, 0.25, 0.5, 0.75, 1.0]
+    max_n_samples = 75
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+
+    ####################################################################################################################
+
+    # Load all results
+    dataset_names = ['Imstat', 'LT1 b']
+    method_names = ['FCNN', 'SOM-Classifier']
+
+
+    # Results only generated for log10_channelwisecutoff
+    data_trafo = 'log10_channelwisecutoff'
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {'Imstat': 'imstat', 'LT1 b': 'lymphoma_tube1_binary'}
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
+    conversion_mapping_methods_predres = {'FCNN': 'softmax_classifier', 'SOM-Classifier': 'som_classifier'}
+
+    all_records = []
+
+    for ds in dataset_names:
+        for m in method_names:
+            for order in ['random', 'ordered']:
+                dsdir = conversion_mapping_datasets[ds]
+                mdir = conversion_mapping_methods[m]
+                base_path = os.path.join('./results/n_samples_n_events', mdir, dsdir, data_trafo, order, 'detailed_res')
+
+                for ds_frac in ds_fractions:
+                    for i in range(1, max_n_samples + 1):
+                        subdir = f'dsfrac_{str(ds_frac).replace(".", "_")}_nsamples_{i}/res_df_sw_avg_{performance_score}.csv'
+                        file_path = os.path.join(base_path, subdir)
+
+                        try:
+                            df = pd.read_csv(file_path, index_col=0)
+                            df = df.drop(index=['mean', 'std'], errors='ignore')  # Keep raw data only
+                            for val in df[performance_score_mode]:
+                                all_records.append({
+                                    'dataset': ds,
+                                    'method': m,
+                                    'order': order,
+                                    'ds_frac': ds_frac,
+                                    'n_samples': i,
+                                    'score': val
+                                })
+                        except FileNotFoundError:
+                            # print(f"# Missing: {file_path}")
+                            continue
+
+    # Create DataFrame
+    df_all = pd.DataFrame(all_records)
+    df_all['n_samples'] = df_all['n_samples'].astype(int)
+
+    print(df_all)
+
+    # ### Plot performance comparison for methods
+    # One plot per dataset, hue=method, fixed: order=random, ds_frac=1.0  => 2 subplots
+    ds_frac_plot = 1.0
+    plot_trend = False
+    plot_slope = False
+    abline_all_samples_perf = True
+    plot_all_samples_score = True
+
+    # Define a palette
+    mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
+    palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
+
+    fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        """,
+        gridspec_kw=None
+    )
+
+    for ds, plot_label in zip(['Imstat', 'LT1 b'], ['A', 'B']):
+
+        df_sub = df_all.loc[
+            (df_all['dataset'] == ds) & (df_all['ds_frac'] == ds_frac_plot) & (df_all['order'] == 'random')
+        ].copy()
+
+        ax = axd[plot_label]
+
+        sns.lineplot(
+            data=df_sub,
+            x='n_samples',
+            y='score',
+            hue='method',
+            errorbar=('ci', 95),
+            n_boot=1000,
+            seed=42,
+            err_style='band',
+            marker='o',
+            markersize=4,
+            palette=palette,
+            ax=ax,
+        )
+
+        if abline_all_samples_perf:
+
+            for method_name, method_dir in [('FCNN', 'softmax_classifier'), ('SOM-Classifier', 'som_classifier')]:
+                try:
+                    res_path = os.path.join(
+                        './results/pred_eval',
+                        method_dir,
+                        conversion_mapping_datasets[ds],
+                        data_trafo,
+                        f'res_df_sw_avg_{performance_score}.csv'
+                    )
+
+                    score = pd.read_csv(res_path, index_col=0).loc['mean', performance_score_mode]
+                    color = palette.get(method_name, 'grey')
+
+                    ax.axhline(
+                        y=score,
+                        linestyle='--',
+                        linewidth=1,
+                        color=color,
+                        alpha=0.8,
+                        # label=f'{method_name} (all samples)',
+                    )
+
+                    x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
+                    y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+                    y_pos = score + y_offset  # just above the line
+
+                    # Draw text
+                    ax.text(
+                        x=x_pos,
+                        y=y_pos,
+                        s=f'{score:.3f}',
+                        color=color,
+                        va='bottom',
+                        ha='right',
+                        fontsize=8,
+                        alpha=0.95,
+                        clip_on=True
+                    )
+
+                except FileNotFoundError:
+                    print('###')
+                    pass
+
+            # Define dummy legend entry for all sample performance
+            trend_legend = Line2D(
+                [], [], linestyle='--', color='grey', linewidth=1, label='All Samples'
+            )
+            handles, labels = ax.get_legend_handles_labels()
+            if 'All Samples' not in labels:
+                handles.append(trend_legend)
+                labels.append('All Samples')
+            ax.legend(handles=handles, labels=labels, title='Method')
+
+        if plot_trend:
+            for method_name, color in palette.items():
+                df_m = df_sub[df_sub['method'] == method_name]
+                if df_m.empty:
+                    continue
+
+                reg_df = (
+                    df_m.groupby('n_samples', as_index=False)['score'].mean()
+                )
+
+                use_regplot = False
+                if use_regplot:
+                    sns.regplot(
+                        data=reg_df,
+                        x='n_samples',
+                        y='score',
+                        scatter=False,
+                        ax=ax,
+                        color=color,  # Match method color
+                        ci=None,  # No confidence interval
+                        line_kws={
+                            'linestyle': '--',
+                            'alpha': 0.8,
+                            'linewidth': 1,
+                            'zorder': 5,
+                        }
+                    )
+                else:
+                    # Prepare X and y for statsmodels
+                    x = reg_df['n_samples'].values
+                    y = reg_df['score'].values
+                    x_const = sm.add_constant(x)  # adds intercept term
+
+                    # Fit linear model
+                    model = sm.OLS(y, x_const).fit()
+                    slope = model.params[1]
+                    intercept = model.params[0]
+
+                    print(f"{method_name} - Slope: {slope:.6f}, Intercept: {intercept:.4f}")
+
+                    # Create fitted line
+                    x_fit = np.linspace(x.min(), x.max(), 100)
+                    y_fit = intercept + slope * x_fit
+
+                    # Plot manually
+                    ax.plot(
+                        x_fit,
+                        y_fit,
+                        linestyle='--',
+                        color=color,
+                        alpha=0.8,
+                        linewidth=1,
+                        zorder=5,
+                        label=f'Linear Trend, Slope: {np.round(slope, 4)}' if plot_slope else None,
+                    )
+
+            if not plot_slope:
+                # Define dummy legend entry for trends
+                trend_legend = Line2D(
+                    [], [], linestyle='--', color='grey', linewidth=1, label='Linear Trends'
+                )
+                handles, labels = ax.get_legend_handles_labels()
+                if 'Linear Trends' not in labels:
+                    handles.append(trend_legend)
+                    labels.append('Linear Trends')
+                ax.legend(handles=handles, labels=labels, title='Method')
+            else:
+                ax.legend(title='Method')
+
+        if not plot_all_samples_score and not plot_trend:
+            ax.legend(title='Method')
+
+        ax.set_title(ds)
+        ax.set_xlabel('Number of Training Samples')
+        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
+
+    # Adjust font sizes
+    ax_label_fontsize = 12
+    for key in ['A', 'B']:
+        ax = axd[key]
+        ax.set_title(ax.get_title(), fontsize=ax_label_fontsize + 2)
+        ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
+        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig(
+        os.path.join(plot_dir, f'n_samples_per_dataset_{performance_score_mode}_{performance_score}.png'),
+        dpi=fig.dpi
+    )
+    plt.close('all')
+
+    # ### Plot performance comparison for random vs ordered and num events
+    # One plot per method, per dataset, and per order, hue=ds_frac  => 6 subplots
+
+    ds_frac_plot = [0.01, 0.25, 0.5, 0.75, 1.0]
+
+    plot_combinations = [
+        ('Imstat', 'FCNN', 'random'), ('Imstat', 'SOM-Classifier', 'random'),
+        ('LT1 b', 'FCNN', 'random'), ('LT1 b', 'SOM-Classifier', 'random'),
+        # ('LT1 b', 'FCNN', 'ordered'), ('LT1 b', 'SOM-Classifier', 'ordered')
+    ]
+
+    abline_all_samples_perf = True
+
+    fig = plt.figure(figsize=(8, 6), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        CD
+        """,
+        gridspec_kw=None
+    )
+
+    for c, plot_label in zip(plot_combinations, ['A', 'B', 'C', 'D']):
+        ds = c[0]
+        m = c[1]
+        o = c[2]
+        df_sub = df_all.loc[
+            (df_all['dataset'] == ds) &
+            (df_all['method'] == m) &
+            (df_all['order'] == o) &
+            (df_all['ds_frac'].isin(ds_frac_plot))
+            ].copy()
+
+        ax = axd[plot_label]
+
+        sns.lineplot(
+            data=df_sub,
+            x='n_samples',
+            y='score',
+            hue='ds_frac',
+            errorbar=('ci', 95),
+            n_boot=1000,
+            seed=42,
+            err_style='band',
+            marker='o',
+            markersize=3,
+            palette='magma',
+            ax=ax,
+        )
+
+        if abline_all_samples_perf:
+
+
+            try:
+                res_path = os.path.join(
+                    './results/pred_eval',
+                    conversion_mapping_methods_predres[m],
+                    conversion_mapping_datasets[ds],
+                    data_trafo,
+                    f'res_df_sw_avg_{performance_score}.csv'
+                )
+
+                score = pd.read_csv(res_path, index_col=0).loc['mean', performance_score_mode]
+
+                ax.axhline(
+                    y=score,
+                    linestyle='--',
+                    linewidth=1,
+                    color='grey',
+                    alpha=0.8,
+                    label='All Samples',
+                )
+
+                x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
+                y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+                y_pos = score + y_offset  # just above the line
+
+                # Draw text
+                ax.text(
+                    x=x_pos,
+                    y=y_pos,
+                    s=f'{score:.3f}',
+                    color='grey',
+                    va='bottom',
+                    ha='right',
+                    fontsize=8,
+                    alpha=0.95,
+                    clip_on=True
+                )
+
+
+            except FileNotFoundError:
+                print('###')
+                pass
+
+        ax.set_title(f'{ds} | {m}')
+        ax.set_xlabel('Number of Training Samples')
+        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
+        ax.legend(title='Downsampling Fraction')
+
+    # Adjust font sizes
+    ax_label_fontsize = 12
+    for key in ['A', 'B', 'C', 'D']:
+        ax = axd[key]
+        ax.set_title(ax.get_title(), fontsize=ax_label_fontsize + 2)
+        ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
+        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig(
+        os.path.join(plot_dir, f'n_samples_ds_frac_supplement.png'),
+        dpi=fig.dpi
+    )
+    plt.close('all')
+
+    # ### Plot performance comparison for random vs ordered
+    # One plot per method, hue=order, fixed: dataset=LT1 b, ds_frac=1.0  => 2 subplots
+    ds_frac_plot = 1.0
+    dataset_plot = 'LT1 b'
+
+    fig = plt.figure(figsize=(10, 4), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        """,
+        gridspec_kw=None
+    )
+
+    for m, plot_label in zip(['FCNN', 'SOM-Classifier'], ['A', 'B']):
+        df_sub = df_all.loc[
+            (df_all['dataset'] == dataset_plot) &
+            (df_all['ds_frac'] == ds_frac_plot) &
+            (df_all['method'] == m)
+            ].copy()
+
+        ax = axd[plot_label]
+
+        sns.lineplot(
+            data=df_sub,
+            x='n_samples',
+            y='score',
+            hue='order',
+            errorbar=('ci', 95),
+            n_boot=1000,
+            seed=42,
+            err_style='band',
+            marker='o',
+            markersize=4,
+            palette='Accent',
+            ax=ax,
+        )
+
+        ax.set_title(m)
+        ax.set_xlabel('Number of Training Samples')
+        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
+        ax.legend(title='Sample Order')
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=14)
+    plt.savefig(
+        os.path.join(plot_dir, f'n_samples_per_dataset_random_vs_ordered.png'),
+        dpi=fig.dpi
+    )
+    plt.close('all')
+
+
+
 def main_performance_plots_supplement():
 
     import os
     import pandas as pd
     import matplotlib.pyplot as plt
+    import seaborn as sns
 
     from validation.plt import plot_performance_score_box_plot_cw, annotate_mosaic
 
@@ -2560,7 +2996,7 @@ def main_performance_plots_supplement():
     ####################################################################################################################
     dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
 
-    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
+    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
 
     data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
 
@@ -2584,7 +3020,7 @@ def main_performance_plots_supplement():
     conversion_mapping_methods = {
         'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
         'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-classifier': 'som_classifier_ramses'
+        'SOM-Classifier': 'som_classifier'
     }
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
@@ -2600,6 +3036,9 @@ def main_performance_plots_supplement():
         """
     )
 
+    # Define a palette
+    palette = dict(zip(method_names, sns.color_palette("Set2", len(method_names))))
+
     # ### Plot the performance scores
     # Load the results dataframes
     base_path = os.path.join(os.getcwd(), 'results/pred_eval')
@@ -2610,7 +3049,11 @@ def main_performance_plots_supplement():
     for ds in dataset_dirs:
         res_dfs_sub = []
         for m in method_dirs:
-            if ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
+
+            # Always show results for arcsinh for gatemeclass
+            if m == 'gatemeclass_no_abstention' and data_trafo == 'log10_channelwisecutoff':
+                data_trafo_load = 'arcsinh_cofactor150'
+            elif ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
                 data_trafo_load = 'log10_cutoff100'
             else:
                 data_trafo_load = data_trafo
@@ -2635,6 +3078,7 @@ def main_performance_plots_supplement():
             method_names=method_names,
             y_label=conversion_mapping_y_label[performance_score],
             title=dsn,
+            palette=palette,
             sns_boxplot_kwargs=None,
             plot_points=True,
             point_kwargs=None,
@@ -3035,11 +3479,11 @@ if __name__ == '__main__':
 
     # main_som_classifier()
 
-    # main_gatemeclass()  # todo: started (na, wa)
+    # main_gatemeclass()
 
-    # main_dgcytof()  # todo: started on tinygpu
+    # main_dgcytof()
 
-    # main_softmax()  # todo: started on tinygpu
+    # main_softmax()
 
     # main_n_samples_experiment() # todo: started on ramses and weneg
 
@@ -3051,6 +3495,8 @@ if __name__ == '__main__':
 
     # main_performance_plots()
 
+    main_n_samples_plot()
+
     # main_performance_plots_supplement()
 
     # main_dataset_size_plot_supplement()
@@ -3059,7 +3505,7 @@ if __name__ == '__main__':
 
 
 
-    main_prec_vs_recall()  # todo
+    # main_prec_vs_recall()  # todo
 
     # main_pipeline_workflow_som()
 
@@ -3069,6 +3515,7 @@ if __name__ == '__main__':
     # Todo: pipeline output for fcnn is not df?
     # Todo: add class-wise results and dataset plots -> add percentages in legend
     # Todo: continue with writing
+    # Todo: generate plots and time table with new results
 
     # Todo: adjust scaling in export
     # Todo: Generate annotated.fcs an Stefan
