@@ -162,6 +162,11 @@ def _scale_columns(
     min_val, max_val = val_range
     val_scale = max_val - min_val
 
+    margin = val_scale * 0.05
+    min_val = min_val + margin
+    max_val = max_val - margin
+    val_scale = max_val - min_val
+
     if sample_wise:
         cols_scaled = []
         for col in cols:
