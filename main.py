@@ -1987,112 +1987,318 @@ def main_n_samples_experiment():
     plt.savefig(os.path.join(save_p, 'f1_binary.png'))
 
 
-def main_prec_vs_recall():
-
+def main_local_training():
     import os
+    import time
+    import random
     import numpy as np
-    import matplotlib.pyplot as plt
+    import pandas as pd
 
-    from sklearn.metrics import RocCurveDisplay, PrecisionRecallDisplay
     from flagx.gating import SomClassifier, SoftmaxClassifier
-    from validation.plt import plot_prec_rec_vs_thresh
+    from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'lymphoma_tube1_binary' # 'lymphoma_tube1_binary', 'lymphoma_tube2_binary'
-    trafo = 'log10_channelwisecutoff'  # 'arcsinh_cofactor150', 'log10_channelwisecutoff'
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+    num_samples = [10, 10, 10, 10, 10, 3]
 
-    classifier = 'som'  # 'som', 'softmax'
+    preprocessing_trafos = ['log10_channelwisecutoff', 'log10_cutoff100']
 
-    # thresholds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    thresholds = np.linspace(0, 1, 20).tolist()
+    gating_method = 'softmax'  # 'som', 'softmax'
+
+    fit = True
+    predict = True
+    evaluate = True
     ####################################################################################################################
 
-    # Load the test data
-    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, trafo)
+    abstention_label = -1 if gating_method == 'som' else None
 
-    x_test = np.load(os.path.join(data_p, 'x_test.npy'))
-    y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+    for data_set, others_label, pos_label, n in zip(data_sets, others_labels, pos_labels, num_samples):
+        for trafo in preprocessing_trafos:
 
-    # Load the sample-wise test data
-    samples_p = os.path.join(data_p, 'sample_wise_test')
-    n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
-    sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
-    samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
-    samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
-    samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
-    samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+            # Set random seed anew in each iteration
+            random.seed(42)
+            np.random.seed(42)
 
-    # Load the previously trained classifier
-    if classifier == 'som':
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
 
-        clf = SomClassifier.load(
-            filepath=os.path.join(os.getcwd(), 'results/pred_eval/som_classifier', data_set, trafo)
-        )
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
 
-    else:
-        clf = SoftmaxClassifier.load(
-            filepath=os.path.join(os.getcwd(), 'results/pred_eval/softmax_classifier', data_set, trafo)
-        )
+            if not os.path.exists(data_p):
+                print(f'# ### No data found for dataset "{data_set}" and transformation "{trafo}". Continue.\n')
+                continue
 
-    # Predict probabilities and save predictions
-    save_p = os.path.join(os.getcwd(), 'results/prec_vs_recall', classifier, data_set, trafo)
-    os.makedirs(save_p, exist_ok=True)
+            # Define path where results will be saved to
+            save_p = os.path.join(os.getcwd(), f'results/local_training/{gating_method}/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
 
-    y_proba = clf.predict_proba(X=x_test)
+            if fit:
 
-    np.save(os.path.join(save_p, 'y_proba.npy'), y_proba)
+                # Load training data
+                data_p_train = os.path.join(data_p, 'sample_wise_train')
+                n_samples_train = len(
+                    [fn for fn in os.listdir(data_p_train) if fn.startswith('x_')])
+                sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
 
-    samples_y_proba = []
+                # Sample n sample names from list
+                sample_names_train = random.sample(sample_names_train, k=n)
 
-    for x in samples_x_test:
-        samples_y_proba.append(clf.predict_proba(X=x))
+                with open(os.path.join(save_p, 'train_samples.txt'), 'w') as f:
+                    for s in sample_names_train:
+                        f.write(s + "\n")
 
-    os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
-    for y, sn in zip(samples_y_proba, sample_names):
-        np.save(os.path.join(save_p, 'samples_y_pred', f'y_proba_{sn}.npy'), y)
+                x_trains = [np.load(os.path.join(data_p_train, f'x_{sn}.npy')) for sn in sample_names_train]
+                y_trains = [np.load(os.path.join(data_p_train, f'y_{sn}.npy')) for sn in sample_names_train]
 
-    # Evaluate the prediction performance
-    y_proba = y_proba[:, 1]
-    samples_y_proba = [y[:, 1] for y in samples_y_proba]
+                x_train = np.concatenate(x_trains)
+                y_train = np.concatenate(y_trains)
 
-    fig, ax = plt.subplots(dpi=300)
-    RocCurveDisplay.from_predictions(
-        y_true=y_test,
-        y_pred=y_proba,
-        name='SOM classifier' if classifier == 'som' else 'Softmax classifier',
-        ax=ax,
-        plot_chance_level=True,
-    )
-    plt.tight_layout()
-    plt.savefig(os.path.join(save_p, 'roc.png'), dpi=300)
-    plt.close('all')
+                permutation_indices = np.random.permutation(y_train.shape[0])
+                x_train = x_train[permutation_indices, :]
+                y_train = y_train[permutation_indices]
 
-    fig, ax = plt.subplots(dpi=300)
-    PrecisionRecallDisplay.from_predictions(
-        y_true=y_test,
-        y_pred=y_proba,
-        name='SOM classifier' if classifier == 'som' else 'Softmax classifier',
-        ax=ax,
-        plot_chance_level=True,
-    )
-    plt.tight_layout()
-    plt.savefig(os.path.join(save_p, 'prec_rec.png'), dpi=300)
-    plt.close('all')
+                if gating_method == 'som':
+                    # Instantiate the SOM classifier
+                    if trafo == 'arcsinh_cofactor150':
 
-    fig, ax = plt.subplots(dpi=300)
-    plot_prec_rec_vs_thresh(
-        y_trues=samples_y_test,
-        y_probs=samples_y_proba,
-        thresholds=thresholds,
-        pos_label=1,
-        neg_label=0,
-        ax=ax,
-    )
-    plt.tight_layout()
-    plt.savefig(os.path.join(save_p, 'prec_rec_thresh.png'), dpi=300)
-    plt.close('all')
+                        clf = SomClassifier(
+                            som_topology='planar',
+                            som_grid_type='rectangular',
+                            som_dimensions=(25, 25),
+                            neighborhood='gaussian',
+                            gaussian_neighborhood_sigma=0.25,
+                            initialization='pca',
+                            n_epochs=200,
+                            radius_0=-0.25,
+                            radius_n=0.01,
+                            radius_cooling='linear',
+                            learning_rate_0=0.5,
+                            learning_rate_n=0.05,
+                            learning_rate_decay='exponential',
+                            verbosity=2,
+                        )
+                    else:
+                        clf = SomClassifier(
+                            som_topology='planar',
+                            som_grid_type='rectangular',
+                            som_dimensions=(25, 25),
+                            neighborhood='gaussian',
+                            gaussian_neighborhood_sigma=0.1,
+                            initialization='pca',
+                            n_epochs=1000,
+                            radius_0=-0.25,
+                            radius_n=0.1,
+                            radius_cooling='linear',
+                            learning_rate_0=0.1,
+                            learning_rate_n=0.05,
+                            learning_rate_decay='exponential',
+                            verbosity=2,
+                        )
+                else:  # FCNN
+                    clf = SoftmaxClassifier(
+                        layer_sizes=(128, 64, 32),
+                        n_epochs=20,
+                        data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                        device=None,  # Tries to use default cuda device, if none available cpu
+                        verbosity=2
+                    )
 
-    print(y_test)
+                # Fit and track time
+                print('# ### Starting fit ...')
+                st_fit = time.time()
+                clf.fit(X=x_train, y=y_train)
+                et_fit = time.time()
+                fit_time_sek = et_fit - st_fit
+                fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+                print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+                fit_time_df = pd.DataFrame(
+                    data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+                )
+                fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+                clf.save(filepath=save_p)
+
+            else:
+                # Load the SOM classifier
+                clf = SomClassifier.load(filepath=save_p)
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+                print('# ### Starting prediction ...')
+                st_pred = time.time()
+                y_pred = clf.predict(X=x_test)
+                et_pred = time.time()
+                pred_time_sek = et_pred - st_pred
+                pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+                print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+                pred_time_df = pd.DataFrame(
+                    data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+                )
+                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                # Load the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test = [np.load(os.path.join(samples_p, f'x_{sn}.npy')) for sn in sample_names]
+
+                samples_y_pred = []
+                samples_pred_times = []
+
+                print('# ### Starting sample-wise prediction ...')
+                for x in samples_x_test:
+                    st = time.time()
+                    samples_y_pred.append(clf.predict(X=x))
+                    et = time.time()
+                    samples_pred_times.append(et - st)
+
+                samples_pred_times_df = pd.DataFrame(index=sample_names, columns=['pred_time'])
+                samples_pred_times_df['pred_time'] = samples_pred_times
+                m = samples_pred_times_df['pred_time'].mean(axis=0)
+                std = samples_pred_times_df['pred_time'].std(axis=0)
+                samples_pred_times_df.loc['mean'] = m
+                samples_pred_times_df.loc['std'] = std
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, sn in zip(samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+            else:
+                # Load the predictions
+                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [
+                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+                ]
+                samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+                if gating_method == 'som':
+                    out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                # Load the labels of the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_y_test = [np.load(os.path.join(samples_p, f'y_{sn}.npy')) for sn in sample_names]
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                if gating_method == 'som':
+                    out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
+def main_probabilistic_prediction():
+    import os
+    import numpy as np
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = ['lymphoma_tube1_binary', 'lymphoma_tube2_binary']
+    trafos = ['log10_channelwisecutoff', ]  # 'arcsinh_cofactor150']
+    methods = ['som', 'softmax']
+    ####################################################################################################################
+
+    for data_set in data_sets:
+        for trafo in trafos:
+            # Load the test data
+            data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, trafo)
+
+            x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+            # Load the sample-wise test data
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_x_test = [np.load(os.path.join(samples_p, f'x_{sn}.npy')) for sn in sample_names]
+
+            for m in methods:
+                print('###', data_set, trafo, m)
+                # Load the previously trained classifier
+                if m == 'som':
+                    clf = SomClassifier.load(
+                        filepath=os.path.join(os.getcwd(), 'results/local_training', m, data_set, trafo)
+                    )
+                else:  # 'softmax'
+                    clf = SoftmaxClassifier.load(
+                        filepath=os.path.join(os.getcwd(), 'results/local_training', m, data_set, trafo)
+                    )
+
+                # Predict probabilities and save predictions
+                save_p = os.path.join(os.getcwd(), 'results/probabilistic_pred', m, data_set, trafo)
+                os.makedirs(save_p, exist_ok=True)
+
+                y_proba = clf.predict_proba(X=x_test)
+                y_pred = clf.predict(X=x_test)
+
+                np.save(os.path.join(save_p, 'y_proba.npy'), y_proba)
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                samples_y_proba = []
+                samples_y_pred = []
+
+                for x in samples_x_test:
+                    samples_y_proba.append(clf.predict_proba(X=x))
+                    samples_y_pred.append(clf.predict(X=x))
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                os.makedirs(os.path.join(save_p, 'samples_y_proba'), exist_ok=True)
+
+                for y_proba, y_pred, sn in zip(samples_y_proba, samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_proba', f'y_proba_{sn}.npy'), y_proba)
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y_pred)
 
 
 def main_som_plots():
@@ -2982,6 +3188,186 @@ def main_n_samples_plot():
     plt.close('all')
 
 
+def main_precision_and_recall_plots():
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    from validation.utils import prec_rec_f1_avg_sample_wise
+    from validation.plt import annotate_mosaic
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = ['LT1 b', 'LT2 b']
+    trafo = 'log10_channelwisecutoff'  # 'arcsinh_cofactor150', 'log10_channelwisecutoff'
+
+    methods = ['FCNN', 'SOM-Classifier']
+
+    thresholds = [
+        0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
+        0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99
+    ]
+
+    generate_plot_df = False
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {'LT1 b': 'lymphoma_tube1_binary', 'LT2 b': 'lymphoma_tube2_binary',}
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
+
+    if generate_plot_df:
+
+        pos_label = 1
+
+        long_data = []
+
+        for data_set in data_sets:
+
+            # Load the sample-wise test data
+            samples_p = os.path.join(
+                os.getcwd(), 'data/np_files', conversion_mapping_datasets[data_set], trafo, 'sample_wise_test'
+            )
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_y_test = [np.load(os.path.join(samples_p, f'y_{sn}.npy')) for sn in sample_names]
+
+            for m in methods:
+
+                # Load the probabilistic predictions
+                pred_p = os.path.join(
+                    os.getcwd(),
+                    'results/probabilistic_pred',
+                    conversion_mapping_methods[m],
+                    conversion_mapping_datasets[data_set],
+                    trafo,
+                    'samples_y_proba'
+                )
+                samples_y_proba = [np.load(os.path.join(pred_p, f'y_proba_{sn}.npy')) for sn in sample_names]
+
+                # Get the predicted probability for class 1
+                samples_y_proba = [y[:, 1] for y in samples_y_proba]
+
+                # Get predictions for each threshold and each sample
+                for threshold in thresholds:
+
+                    # Get prediction for current threshold
+                    samples_y_preds = [(y_prob >= threshold).astype(int) for y_prob in samples_y_proba]
+
+                    print('# ### Calculating evaluation metrics:', data_set, m, threshold)
+
+                    res_df_avg_prec, res_df_avg_rec, res_df_avg_f1 = prec_rec_f1_avg_sample_wise(
+                        y_trues=samples_y_test,
+                        y_preds=samples_y_preds,
+                        abstention_label=None,
+                        others_label=None,
+                        pos_label=pos_label,
+                        verbosity=0,
+                    )
+
+                    long_data.append({
+                        'Dataset': data_set,
+                        'Method': m,
+                        'Threshold': threshold,
+                        'Precision': res_df_avg_prec.loc['mean', 'binary'],
+                        'Recall': res_df_avg_rec.loc['mean', 'binary']
+                    })
+
+        plot_df = pd.DataFrame(long_data)
+
+        plot_df.to_csv(os.path.join(os.getcwd(), 'results/probabilistic_pred/plot_df.csv'))
+
+    else:
+
+        plot_df = pd.read_csv(os.path.join(os.getcwd(), 'results/probabilistic_pred/plot_df.csv'), index_col=0)
+
+
+    plot_df_long = plot_df.melt(
+        id_vars=['Dataset', 'Method', 'Threshold'],
+        value_vars=['Precision', 'Recall'],
+        var_name='Metric',
+        value_name='Score'
+    )
+
+    # ### Plotting
+    # Define a palette
+    mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
+    palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
+
+    fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        """,
+        gridspec_kw=None
+    )
+
+    for ds, plot_label in zip(data_sets, ['A', 'B']):
+
+        # Subset to dataset
+        # df_sub = plot_df_long.loc[plot_df_long['Dataset'] == ds].copy()
+        df_sub = plot_df_long.loc[
+            (plot_df_long['Dataset'] == ds) &
+            (plot_df_long['Threshold'] != 0.01) &
+            (plot_df_long['Threshold'] != 0.99)
+        ].copy()
+
+        ax = axd[plot_label]
+
+        marker_styles = {
+            'Precision': 's',
+            'Recall': 'o'
+        }
+
+        line_styles = {
+            'Precision': (5, 1),
+            'Recall': (1, 1)
+        }
+
+        sns.lineplot(
+            data=df_sub,
+            x='Threshold',
+            y='Score',
+            hue='Method',
+            style='Metric',
+            dashes=False,
+            markers=marker_styles,
+            # marker='o',
+            markersize=4,
+            linewidth=0.75,
+            palette=palette,
+            ax=ax,
+        )
+
+        ax.set_title(ds)
+        ax.grid(True, alpha=0.7)
+
+    # Adjust font sizes
+    ax_label_fontsize = 12
+    for key in ['A', 'B']:
+        ax = axd[key]
+        ax.set_title(ax.get_title(), fontsize=ax_label_fontsize + 2)
+        ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
+        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig(
+        os.path.join(plot_dir, f'recall_precision.png'),
+        dpi=fig.dpi
+    )
+    plt.close('all')
+
 
 def main_performance_plots_supplement():
 
@@ -3243,9 +3629,6 @@ def main_dataset_balance_plot_supplement():
 
 
 
-
-
-
 def main_pipeline_workflow_som():
 
     import os
@@ -3487,6 +3870,10 @@ if __name__ == '__main__':
 
     # main_n_samples_experiment() # todo: started on ramses and weneg
 
+    # main_local_training()  # todo: running, done for 0: [5,5,5,5,5,3]
+
+    # main_probabilistic_prediction()  # todo
+
     # main_performance_score_plots()
 
     # main_cell_percentage_plots()
@@ -3496,6 +3883,8 @@ if __name__ == '__main__':
     # main_performance_plots()
 
     main_n_samples_plot()
+
+    # main_precision_and_recall_plots()  # todo
 
     # main_performance_plots_supplement()
 
