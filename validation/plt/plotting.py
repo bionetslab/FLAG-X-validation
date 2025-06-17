@@ -887,7 +887,7 @@ def plot_n_samples_n_events(
 
     # Instantiate axis
     if ax is None:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(dpi=300)
 
     # Get cmap
     cmap = plt.get_cmap(cmap_name)
@@ -899,12 +899,18 @@ def plot_n_samples_n_events(
         if valid_values.empty:
             continue
 
-        ax.plot(valid_values.index, valid_values.values, marker='o', c=cmap(i / (res_df.shape[0] - 1)), label=idx)
+        ax.plot(
+            valid_values.index.astype(int),
+            valid_values.values,
+            marker='o',
+            c=cmap(i / (res_df.shape[0] - 1)),
+            label=idx
+        )
 
     # Optional: add labels, title, legend, etc.
-    ax.set_xlabel('n samples')
-    ax.set_ylabel('F1 binary')
-    ax.legend(title='ds frac')
+    ax.set_xlabel('Number of Samples')
+    ax.set_ylabel('Macro F1')
+    ax.legend(title='Number of Events')
 
     return ax
 
