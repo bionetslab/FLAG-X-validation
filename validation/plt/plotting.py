@@ -1672,17 +1672,6 @@ def plot_umatrix(
     return ax
 
 
-def annotate_mosaic(
-        fig: plt.Figure,
-        axd: Dict[str, plt.Axes],
-        fontsize: int = 14
-) -> None:
-    for key, ax in axd.items():
-        trans = mtransforms.ScaledTranslation(-20 / 72, 7 / 72, fig.dpi_scale_trans)
-        ax.text(0.0, 0.95, key, transform=ax.transAxes + trans,
-                fontsize=fontsize, va='bottom', fontfamily='sans-serif', fontweight='bold')
-
-
 def _get_cmap(cmap: str, use_seaborn_cmap: bool = False) -> mcolors.Colormap:
     try:
         if not use_seaborn_cmap:
