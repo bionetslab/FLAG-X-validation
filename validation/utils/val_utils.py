@@ -5,7 +5,7 @@ import time
 import copy
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple, Callable, Dict, List, Any
+from typing import Union, Tuple, Callable, Dict, List, Literal, Any
 
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
@@ -504,13 +504,14 @@ def get_error_dataframe(
 
 def n_samples_experiment_helper(
         classifier: Any,
-        downsampling_fractions: List[float],
+        n_samples: List[int],
+        n_events: List[Union[int, Literal['all']]],
         data_p: Union[str, None] = None,
         save_p: Union[str, None] = None,
         abstention_label: Union[int, None] = None,
         others_label: Union[int, None] = None,
         pos_label: Union[int, None] = None,
-        sample_order_file: Union[str, None] = None,  # Cannot be None if random_sample_order == False
+        sample_order_file: Union[str, None] = None,
         seed: Union[int, None] = None,
 ):
 
@@ -537,17 +538,11 @@ def n_samples_experiment_helper(
     samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names_test]
     samples_y_test = [np.load(os.path.join(samples_p_test, f)) for f in samples_y_test_filenames]
 
-    # Get number of downsampling fractions to be analyzed
-    n_ds_fractions = len(downsampling_fractions)
-
-    # Get number of train samples in the dataset
-    n_samples_train = len([fn for fn in os.listdir(os.path.join(data_p, 'sample_wise_train')) if fn.startswith('x_')])
-
     # Get list of index tuples to iterate in desired order
-    iter_list = _get_expanding_iterator_list(n=n_ds_fractions, m=n_samples_train)
+    iter_list = _get_expanding_iterator_list(n=len(n_events), m=len(n_samples))
 
     # Init dfs to track performance, prec, rec, f1, micro, macro, weighted, binary (if available)
-    dummy_df = pd.DataFrame(np.nan, index=downsampling_fractions, columns=list(range(1, n_samples_train + 1)))
+    dummy_df = pd.DataFrame(np.nan, index=n_events, columns=n_samples)
     n_modes = 3 if pos_label is None else 4
     res_dfs = [dummy_df.copy() for _ in range(n_modes * 3)]
     metrics = ['prec', ] * n_modes + ['rec', ] * n_modes + ['f1'] * n_modes
@@ -562,7 +557,7 @@ def n_samples_experiment_helper(
         current_save_p = os.path.join(
             save_p,
             'detailed_res',
-            f'dsfrac_{str(downsampling_fractions[i]).replace('.', '_')}_nsamples_{j + 1}'
+            f'nevents_{n_events[i]}_nsamples_{n_samples[j]}'
         )
         os.makedirs(current_save_p, exist_ok=True)
 
@@ -570,19 +565,17 @@ def n_samples_experiment_helper(
         data_p_load = os.path.join(data_p, 'sample_wise_train')
 
         if sample_order_file is None:
-            sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
 
-            fns_x_train = [f'x_{sn}.npy' for sn in sample_names_train][:j + 1]
-            x_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_x_train]
-
-            fns_y_train = [f'y_{sn}.npy' for sn in sample_names_train][:j + 1]
-            y_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_y_train]
+            sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples[j])]
 
         else:
 
             # Load the filenames in a fixed order from a .txt file
             with open(sample_order_file, 'r') as file:
                 og_filenames = [line.strip() for line in file if line.strip()]
+
+            # Shorten the list of filenames to the desired length
+            og_filenames = og_filenames[:n_samples[j]]
 
             # Load the df that stores the mapping from old (.fcs) to new (.npy) filenames
             og_to_new_fns_df_train = pd.read_csv(
@@ -595,20 +588,17 @@ def n_samples_experiment_helper(
                 for og_sn in og_filenames
             ]
 
-            # Load the samples
-            fns_x_train = [f'x_{sn}' for sn in sample_names_train][:j + 1]
-            x_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_x_train]
-
-            fns_y_train = [f'y_{sn}' for sn in sample_names_train][:j + 1]
-            y_trains = [np.load(os.path.join(data_p_load, fn)) for fn in fns_y_train]
+        # Load the samples
+        x_trains = [np.load(os.path.join(data_p_load, f'x_{sn}.npy')) for sn in sample_names_train]
+        y_trains = [np.load(os.path.join(data_p_load, f'y_{sn}.npy')) for sn in sample_names_train]
 
         # Downsample
-        if downsampling_fractions[i] != 1.0:
+        if n_events[i] != 'all':
             keep_bools = []
             for y in y_trains:
 
-                ds_keep_bool = FlowDataManager._get_downsampling_bool(
-                    y=y, fraction=downsampling_fractions[i], stratified=True
+                ds_keep_bool = get_downsampling_bool(
+                    y=y, target_num_events=n_events[i], stratified=True
                 )
                 keep_bools.append(ds_keep_bool)
 
@@ -730,7 +720,7 @@ def n_samples_experiment_helper(
             else:  # f1
                 out_df = out_sw[2]
 
-            res_df.loc[downsampling_fractions[i], j + 1] = out_df.loc['mean', mode]
+            res_df.loc[n_events[i], n_samples[j]] = out_df.loc['mean', mode]
 
             res_df.to_csv(os.path.join(save_p, f'res_df_{metric}_{mode}.csv'))
 
@@ -746,4 +736,53 @@ def _get_expanding_iterator_list(n: int, m: int) -> List[Tuple[int, int]]:
                     out.append((i, j))
                     seen.add((i, j))
     return out
+
+
+def get_downsampling_bool(y: np.ndarray, target_num_events: int, stratified: bool = False) -> np.ndarray:
+
+    num_events = y.shape[0]
+
+    keep_mask = np.zeros_like(y, dtype=bool)
+
+    if target_num_events >= num_events:
+        keep_mask[:] = True
+
+    elif stratified:
+
+        unique_labels, counts = np.unique(y, return_counts=True)
+        selected_indices = []
+
+        for label, count in zip(unique_labels, counts):
+
+            # Get the number of events of this class to keep
+            target_num_events_class = int(round(target_num_events * (count / num_events)))
+            target_num_events_class = min(target_num_events_class, count)
+
+            # Get the indices where y == class
+            class_indices = np.where(y == label)[0]
+
+            # Randomly draw from the indices and append to list
+            if target_num_events_class > 0:
+                selected = np.random.choice(class_indices, target_num_events_class, replace=False)
+                selected_indices.extend(selected)
+
+        # Adjust the number of samples to the exact desired number (account for rounding errors)
+        if len(selected_indices) > target_num_events:
+            selected_indices = np.random.choice(selected_indices, target_num_events, replace=False)
+        elif len(selected_indices) < target_num_events:
+            remaining_unselected_events = np.setdiff1d(np.arange(num_events), selected_indices)
+            additional_events = np.random.choice(
+                remaining_unselected_events, target_num_events - len(selected_indices), replace=False
+            )
+            selected_indices.extend(additional_events)
+
+        keep_mask[selected_indices] = True
+
+    else:
+
+        selected_indices = np.random.choice(np.arange(num_events), target_num_events, replace=False)
+
+        keep_mask[selected_indices] = True
+
+    return keep_mask
 
