@@ -1857,6 +1857,7 @@ def main_softmax():
 
 def main_n_samples_experiment():
     import os
+    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
 
@@ -1865,21 +1866,30 @@ def main_n_samples_experiment():
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'imstat'
+    data_set = 'lymphoma_tube1_binary'
     # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
 
     preprocessing_trafo = 'log10_channelwisecutoff'
     # 'arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100'
 
-    random_sample_order = True
+    random_sample_order = False
 
     classifier = 'softmax'  # 'som', 'softmax'
 
     inference = True
 
-    downsampling_fractions = [0.01, 0.25, 0.5, 0.75, 1.0]
+    if data_set == 'flowcyt':
+        n_samples = list(range(1,6)) + list(range(10, 22, 5)) + [22, ]
+    elif data_set == 'imstat':
+        n_samples = list(range(1,21)) + list(range(25, 76, 5))
+    else:
+        n_samples = list(range(1,21)) + list(range(25, 71, 5)) + [73, ]
+
+    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
 
     ####################################################################################################################
+
+    np.random.seed(42)
 
     base_p = os.path.join(os.getcwd(), 'results/n_samples_n_events')
 
@@ -1962,14 +1972,15 @@ def main_n_samples_experiment():
             clf = SoftmaxClassifier(
                 layer_sizes=(128, 64, 32),
                 n_epochs=20,
-                data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 3},
                 device=None,  # Tries to use default cuda device, if none available cpu
                 verbosity=2
             )
 
         n_samples_experiment_helper(
             classifier=clf,
-            downsampling_fractions=downsampling_fractions,
+            n_samples=n_samples,
+            n_events=n_events,
             data_p=data_p,
             save_p=save_p,
             abstention_label=abstention_label,
@@ -1978,13 +1989,13 @@ def main_n_samples_experiment():
             sample_order_file=sample_order_file,
         )
 
-    res_df = pd.read_csv(os.path.join(save_p, 'res_df_f1_binary.csv'), index_col=0)
+    res_df = pd.read_csv(os.path.join(save_p, 'res_df_f1_macro.csv'), index_col=0)
 
     print(res_df)
 
     plot_n_samples_n_events(res_df=res_df, cmap_name='magma')
     plt.tight_layout()
-    plt.savefig(os.path.join(save_p, 'f1_binary.png'))
+    plt.savefig(os.path.join(save_p, 'macro_f1.png'), dpi=300)
 
 
 def main_local_training():
@@ -2301,10 +2312,6 @@ def main_probabilistic_prediction():
                     np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y_pred)
 
 
-def main_som_plots():
-    pass
-
-
 def main_performance_score_plots():
 
     import os
@@ -2577,7 +2584,7 @@ def main_time_table():
     print(df)
 
 
-def main_performance_plots():
+def main_performance_plot_manuscript():
 
     import os
     import numpy as np
@@ -2621,6 +2628,18 @@ def main_performance_plots():
     }
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
+
+    lm_imstat = {
+        '-1': 'NA',
+        '1': 'B',  # B cell
+        '2': 'Th',  # T helper
+        '3': 'NK',  # NK cell
+        '4': 'M*', # (CD16+)',  # atypical CD16+ Monocytes
+        '5': 'M',  # Other Monocytes
+        '6': 'G',  # Granulocytes
+        '7': 'OUT',  # Sorted out
+        '8': 'O'  # Unclassified
+    }
 
     # Initialize the mosaic
     fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
@@ -2741,8 +2760,22 @@ def main_performance_plots():
     for key in ['A', 'B', 'C', 'D']:
         ax = axd[key]
         ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
-        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        # ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        ax.set_ylabel('Pred. Population Size (%)', fontsize=ax_label_fontsize)
         ax.tick_params(labelsize=ax_label_fontsize - 2)
+
+        # Manually change the legend labels
+        handles, labels = axd[key].get_legend_handles_labels()
+        labels = [lm_imstat[label] for label in labels]
+
+        # Define label order for the legend
+        label_order = ['NA', 'B', 'Th', 'NK', 'M', 'M*', 'G', 'OUT', 'O']
+
+        # Reorder handles and labels (sort based on predefined order)
+        ordered = sorted(zip(handles, labels), key=lambda x: label_order.index(x[1]))
+        handles, labels = zip(*ordered)
+
+        axd[key].legend(handles, labels, ncol=2, loc='lower right')
 
     ax_e = axd['E']
     ax_e.set_xlabel(None)
@@ -2754,7 +2787,7 @@ def main_performance_plots():
     plt.savefig('./results/plots/performance.png', dpi=fig.dpi)
 
 
-def main_n_samples_plot():
+def main_n_samples_plot_manuscript():
     import os
     import numpy as np
     import pandas as pd
@@ -2801,7 +2834,7 @@ def main_n_samples_plot():
             for order in ['random', 'ordered']:
                 dsdir = conversion_mapping_datasets[ds]
                 mdir = conversion_mapping_methods[m]
-                base_path = os.path.join('./results/n_samples_n_events', mdir, dsdir, data_trafo, order, 'detailed_res')
+                base_path = os.path.join('results/n_samples_n_events_complete', mdir, dsdir, data_trafo, order, 'detailed_res')
 
                 for ds_frac in ds_fractions:
                     for i in range(1, max_n_samples + 1):
@@ -2837,6 +2870,8 @@ def main_n_samples_plot():
     plot_slope = False
     abline_all_samples_perf = True
     plot_all_samples_score = True
+
+    # Todo: add dataset-wise max number of samples, set to n_samples - 1
 
     # Define a palette
     mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
@@ -3000,9 +3035,18 @@ def main_n_samples_plot():
         if not plot_all_samples_score and not plot_trend:
             ax.legend(title='Method')
 
+        # Set title and axis labels
         ax.set_title(ds)
         ax.set_xlabel('Number of Training Samples')
         ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
+
+        # Set min and max number of samples as x ticks
+        x_min, x_max = df_sub['n_samples'].min(), df_sub['n_samples'].max()
+        current_ticks = ax.get_xticks()
+        current_ticks = [tick for tick in current_ticks if x_min <= tick <= x_max]
+        new_ticks = [x_min] + current_ticks + [x_max]
+        ax.set_xticks(new_ticks)
+        ax.set_xticklabels([str(int(tick)) for tick in new_ticks])
 
     # Adjust font sizes
     ax_label_fontsize = 12
@@ -3188,7 +3232,7 @@ def main_n_samples_plot():
     plt.close('all')
 
 
-def main_precision_and_recall_plots():
+def main_precision_and_recall_plot_manuscript():
 
     import os
     import numpy as np
@@ -3369,7 +3413,7 @@ def main_precision_and_recall_plots():
     plt.close('all')
 
 
-def main_performance_plots_supplement():
+def main_performance_score_plot_supplement():
 
     import os
     import pandas as pd
@@ -3384,7 +3428,7 @@ def main_performance_plots_supplement():
 
     method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
 
-    data_trafo = 'arcsinh_cofactor150'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
 
     performance_score = 'f1'  # f1, prec, rec
 
@@ -3486,6 +3530,194 @@ def main_performance_plots_supplement():
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
     plt.savefig(f'./results/plots/performance_{performance_score}_supplement.png', dpi=fig.dpi)
+    plt.close('all')
+
+
+def main_population_size_plot_supplement():
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    from itertools import chain
+    from validation.plt import plot_cell_pop_size_pred_vs_gt, annotate_mosaic
+
+    ####################################################################################################################
+    dataset_names = ['LT1', 'LT1 b', 'LT2', 'LT2 b', 'Flowcyt']
+
+    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
+
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {
+        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
+        'SOM-Classifier': 'som_classifier'
+    }
+
+    # Define mappings from integer to letter labels
+    lm_lt1 = {
+        '-1': 'NA',  # Not assigned
+        '1': 'B',  # B cells
+        '9': 'dyB',  # Dying B
+        '7': 'CD45- (ERY)',  # Erythroid (CD45-)
+        '10': 'O'  # Others
+    }
+    lm_lt2 = lm_lt1
+
+    lm_lt1b = {
+        '-1': 'NA',
+        '1': 'B',
+        '0': 'OTH'
+    }
+    lm_lt2b = lm_lt1b
+
+    lm_flowcyt = {
+        '-1': 'NA',
+        '0': 'T',  # T lymphocyte
+        '1': 'B',  # B lymphocyte
+        '2': 'MON',  # Monocyte
+        '3': 'MAS',  # Mast cell
+        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
+        '5': 'O'  # Others
+    }
+
+    # Build global colormap
+    label_mappings = {'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt}
+    all_letter_labels = sorted(set(chain.from_iterable(m.values() for m in label_mappings.values())))
+
+    # global_palette = sns.color_palette("hls", len(all_letter_labels))
+    global_palette = sns.color_palette("Set2") + sns.color_palette("Accent")
+    global_color_mapping = dict(zip(all_letter_labels, global_palette))
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(11, 12), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        ABCDE
+        FGHIJ
+        K.LMN
+        O.PQR
+        STUVW
+        """
+    )
+
+    # ### Plot the population percentages
+    # Load the plot data
+    base_path_y_true = os.path.join(os.getcwd(), 'data/np_files')
+    base_path_y_pred = os.path.join(os.getcwd(), 'results/pred_eval')
+
+    plot_labels = list('ABCDEFGHIJKLMNOPQRSTUVW')
+    legend_subplots = list('AFKOS')
+    plot_label_iter = iter([l for l in plot_labels if l not in legend_subplots])
+
+    for dataset_name in dataset_names:
+
+        dataset_dir = conversion_mapping_datasets[dataset_name]
+
+        # Set data trafo to be used
+        is_flowcyt = (dataset_dir == 'flowcyt')
+        base_trafo = 'log10_cutoff100' if is_flowcyt and data_trafo == 'log10_channelwisecutoff' else 'log10_channelwisecutoff'
+
+        # Load the sample-wise data (ground truth and prediction)
+        y_true_path = os.path.join(base_path_y_true, dataset_dir, base_trafo, 'sample_wise_test')
+
+        n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
+        y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+        y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
+
+        # Define color mapping
+        cell_type_labels = np.unique(np.concatenate(y_trues)).tolist()
+        # palette = sns.color_palette("Accent", len(cell_type_labels) + 1)
+        label_mapping = label_mappings[dataset_name]
+        color_mapping = {
+            str(int_label): global_color_mapping[label_mapping[str(int_label)]]
+            for int_label in [-1] + cell_type_labels
+        }
+
+        for method in method_names:
+
+            method_dir = conversion_mapping_methods[method]
+
+            # No results for gatemeclass and LT2, LT2 b -> continue
+            if method_dir == 'gatemeclass_no_abstention' and dataset_name in {'LT2', 'LT2 b'}:
+                continue
+
+            # Always show results for arcsinh for gatemeclass
+            if method_dir == 'gatemeclass_no_abstention' and base_trafo in {'log10_channelwisecutoff', 'log10_cutoff100'}:
+                data_trafo_load = 'arcsinh_cofactor150'
+            else:
+                data_trafo_load = base_trafo
+
+
+            y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir, data_trafo_load, 'samples_y_pred')
+            y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+
+            # Load the predictions, skip missing files
+            y_preds = []
+            y_trues_plot = []
+            for yt, f in zip(y_trues, y_pred_filenames):
+                try:
+                    yp = np.load(os.path.join(y_pred_path, f)).astype(int)
+                    y_preds.append(yp)
+                    y_trues_plot.append(yt)
+                except FileNotFoundError:
+                    print(f'# ### No y_pred found for: {method}, {dataset_name}, {data_trafo_load}, {f}')
+
+            ax = axd[next(plot_label_iter)]
+
+            plot_cell_pop_size_pred_vs_gt(
+                y_trues=y_trues_plot,
+                y_preds=y_preds,
+                percentage=True,
+                palette=color_mapping,
+                title=method,
+                point_size=11.0,
+                # show_r2=True,
+                # show_pearson=True,
+                ax=ax,
+            )
+
+            # ax.set_title(f'{method}, {dataset_name}')
+            ax.set_ylabel('Pred. Population Size (%)')
+            ax.get_legend().remove()
+
+    # Build legends
+    for a, b, c in zip(list('CHLPU'), legend_subplots, dataset_names):
+
+        label_mapping = label_mappings[c]
+
+        handles, labels = axd[a].get_legend_handles_labels()
+        labels = [label_mapping[label] for label in labels]
+
+        axd[b].legend(
+            handles,
+            labels,
+            frameon=False,
+            ncol=2 if len(handles) >= 6 else 1,
+            loc='center'
+        )
+        axd[b].axis('off')
+        axd[b].set_title(f'Dataset: {c}')
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=14)
+    plt.savefig('./results/plots/cell_percentage_supplement.png', dpi=fig.dpi)
+    plt.close('all')
 
 
 def main_dataset_size_plot_supplement():
@@ -3629,6 +3861,8 @@ def main_dataset_balance_plot_supplement():
 
 
 
+
+
 def main_pipeline_workflow_som():
 
     import os
@@ -3645,15 +3879,24 @@ def main_pipeline_workflow_som():
 
     # ###### Initial training ###### #
     # ### Set parameters
-    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow_som1')
+    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow/pipeline_workflow_som')
     os.makedirs(save_path, exist_ok=True)
 
     data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
     data_fns = sorted(os.listdir(data_dir))
     random.shuffle(data_fns)
 
-    train_data_fns = data_fns[0:75]
+    # train_data_fns = data_fns[0:75]
+    train_data_fns = data_fns[0:10]  # Todo
     test_data_fns = data_fns[75:78]
+
+    with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
+        for line in train_data_fns:
+            f.write(line + '\n')
+
+    with open(os.path.join(save_path, 'test_samples.txt'), 'w') as f:
+        for line in test_data_fns:
+            f.write(line + '\n')
 
     channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
     label_key = 'population'
@@ -3663,7 +3906,7 @@ def main_pipeline_workflow_som():
     gating_method_kwargs = {
         'som_topology': 'planar',
         'som_grid_type': 'rectangular',
-        'som_dimensions': (10, 10),
+        'som_dimensions': (25, 25),
         'neighborhood': 'gaussian',
         'gaussian_neighborhood_sigma': 0.25,
         'initialization': 'pca',
@@ -3706,8 +3949,8 @@ def main_pipeline_workflow_som():
     output_dir = os.path.join(save_path, 'output')
     os.makedirs(output_dir, exist_ok=True)
 
-    dim_red_methods = ('som', 'pca', 'umap')
-    dim_red_method_kwargs = (None, None, {'n_jobs': 12})
+    dim_red_methods = ('som', 'pca', 'umap', 'tsne')
+    dim_red_method_kwargs = (None, None, {'n_jobs': 12}, {'n_jobs': 12})
 
     # ### Load the pipeline
     gp = GatingPipeline.load(filename='trained_pipeline.pkl', filepath=save_path)
@@ -3728,19 +3971,34 @@ def main_pipeline_workflow_som():
         fcs_metadata_dicts=None,
     )
 
+    gp.inference(
+        data_file_path=data_dir,
+        data_file_names=train_data_fns,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_train_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
     del gp
 
     # ###### Output validation ###### #
+    # dim_red_methods = ('som', 'pca', 'umap', 'tsne')
+    # output_dir = os.path.join(save_path, 'output')
 
-    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_train_data.fcs'))
     print("# ### Annotated test data:\n", annotated_test_data)
     df = annotated_test_data[1]
-    df['pred_unscaled'] = df['pred_unscaled'].astype(int)
     print("# Channels:\n", df.columns)
 
     for drm in dim_red_methods:
         fig, ax = plt.subplots(dpi=300)
-        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred_unscaled', palette='deep', ax=ax)
+        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred', palette='deep', ax=ax)
         plt.legend(title='Pred', markerscale=4)
         plt.savefig(os.path.join(output_dir, f'{drm}.png'), dpi=300)
         plt.close('all')
@@ -3762,15 +4020,24 @@ def main_pipeline_workflow_fcnn():
 
     # ###### Initial training ###### #
     # ### Set parameters
-    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow_fcnn')
+    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow/pipeline_workflow_fcnn')
     os.makedirs(save_path, exist_ok=True)
 
     data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
     data_fns = sorted(os.listdir(data_dir))
     random.shuffle(data_fns)
 
-    train_data_fns = data_fns[0:25]
+    # train_data_fns = data_fns[0:75]
+    train_data_fns = data_fns[0:10]  # Todo
     test_data_fns = data_fns[75:78]
+
+    with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
+        for line in train_data_fns:
+            f.write(line + '\n')
+
+    with open(os.path.join(save_path, 'test_samples.txt'), 'w') as f:
+        for line in test_data_fns:
+            f.write(line + '\n')
 
     channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
     label_key = 'population'
@@ -3806,8 +4073,8 @@ def main_pipeline_workflow_fcnn():
     output_dir = os.path.join(save_path, 'output')
     os.makedirs(output_dir, exist_ok=True)
 
-    dim_red_methods = ('pca', 'umap')
-    dim_red_method_kwargs = (None, {'n_jobs': 12})
+    dim_red_methods = ('pca', 'umap', 'tsne')
+    dim_red_method_kwargs = (None, {'n_jobs': 12}, {'n_jobs': 12})
 
     # ### Load the pipeline
     gp = GatingPipeline.load(filename='trained_pipeline.pkl', filepath=save_path)
@@ -3826,24 +4093,38 @@ def main_pipeline_workflow_fcnn():
         fcs_metadata_dicts=None,
     )
 
+    gp.inference(
+        data_file_path=data_dir,
+        data_file_names=train_data_fns,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_train_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
     del gp
 
     # ###### Output validation ###### #
 
-    output_dir = os.path.join(save_path, 'output')
-    dim_red_methods = ('pca', 'umap')
+    quit()
 
-    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    output_dir = os.path.join(save_path, 'output')
+
+    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_train_data.fcs'))
     print("# ### Annotated test data:\n", annotated_test_data)
     df = annotated_test_data[1]
 
     print(type(df))
-    df['pred_unscaled'] = df['pred_unscaled'].astype(int)
     print("# Channels:\n", df.columns)
 
     for drm in dim_red_methods:
         fig, ax = plt.subplots(dpi=300)
-        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred_unscaled', palette='deep', ax=ax)
+        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred', palette='deep', ax=ax)
         plt.legend(title='Pred', markerscale=4)
         plt.savefig(os.path.join(output_dir, f'{drm}.png'), dpi=300)
         plt.close('all')
@@ -3868,7 +4149,7 @@ if __name__ == '__main__':
 
     # main_softmax()
 
-    # main_n_samples_experiment() # todo: started on ramses and weneg
+    # main_n_samples_experiment() # todo: started last cases on weneg, start on ramses when finnished
 
     # main_local_training()  # todo: running, done for 0: [5,5,5,5,5,3]
 
@@ -3880,13 +4161,15 @@ if __name__ == '__main__':
 
     # main_time_table()
 
-    # main_performance_plots()
+    main_performance_plot_manuscript()
 
-    main_n_samples_plot()
+    # main_n_samples_plot_manuscript()
 
-    # main_precision_and_recall_plots()  # todo
+    # main_precision_and_recall_plot_manuscript()
 
-    # main_performance_plots_supplement()
+    # main_performance_score_plot_supplement()
+
+    # main_population_size_plot_supplement()
 
     # main_dataset_size_plot_supplement()
 
@@ -3894,21 +4177,14 @@ if __name__ == '__main__':
 
 
 
-    # main_prec_vs_recall()  # todo
-
     # main_pipeline_workflow_som()
 
     # main_pipeline_workflow_fcnn()
 
 
     # Todo: pipeline output for fcnn is not df?
-    # Todo: add class-wise results and dataset plots -> add percentages in legend
-    # Todo: continue with writing
-    # Todo: generate plots and time table with new results
 
     # Todo: adjust scaling in export
-    # Todo: Generate annotated.fcs an Stefan
-    # Todo: Restructure supplement to adhere to manuscript structure, adjust references
 
     print('done')
 
