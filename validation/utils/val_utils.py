@@ -587,6 +587,7 @@ def n_samples_experiment_helper(
                 og_to_new_fns_df_train.loc[og_to_new_fns_df_train['og_sample_name'] == og_sn, 'new_sample_name'].iloc[0]
                 for og_sn in og_filenames
             ]
+            sample_names_train = [sn[:-4] for sn in sample_names_train]
 
         # Load the samples
         x_trains = [np.load(os.path.join(data_p_load, f'x_{sn}.npy')) for sn in sample_names_train]
