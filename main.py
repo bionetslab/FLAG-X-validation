@@ -1866,7 +1866,7 @@ def main_n_samples_experiment():
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'lymphoma_tube1_binary'
+    data_set = 'lymphoma_tube1'
     # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
 
     preprocessing_trafo = 'log10_channelwisecutoff'
@@ -2789,106 +2789,121 @@ def main_performance_plot_manuscript():
 
 def main_n_samples_plot_manuscript():
     import os
-    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
     import seaborn as sns
-    import statsmodels.api as sm
 
     from matplotlib.lines import Line2D
     from validation.plt import annotate_mosaic
 
-    ####################################################################################################################
+    # Configuration ####################################################################################################
     performance_score = 'f1'  # f1, prec, rec
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
 
-    ds_fractions = [0.01, 0.25, 0.5, 0.75, 1.0]
-    max_n_samples = 75
+    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
+
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
+    max_n_samples = [75, 22, 73, 73, 73, 73]
+
+    method_names = ['FCNN', 'SOM-Classifier']
+
+    plot_all_samples_score = True
 
     plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    os.makedirs(plot_dir, exist_ok=True)
 
     ####################################################################################################################
 
-    # Load all results
-    dataset_names = ['Imstat', 'LT1 b']
-    method_names = ['FCNN', 'SOM-Classifier']
+    # Directory mappings
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
 
-
-    # Results only generated for log10_channelwisecutoff
-    data_trafo = 'log10_channelwisecutoff'
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {'Imstat': 'imstat', 'LT1 b': 'lymphoma_tube1_binary'}
-
-    # Convert method names to corresponding dir names
     conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
     conversion_mapping_methods_predres = {'FCNN': 'softmax_classifier', 'SOM-Classifier': 'som_classifier'}
 
     all_records = []
 
-    for ds in dataset_names:
-        for m in method_names:
-            for order in ['random', 'ordered']:
-                dsdir = conversion_mapping_datasets[ds]
-                mdir = conversion_mapping_methods[m]
-                base_path = os.path.join('results/n_samples_n_events_complete', mdir, dsdir, data_trafo, order, 'detailed_res')
+    for ds, max_n in zip(dataset_names, max_n_samples):
+        ds_dir = conversion_mapping_datasets[ds]
+        data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
 
-                for ds_frac in ds_fractions:
-                    for i in range(1, max_n_samples + 1):
-                        subdir = f'dsfrac_{str(ds_frac).replace(".", "_")}_nsamples_{i}/res_df_sw_avg_{performance_score}.csv'
-                        file_path = os.path.join(base_path, subdir)
+        for method in method_names:
+            for n in n_events:
+                for i in range(1, max_n + 1):
 
-                        try:
-                            df = pd.read_csv(file_path, index_col=0)
-                            df = df.drop(index=['mean', 'std'], errors='ignore')  # Keep raw data only
-                            for val in df[performance_score_mode]:
-                                all_records.append({
-                                    'dataset': ds,
-                                    'method': m,
-                                    'order': order,
-                                    'ds_frac': ds_frac,
-                                    'n_samples': i,
-                                    'score': val
-                                })
-                        except FileNotFoundError:
-                            # print(f"# Missing: {file_path}")
-                            continue
+                    method_dir = conversion_mapping_methods[method]
+
+                    if i < max_n:
+                        file_path = os.path.join(
+                            './results/n_samples_n_events',
+                            method_dir,
+                            ds_dir,
+                            data_trafo,
+                            'random',
+                            'detailed_res',
+                            f'nevents_{n}_nsamples_{i}',
+                            f'res_df_sw_avg_{performance_score}.csv'
+                        )
+                    else:  # Load previously computed scores for (all samples, all events)
+                        file_path = os.path.join(
+                            './results/pred_eval',
+                            method_dir + '_classifier',
+                            ds_dir,
+                            data_trafo,
+                            f'res_df_sw_avg_{performance_score}.csv'
+                        )
+
+                    try:
+                        df = pd.read_csv(file_path, index_col=0)
+                        df = df.drop(index=['mean', 'std'], errors='ignore')
+                        for val in df[performance_score_mode]:
+                            all_records.append({
+                                'dataset': ds,
+                                'method': method,
+                                'order': 'random',
+                                'n_events': n,
+                                'n_samples': i,
+                                'score': val
+                            })
+
+                    except FileNotFoundError as e:
+                        # print(f"# Missing: {file_path}")
+                        continue
 
     # Create DataFrame
     df_all = pd.DataFrame(all_records)
     df_all['n_samples'] = df_all['n_samples'].astype(int)
 
+    # Subset dataframe
+    keep_bool = (df_all['n_samples'] >= 20) | (df_all['n_samples'] % 2 == 0) | (df_all['n_samples'] == 1)
+    df_all = df_all[keep_bool]
+
     print(df_all)
 
     # ### Plot performance comparison for methods
-    # One plot per dataset, hue=method, fixed: order=random, ds_frac=1.0  => 2 subplots
-    ds_frac_plot = 1.0
-    plot_trend = False
-    plot_slope = False
-    abline_all_samples_perf = True
-    plot_all_samples_score = True
-
-    # Todo: add dataset-wise max number of samples, set to n_samples - 1
 
     # Define a palette
     mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
     palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
 
-    fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
+    fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
         AB
+        CD
+        EF
         """,
         gridspec_kw=None
     )
 
-    for ds, plot_label in zip(['Imstat', 'LT1 b'], ['A', 'B']):
+    for ds, max_n, plot_label in zip(dataset_names, max_n_samples, ['A', 'B', 'C', 'D', 'E', 'F']):
 
         df_sub = df_all.loc[
-            (df_all['dataset'] == ds) & (df_all['ds_frac'] == ds_frac_plot) & (df_all['order'] == 'random')
+            (df_all['dataset'] == ds) & (df_all['n_events'] == 'all') & (df_all['order'] == 'random')
         ].copy()
 
         ax = axd[plot_label]
@@ -2908,131 +2923,53 @@ def main_n_samples_plot_manuscript():
             ax=ax,
         )
 
-        if abline_all_samples_perf:
+        if plot_all_samples_score:
+            for method in method_names:
+                # Get the score for all samples
+                df_all_data_score = df_sub[
+                    (df_sub['method'] == method) &
+                    (df_sub['n_samples'] == max_n)
+                ]
 
-            for method_name, method_dir in [('FCNN', 'softmax_classifier'), ('SOM-Classifier', 'som_classifier')]:
-                try:
-                    res_path = os.path.join(
-                        './results/pred_eval',
-                        method_dir,
-                        conversion_mapping_datasets[ds],
-                        data_trafo,
-                        f'res_df_sw_avg_{performance_score}.csv'
-                    )
+                score = df_all_data_score['score'].mean()
 
-                    score = pd.read_csv(res_path, index_col=0).loc['mean', performance_score_mode]
-                    color = palette.get(method_name, 'grey')
+                color = palette.get(method, 'grey')
 
-                    ax.axhline(
-                        y=score,
-                        linestyle='--',
-                        linewidth=1,
-                        color=color,
-                        alpha=0.8,
-                        # label=f'{method_name} (all samples)',
-                    )
+                ax.axhline(
+                    y=score,
+                    linestyle='--',
+                    linewidth=1,
+                    color=color,
+                    alpha=0.8,
+                    # label=f'{method_name} (all samples)',
+                )
 
-                    x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
-                    y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
-                    y_pos = score + y_offset  # just above the line
+                x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
+                y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+                y_pos = score + y_offset  # just above the line
 
-                    # Draw text
-                    ax.text(
-                        x=x_pos,
-                        y=y_pos,
-                        s=f'{score:.3f}',
-                        color=color,
-                        va='bottom',
-                        ha='right',
-                        fontsize=8,
-                        alpha=0.95,
-                        clip_on=True
-                    )
-
-                except FileNotFoundError:
-                    print('###')
-                    pass
+                # Draw text
+                ax.text(
+                    x=x_pos,
+                    y=y_pos,
+                    s=f'{score:.3f}',
+                    color=color,
+                    va='bottom',
+                    ha='right',
+                    fontsize=8,
+                    alpha=0.95,
+                    clip_on=True
+                )
 
             # Define dummy legend entry for all sample performance
-            trend_legend = Line2D(
-                [], [], linestyle='--', color='grey', linewidth=1, label='All Samples'
-            )
+            all_samples_legend = Line2D([], [], linestyle='--', color='grey', linewidth=1, label='All Samples')
             handles, labels = ax.get_legend_handles_labels()
             if 'All Samples' not in labels:
-                handles.append(trend_legend)
+                handles.append(all_samples_legend)
                 labels.append('All Samples')
             ax.legend(handles=handles, labels=labels, title='Method')
 
-        if plot_trend:
-            for method_name, color in palette.items():
-                df_m = df_sub[df_sub['method'] == method_name]
-                if df_m.empty:
-                    continue
-
-                reg_df = (
-                    df_m.groupby('n_samples', as_index=False)['score'].mean()
-                )
-
-                use_regplot = False
-                if use_regplot:
-                    sns.regplot(
-                        data=reg_df,
-                        x='n_samples',
-                        y='score',
-                        scatter=False,
-                        ax=ax,
-                        color=color,  # Match method color
-                        ci=None,  # No confidence interval
-                        line_kws={
-                            'linestyle': '--',
-                            'alpha': 0.8,
-                            'linewidth': 1,
-                            'zorder': 5,
-                        }
-                    )
-                else:
-                    # Prepare X and y for statsmodels
-                    x = reg_df['n_samples'].values
-                    y = reg_df['score'].values
-                    x_const = sm.add_constant(x)  # adds intercept term
-
-                    # Fit linear model
-                    model = sm.OLS(y, x_const).fit()
-                    slope = model.params[1]
-                    intercept = model.params[0]
-
-                    print(f"{method_name} - Slope: {slope:.6f}, Intercept: {intercept:.4f}")
-
-                    # Create fitted line
-                    x_fit = np.linspace(x.min(), x.max(), 100)
-                    y_fit = intercept + slope * x_fit
-
-                    # Plot manually
-                    ax.plot(
-                        x_fit,
-                        y_fit,
-                        linestyle='--',
-                        color=color,
-                        alpha=0.8,
-                        linewidth=1,
-                        zorder=5,
-                        label=f'Linear Trend, Slope: {np.round(slope, 4)}' if plot_slope else None,
-                    )
-
-            if not plot_slope:
-                # Define dummy legend entry for trends
-                trend_legend = Line2D(
-                    [], [], linestyle='--', color='grey', linewidth=1, label='Linear Trends'
-                )
-                handles, labels = ax.get_legend_handles_labels()
-                if 'Linear Trends' not in labels:
-                    handles.append(trend_legend)
-                    labels.append('Linear Trends')
-                ax.legend(handles=handles, labels=labels, title='Method')
-            else:
-                ax.legend(title='Method')
-
-        if not plot_all_samples_score and not plot_trend:
+        else:
             ax.legend(title='Method')
 
         # Set title and axis labels
@@ -3060,14 +2997,16 @@ def main_n_samples_plot_manuscript():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
     plt.savefig(
-        os.path.join(plot_dir, f'n_samples_per_dataset_{performance_score_mode}_{performance_score}.png'),
+        os.path.join(plot_dir, f'n_samples.png'),
         dpi=fig.dpi
     )
     plt.close('all')
 
+
+    quit()
+
     # ### Plot performance comparison for random vs ordered and num events
     # One plot per method, per dataset, and per order, hue=ds_frac  => 6 subplots
-
     ds_frac_plot = [0.01, 0.25, 0.5, 0.75, 1.0]
 
     plot_combinations = [
@@ -3116,7 +3055,6 @@ def main_n_samples_plot_manuscript():
         )
 
         if abline_all_samples_perf:
-
 
             try:
                 res_path = os.path.join(
@@ -3533,6 +3471,238 @@ def main_performance_score_plot_supplement():
     plt.close('all')
 
 
+def main_n_samples_plot_supplement():
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    from matplotlib.lines import Line2D
+    from validation.plt import annotate_mosaic
+
+    # Configuration ####################################################################################################
+    performance_score = 'f1'  # f1, prec, rec
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
+
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1 b', 'LT2 b']
+    max_n_samples = [75, 22, 73, 73]
+
+    method_names = ['FCNN', 'SOM-Classifier']
+
+    n_events_plot = [5000, 10000, 20000, 50000, 'all']
+
+    plot_combinations = [
+        ('Imstat', 'FCNN'), ('Imstat', 'SOM-Classifier'),
+        ('LT1 b', 'FCNN'), ('LT1 b', 'SOM-Classifier'),
+        ('LT2 b', 'FCNN'), ('LT2 b', 'SOM-Classifier'),
+        ('Flowcyt', 'FCNN'), ('Flowcyt', 'SOM-Classifier'),
+    ]
+
+    max_samples_mapping = {'Imstat': 75, 'LT1 b': 73, 'LT2 b': 73, 'Flowcyt': 22}
+
+    plot_all_samples_score = True
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    ####################################################################################################################
+
+    # Directory mappings
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
+
+    all_records = []
+
+    for ds, max_n in zip(dataset_names, max_n_samples):
+        ds_dir = conversion_mapping_datasets[ds]
+        data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
+
+        for method in method_names:
+            for n in n_events:
+                for i in range(1, max_n + 1):
+
+                    method_dir = conversion_mapping_methods[method]
+
+                    if i == max_n and n == 'all':    # Load previously computed scores for (all samples, all events)
+                        file_path = os.path.join(
+                            './results/pred_eval',
+                            method_dir + '_classifier',
+                            ds_dir,
+                            data_trafo,
+                            f'res_df_sw_avg_{performance_score}.csv'
+                        )
+                    else:
+                        file_path = os.path.join(
+                            './results/n_samples_n_events',
+                            method_dir,
+                            ds_dir,
+                            data_trafo,
+                            'random',
+                            'detailed_res',
+                            f'nevents_{n}_nsamples_{i}',
+                            f'res_df_sw_avg_{performance_score}.csv'
+                        )
+
+                    try:
+                        df = pd.read_csv(file_path, index_col=0)
+                        df = df.drop(index=['mean', 'std'], errors='ignore')
+                        for val in df[performance_score_mode]:
+                            all_records.append({
+                                'dataset': ds,
+                                'method': method,
+                                'n_events': n,
+                                'n_samples': i,
+                                'score': val
+                            })
+
+                    except FileNotFoundError as e:
+                        # print(f"# Missing: {file_path}")
+                        continue
+
+    # Create DataFrame
+    df_all = pd.DataFrame(all_records)
+    df_all['n_samples'] = df_all['n_samples'].astype(int)
+
+    # Subset dataframe
+    keep_bool = (
+            (df_all['n_samples'] >= 20) |
+            (df_all['n_samples'] % 2 == 0) |
+            (df_all['n_samples'] == 1) |
+            ((df_all['n_samples'] == 15) & (df_all['dataset'] == 'Flowcyt'))
+    )
+    df_all = df_all[keep_bool]
+
+    print(df_all)
+
+    # ### Plot performance comparison for random vs ordered and num events
+
+
+    fig = plt.figure(figsize=(10, 12), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        CD
+        EF
+        GH
+        """
+    )
+
+    plot_labels = list('ABCDEFGH')
+
+    for c, plot_label in zip(plot_combinations, plot_labels):
+        dataset = c[0]
+        method = c[1]
+
+        df_sub = df_all.loc[
+            (df_all['dataset'] == dataset) &
+            (df_all['method'] == method) &
+            (df_all['n_events'].isin(n_events_plot))
+            ].copy()
+
+        ax = axd[plot_label]
+
+        sns.lineplot(
+            data=df_sub,
+            x='n_samples',
+            y='score',
+            hue='n_events',
+            errorbar=None,  # ('ci', 95),
+            # n_boot=1000,
+            # seed=42,
+            # err_style='band',
+            marker='o',
+            markersize=3,
+            palette='magma',
+            ax=ax,
+        )
+
+        if plot_all_samples_score:
+            # Get the score for all samples
+            df_all_data_score = df_sub[
+                (df_sub['n_samples'] == max_samples_mapping[dataset]) &
+                (df_sub['n_events'] == 'all')
+            ]
+
+            score = df_all_data_score['score'].mean()
+
+            color = 'grey'
+
+            ax.axhline(
+                y=score,
+                linestyle='--',
+                linewidth=1,
+                color=color,
+                alpha=0.8,
+                # label=f'{method_name} (all samples)',
+            )
+
+            x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
+            y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+            y_pos = score + y_offset  # just above the line
+
+            # Draw text
+            ax.text(
+                x=x_pos,
+                y=y_pos,
+                s=f'{score:.3f}',
+                color=color,
+                va='bottom',
+                ha='right',
+                fontsize=8,
+                alpha=0.95,
+                clip_on=True
+            )
+
+            # Define dummy legend entry for all sample performance
+            all_samples_legend = Line2D([], [], linestyle='--', color='grey', linewidth=1, label='All Samples')
+            handles, labels = ax.get_legend_handles_labels()
+            if 'All Samples' not in labels:
+                handles.append(all_samples_legend)
+                labels.append('All Samples')
+            ax.legend(handles=handles, labels=labels, title='Method')
+
+        else:
+            ax.legend(title='Method')
+
+        ax.set_title(f'{dataset} | {method}')
+        ax.set_xlabel('Number of Training Samples')
+        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
+        ax.legend(title='Number of Events')
+
+        # Set min and max number of samples as x ticks
+        x_min, x_max = df_sub['n_samples'].min(), df_sub['n_samples'].max()
+        current_ticks = ax.get_xticks()
+        current_ticks = [tick for tick in current_ticks if x_min <= tick <= x_max]
+        new_ticks = [x_min] + current_ticks + [x_max]
+        ax.set_xticks(new_ticks)
+        ax.set_xticklabels([str(int(tick)) for tick in new_ticks])
+
+    # Adjust font sizes
+    ax_label_fontsize = 12
+    for key in plot_labels:
+        ax = axd[key]
+        ax.set_title(ax.get_title(), fontsize=ax_label_fontsize + 2)
+        ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
+        ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
+        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig(
+        os.path.join(plot_dir, f'n_samples_supplement.png'),
+        dpi=fig.dpi
+    )
+    plt.close('all')
+
+
 def main_population_size_plot_supplement():
     import os
     import numpy as np
@@ -3862,6 +4032,206 @@ def main_dataset_balance_plot_supplement():
 
 
 
+def main_pipeline_workflow():
+    import os
+    import random
+    import readfcs
+    import matplotlib.pyplot as plt
+    import matplotlib
+
+    matplotlib.use('Agg')
+    random.seed(42)
+
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    # ###### Initial training ###### #
+    # ### Set parameters
+    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow/som_fcnn')
+    os.makedirs(save_path, exist_ok=True)
+
+    data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
+    data_fns = sorted(os.listdir(data_dir))
+    random.shuffle(data_fns)
+
+    # train_data_fns = data_fns[0:75]
+    train_data_fns = data_fns[0:10]
+    test_data_fns = data_fns[75:78]
+
+    train_data_fns = data_fns[0:2]
+    test_data_fns = data_fns[75:76]
+
+    with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
+        for line in train_data_fns:
+            f.write(line + '\n')
+
+    with open(os.path.join(save_path, 'test_samples.txt'), 'w') as f:
+        for line in test_data_fns:
+            f.write(line + '\n')
+
+    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+    label_key = 'population'
+
+    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}}
+
+    # ### Train the SOM-classifier gating pipeline
+    som_kwargs = {
+        'som_topology': 'planar',
+        'som_grid_type': 'rectangular',
+        'som_dimensions': (25, 25),
+        'neighborhood': 'gaussian',
+        'gaussian_neighborhood_sigma': 0.25,
+        'initialization': 'pca',
+        'n_epochs': 6,  # TODO: 200
+        'radius_0': -0.25,
+        'radius_n': 0.01,
+        'radius_cooling': 'linear',
+        'learning_rate_0': 0.5,
+        'learning_rate_n': 0.05,
+        'learning_rate_decay': 'exponential',
+        'verbosity': 2
+    }
+
+    # ### Instantiate the pipeline, train, and save
+    save_path_som = os.path.join(save_path, 'som')
+    os.makedirs(save_path_som, exist_ok=True)
+
+    gp_som = GatingPipeline(
+        train_data_file_path=data_dir,
+        train_data_file_names=train_data_fns,
+        train_data_file_type='fcs',
+        save_path=save_path_som,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='som',
+        gating_method_kwargs=som_kwargs,
+        verbosity=1,
+    )
+
+    gp_som.train()
+
+    gp_som.save(filename='trained_pipeline_som.pkl')
+
+    # ### Train the FCNN-softmax-classifier gating pipeline
+    fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 2, 'device': 'cuda', 'verbosity': 2}  # Todo: epochs=20
+
+    # ### Instantiate the pipeline, train, and save
+    save_path_fcnn = os.path.join(save_path, 'fcnn')
+    os.makedirs(save_path_fcnn, exist_ok=True)
+
+    gp_fcnn = GatingPipeline(
+        train_data_file_path=data_dir,
+        train_data_file_names=train_data_fns,
+        train_data_file_type='fcs',
+        save_path=save_path_fcnn,
+        channels=channels,
+        label_key=label_key,
+        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+        relabel_data_kwargs=None,
+        preprocessing_kwargs=preprocessing_kwargs,
+        gating_method='fcnn',
+        gating_method_kwargs=fcnn_kwargs,
+        verbosity=1,
+    )
+
+    gp_fcnn.train()
+
+    gp_fcnn.save(filename='trained_pipeline_fcnn.pkl')
+
+    del gp_som, gp_fcnn
+
+    # ###### Inference with new data ###### #
+    # ### Set parameters
+    output_dir = os.path.join(save_path, 'output')
+    os.makedirs(output_dir, exist_ok=True)
+
+    dim_red_methods = ('som', 'pca', 'umap', 'tsne')
+    dim_red_method_kwargs = (None, None, {'n_jobs': 12}, {'n_jobs': 12})
+
+    dim_red_methods = ('som', 'pca')
+    dim_red_method_kwargs = (None, None)
+
+    # ### Inference with the SOM pipeline
+    gp_som = GatingPipeline.load(filename='trained_pipeline_som.pkl', filepath=save_path_som)
+
+    gp_som.inference(
+        data_file_path=data_dir,
+        data_file_names=test_data_fns,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_test_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+        fcs_metadata_dicts=None,
+    )
+
+    gp_som.inference(
+        data_file_path=data_dir,
+        data_file_names=train_data_fns,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_train_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
+    # ### Inference with the FCNN pipeline
+    gp_fcnn = GatingPipeline.load(filename='trained_pipeline_fcnn.pkl', filepath=save_path_fcnn)
+
+    gp_fcnn.inference(
+        data_file_path=output_dir,
+        data_file_names=['annotated_test_data.fcs', ],
+        gate=True,
+        dim_red_methods=None,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_test_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
+    gp_fcnn.inference(
+        data_file_path=output_dir,
+        data_file_names=['annotated_train_data.fcs', ],
+        gate=True,
+        dim_red_methods=None,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_train_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
+    del gp_som, gp_fcnn
+
+    # ###### Output validation ###### #
+    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    print("# ### Annotated test data:\n", annotated_test_data)
+    df = annotated_test_data[1]
+    print("# Channels:\n", df.columns)
+
+    for drm in dim_red_methods:
+        for gm in ['som', 'fcnn']:
+            fig, ax = plt.subplots(dpi=300)
+            scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue=f'prediction_{gm}', palette='deep', ax=ax)
+            plt.legend(title='Pred', markerscale=4)
+            plt.savefig(os.path.join(output_dir, f'gating_{gm}_dimred_{drm}.png'), dpi=300)
+            plt.close('all')
+
 
 def main_pipeline_workflow_som():
 
@@ -4149,9 +4519,9 @@ if __name__ == '__main__':
 
     # main_softmax()
 
-    # main_n_samples_experiment() # todo: started last cases on weneg, start on ramses when finnished
+    # main_n_samples_experiment() # todo: started last cases on weneg and ramses
 
-    # main_local_training()  # todo: running, done for 0: [5,5,5,5,5,3]
+    # main_local_training()
 
     # main_probabilistic_prediction()  # todo
 
@@ -4161,13 +4531,15 @@ if __name__ == '__main__':
 
     # main_time_table()
 
-    main_performance_plot_manuscript()
+    # main_performance_plot_manuscript()
 
-    # main_n_samples_plot_manuscript()
+    main_n_samples_plot_manuscript()
 
     # main_precision_and_recall_plot_manuscript()
 
     # main_performance_score_plot_supplement()
+
+    # main_n_samples_plot_supplement()
 
     # main_population_size_plot_supplement()
 
@@ -4176,6 +4548,7 @@ if __name__ == '__main__':
     # main_dataset_balance_plot_supplement()
 
 
+    # main_pipeline_workflow()
 
     # main_pipeline_workflow_som()
 
