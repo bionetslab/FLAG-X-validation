@@ -36,8 +36,9 @@ class GatingPipeline:
             # {'flavour': str, !optional! 'flavour_kwargs': dict, !optional! 'save_raw_to_layer': str}
             # if flavour == 'custom' then 'flavour_kwargs' must contain 'preprocessing_method'
 
-            gating_method: Literal['som', 'fcnn_softmax'] = 'som',
+            gating_method: Literal['som', 'fcnn'] = 'som',
             gating_method_kwargs: Union[Dict[str, Any], None] = None,
+            prediction_threshold: Union[float, None] = None,
 
             verbosity: int = 1,
     ):
@@ -63,11 +64,13 @@ class GatingPipeline:
         # Gating method
         self.gating_method = gating_method
         self.gating_method_kwargs = gating_method_kwargs
+        self.prediction_threshold = prediction_threshold
 
         self.verbosity = verbosity
 
         self.is_trained_ = False
         self.gating_module_ = None
+        self.binary_classes_ = None
 
 
     def _init_save_paths(self):
@@ -93,23 +96,40 @@ class GatingPipeline:
             fn_prefix_saving='train_'
         )
 
+        unique_classes = np.unique(y_train)
+        if unique_classes.shape[0] == 2:
+            self.binary_classes_ = True
+
+            if set(unique_classes) != {0,1}:
+                raise ValueError(
+                    f"Binary classification requires class labels to be 0 (negative class) or 1 (positive class). "
+                    f"Found: {set(unique_classes)}"
+                )
+
+        else:
+            self.binary_classes_ = False
+
+        if self.prediction_threshold is None:
+            self.prediction_threshold = 0.5 if self.binary_classes_ is False else 0.0
+
+
         # Instantiate the gating module of the pipeline
         if self.gating_method_kwargs is None:
             self.gating_method_kwargs = {}
 
         if self.gating_method == 'som':
             self.gating_module_ = SomClassifier(**self.gating_method_kwargs)
-        elif self.gating_method == 'fcnn_softmax':
+        elif self.gating_method == 'fcnn':
             if self.label_key is None:
                 raise ValueError(
-                    "'label_key' is required when gating_method is 'fcnn_softmax'. "
+                    "'label_key' is required when gating_method is 'fcnn'. "
                     "Unsupervised training is not possible for a FCNN."
                 )
             self.gating_module_ = SoftmaxClassifier(**self.gating_method_kwargs)
         else:
             raise NotImplementedError(
                 f"Gating method '{self.gating_method}' is not implemented. "
-                "Supported methods are: 'som', 'fcnn_softmax'."
+                "Supported methods are: 'som', 'fcnn'."
             )
 
         # Call the fit method of the gating module
@@ -140,12 +160,6 @@ class GatingPipeline:
             keep_unscaled: bool = False,
             fcs_metadata_dicts: Union[Dict, List[Dict], None] = None
     ):
-
-        if dim_red_method_kwargs is None:
-            dim_red_method_kwargs = ({}, ) * len(dim_red_methods)
-        else:
-            if len(dim_red_methods) != len(dim_red_method_kwargs):
-                raise ValueError("Mismatch: 'dim_red_methods' and 'dim_red_method_kwargs' must have the same length.")
 
         # Load and process the data
         fdm_save_p = os.path.join(self.save_path, 'inference_data_manager_output')
@@ -196,6 +210,15 @@ class GatingPipeline:
             y_preds = None
 
         if dim_red_methods is not None:
+
+            if dim_red_method_kwargs is None:
+                dim_red_method_kwargs = ({},) * len(dim_red_methods)
+            else:
+                if len(dim_red_methods) != len(dim_red_method_kwargs):
+                    raise ValueError(
+                        "Mismatch: 'dim_red_methods' and 'dim_red_method_kwargs' must have the same length."
+                    )
+
             x_dimreds = []
             other_annotations = []
             other_annotations_names = []
@@ -246,6 +269,7 @@ class GatingPipeline:
             keep_unscaled=keep_unscaled,
             sample_wise=save_sample_wise,
             y_preds=y_preds,
+            y_preds_name=f'prediction_{self.gating_method}',
             dim_red_coords=x_dimreds,
             dim_red_names=dim_red_methods,
             other_annotations=other_annotations,
@@ -388,7 +412,21 @@ class GatingPipeline:
         # Iterate over the data list and gate
         y_preds = []
         for x in xs:
-            y_pred = self.gating_module_.predict(X=x)
+
+            y_proba = self.gating_module_.predict_proba(X=x)
+
+            if self.binary_classes_:
+                # Binary case: predict class 1 if prob >= threshold, else class 0
+                y_pred = (y_proba[:, 1] >= self.prediction_threshold).astype(int)
+            else:
+                # Multiclass case: abstain (predict -1) if max prob < threshold
+                max_probs = y_proba.max(axis=1)
+                abstention_bool = max_probs < self.prediction_threshold
+
+                y_pred = self.gating_module_.predict(X=x)
+
+                y_pred[abstention_bool] = -1
+
             y_preds.append(y_pred)
 
         return y_preds
@@ -522,7 +560,7 @@ class GatingPipeline:
                 pipeline.gating_module_ = SomClassifier.load(
                     filename='gating_module_' + filename, filepath=filepath,
                 )
-            elif pipeline.gating_method == 'fcnn_softmax':
+            elif pipeline.gating_method == 'fcnn':
                 pipeline.gating_module_ = SoftmaxClassifier.load(
                     filename='gating_module_' + filename, filepath=filepath,
                 )

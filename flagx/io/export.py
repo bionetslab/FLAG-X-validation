@@ -15,6 +15,7 @@ def export_to_fcs(
         keep_unscaled: bool = False,
         sample_wise: bool = False,  # whether to save to individual or one fcs file
         y_preds: Union[List[np.ndarray], None] = None,
+        y_preds_name: Union[str, None] = None,
         dim_red_coords: Union[List[List[np.ndarray]], None] = None,  # optional, list of lists of np arrays (multiple dim reds possible)
         dim_red_names: Union[List[str], None] = None,
         other_annotations: Union[List[List[np.ndarray]], None] = None,
@@ -45,7 +46,9 @@ def export_to_fcs(
         sample_fn_id_df = pd.DataFrame({'filenames': fns, 'sample_id': range(1, len(fns) + 1)})
 
     if y_preds is not None:
-        annotations.append((y_preds, 'pred'))
+        if y_preds_name is None:
+            y_preds_name = 'pred'
+        annotations.append((y_preds, y_preds_name))
 
     if dim_red_coords is not None:
         if dim_red_names is not None:
