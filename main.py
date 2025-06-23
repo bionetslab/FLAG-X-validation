@@ -4068,9 +4068,6 @@ def main_pipeline_workflow():
     train_data_fns = data_fns[0:10]
     test_data_fns = data_fns[75:78]
 
-    train_data_fns = data_fns[0:2]
-    test_data_fns = data_fns[75:76]
-
     with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
         for line in train_data_fns:
             f.write(line + '\n')
@@ -4082,7 +4079,14 @@ def main_pipeline_workflow():
     channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
     label_key = 'population'
 
-    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}}
+    cutoff_dict_imstat = {
+        'FS INT': 100000, 'SS INT': 20000, '16-FITC': 250, '56-PE': 450, '3-ECD': 700,
+        '4-PC7': 1200,
+        '19-APC': 1700,
+        '14-APC700': 900,
+        '8-PB': 450, '45-CO': 500
+    }
+    preprocessing_kwargs = {'flavour': 'log10_w_custom_cutoffs', 'flavour_kwargs': {'cutoffs': cutoff_dict_imstat}}
 
     # ### Train the SOM-classifier gating pipeline
     som_kwargs = {
@@ -4092,7 +4096,7 @@ def main_pipeline_workflow():
         'neighborhood': 'gaussian',
         'gaussian_neighborhood_sigma': 0.25,
         'initialization': 'pca',
-        'n_epochs': 6,  # TODO: 200
+        'n_epochs': 1000,
         'radius_0': -0.25,
         'radius_n': 0.01,
         'radius_cooling': 'linear',
@@ -4126,7 +4130,7 @@ def main_pipeline_workflow():
     gp_som.save(filename='trained_pipeline_som.pkl')
 
     # ### Train the FCNN-softmax-classifier gating pipeline
-    fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 2, 'device': 'cuda', 'verbosity': 2}  # Todo: epochs=20
+    fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cuda', 'verbosity': 2}
 
     # ### Instantiate the pipeline, train, and save
     save_path_fcnn = os.path.join(save_path, 'fcnn')
@@ -4161,9 +4165,6 @@ def main_pipeline_workflow():
     dim_red_methods = ('som', 'pca', 'umap', 'tsne')
     dim_red_method_kwargs = (None, None, {'n_jobs': 12}, {'n_jobs': 12})
 
-    dim_red_methods = ('som', 'pca')
-    dim_red_method_kwargs = (None, None)
-
     # ### Inference with the SOM pipeline
     gp_som = GatingPipeline.load(filename='trained_pipeline_som.pkl', filepath=save_path_som)
 
@@ -4177,7 +4178,7 @@ def main_pipeline_workflow():
         save_path=output_dir,
         save_filenames='annotated_test_data.fcs',
         val_range=(0.0, 2 ** 20),
-        keep_unscaled=True,
+        keep_unscaled=False,
         fcs_metadata_dicts=None,
     )
 
@@ -4268,7 +4269,7 @@ if __name__ == '__main__':
 
     # main_probabilistic_prediction()  # todo
 
-    # main_pipeline_workflow()
+    main_pipeline_workflow()
 
     # main_performance_score_plots()
 
