@@ -376,7 +376,9 @@ class FlowDataManager:
     # ### sample_wise_preprocessing() ##################################################################################
     def sample_wise_preprocessing(
             self,
-            flavour: Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'] = 'arcsinh',
+            flavour: Literal[
+                'logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'log10_w_custom_cutoffs', 'custom'
+            ] = 'arcsinh',
             save_raw_to_layer: Union[str, None] = None,
             **kwargs
     ) -> None:
@@ -391,13 +393,13 @@ class FlowDataManager:
     @staticmethod
     def sample_wise_preprocessing_worker(
             data_list: List[sc.AnnData],
-            flavour: Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'],  # custom must work inplace
+            flavour: Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'log10_w_custom_cutoffs', 'custom'],  # custom must work inplace
             inplace: bool = False,
             save_raw_to_layer: Union[str, None] = None,  # Key for layer where raw data is stored, if None no storage
             **kwargs,
     ) -> Union[List[sc.AnnData], None]:
 
-        if flavour not in {'logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'custom'}:
+        if flavour not in {'logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'log10_w_custom_cutoffs', 'custom'}:
             raise ValueError(
                 "'flavour' must be one of: 'logicle', 'arcsinh', 'biexp', 'log10_w_cutoff' or 'custom'")
 
@@ -412,6 +414,13 @@ class FlowDataManager:
             trafo_fct = pm.tl.normalize_biExp
         elif flavour == 'log10_w_cutoff':
             trafo_fct = FlowDataManager.log10_w_cutoff
+        elif flavour == 'log10_w_custom_cutoffs':
+            if 'cutoffs' not in kwargs:
+                raise ValueError(
+                    "Missing required argument: 'cutoffs' (dict of {channel: cutoff}) must be provided in kwargs "
+                    "for 'log10_w_custom_cutoffs' flavour."
+                )
+            trafo_fct = FlowDataManager.log10_w_channel_wise_cutoff
         else:
             if 'preprocessing_method' not in kwargs:
                 raise ValueError(
@@ -438,6 +447,22 @@ class FlowDataManager:
     def log10_w_cutoff(adata: sc.AnnData, cutoff: float = 100):
         x = adata.X
         x = np.log10(x, out=np.full(x.shape, np.log(cutoff), dtype=float), where=(x > cutoff))
+        adata.X = x
+
+    @staticmethod
+    def log10_w_channel_wise_cutoff(
+            adata: sc.AnnData,
+            cutoffs: Dict[str, int],
+    ):
+        x = adata.X.copy()
+        for channel, cutoff in cutoffs.items():
+            col_idx = np.where(adata.var_names == channel)[0][0]
+            x_col = adata.X[:, col_idx].copy()
+            mask = (x_col > cutoff)
+            x_col[mask] = np.log10(x_col[mask])
+            x_col[~mask] = np.log10(cutoff)
+            x[:, col_idx] = x_col
+
         adata.X = x
 
     # ### perform_data_split() #########################################################################################
