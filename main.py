@@ -2312,6 +2312,11 @@ def main_probabilistic_prediction():
                     np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y_pred)
 
 
+def main_random_sample_order_experiment():
+    # Todo
+    pass
+
+
 def main_performance_score_plots():
 
     import os
@@ -2879,8 +2884,13 @@ def main_n_samples_plot_manuscript():
     df_all['n_samples'] = df_all['n_samples'].astype(int)
 
     # Subset dataframe
-    keep_bool = (df_all['n_samples'] >= 20) | (df_all['n_samples'] % 2 == 0) | (df_all['n_samples'] == 1)
-    df_all = df_all[keep_bool]
+    keep_bool = (
+            (df_all['n_samples'] >= 20) |
+            (df_all['n_samples'] % 2 == 0) |
+            (df_all['n_samples'] == 1) |
+            ((df_all['n_samples'] == 15) & (df_all['dataset'] == 'Flowcyt'))
+    )
+    # df_all = df_all[keep_bool]
 
     print(df_all)
 
@@ -4233,273 +4243,6 @@ def main_pipeline_workflow():
             plt.close('all')
 
 
-def main_pipeline_workflow_som():
-
-    import os
-    import random
-    import readfcs
-    import matplotlib.pyplot as plt
-    import matplotlib
-
-    matplotlib.use('Agg')
-    random.seed(42)
-
-    from seaborn import scatterplot
-    from flagx import GatingPipeline
-
-    # ###### Initial training ###### #
-    # ### Set parameters
-    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow/pipeline_workflow_som')
-    os.makedirs(save_path, exist_ok=True)
-
-    data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
-    data_fns = sorted(os.listdir(data_dir))
-    random.shuffle(data_fns)
-
-    # train_data_fns = data_fns[0:75]
-    train_data_fns = data_fns[0:10]  # Todo
-    test_data_fns = data_fns[75:78]
-
-    with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
-        for line in train_data_fns:
-            f.write(line + '\n')
-
-    with open(os.path.join(save_path, 'test_samples.txt'), 'w') as f:
-        for line in test_data_fns:
-            f.write(line + '\n')
-
-    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
-    label_key = 'population'
-
-    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}}
-
-    gating_method_kwargs = {
-        'som_topology': 'planar',
-        'som_grid_type': 'rectangular',
-        'som_dimensions': (25, 25),
-        'neighborhood': 'gaussian',
-        'gaussian_neighborhood_sigma': 0.25,
-        'initialization': 'pca',
-        'n_epochs': 200,
-        'radius_0': -0.25,
-        'radius_n': 0.01,
-        'radius_cooling': 'linear',
-        'learning_rate_0': 0.5,
-        'learning_rate_n': 0.05,
-        'learning_rate_decay': 'exponential',
-        'verbosity': 2
-    }
-
-    # ### Instantiate the pipeline, train, and save
-    gp = GatingPipeline(
-        train_data_file_path=data_dir,
-        train_data_file_names=train_data_fns,
-        train_data_file_type='fcs',
-        save_path=save_path,
-        channels=channels,
-        label_key=label_key,
-        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
-        relabel_data_kwargs=None,
-        preprocessing_kwargs=preprocessing_kwargs,
-        gating_method='som',
-        gating_method_kwargs=gating_method_kwargs,
-        verbosity=2,
-    )
-
-    gp.train()
-
-    print("Gating som unit labels training", gp.gating_module_.som_unit_labels_)
-
-    gp.save(filename='trained_pipeline.pkl', filepath=None)
-
-    del gp
-
-    # ###### Inference with new data ###### #
-    # ### Set parameters
-    output_dir = os.path.join(save_path, 'output')
-    os.makedirs(output_dir, exist_ok=True)
-
-    dim_red_methods = ('som', 'pca', 'umap', 'tsne')
-    dim_red_method_kwargs = (None, None, {'n_jobs': 12}, {'n_jobs': 12})
-
-    # ### Load the pipeline
-    gp = GatingPipeline.load(filename='trained_pipeline.pkl', filepath=save_path)
-
-    print("Gating som unit labels inference", gp.gating_module_.som_unit_labels_)
-
-    gp.inference(
-        data_file_path=data_dir,
-        data_file_names=test_data_fns,
-        gate=True,
-        dim_red_methods=dim_red_methods,
-        dim_red_method_kwargs=dim_red_method_kwargs,
-        save_sample_wise=False,
-        save_path=output_dir,
-        save_filenames='annotated_test_data.fcs',
-        val_range=(0.0, 2 ** 20),
-        keep_unscaled=True,
-        fcs_metadata_dicts=None,
-    )
-
-    gp.inference(
-        data_file_path=data_dir,
-        data_file_names=train_data_fns,
-        gate=True,
-        dim_red_methods=dim_red_methods,
-        dim_red_method_kwargs=dim_red_method_kwargs,
-        save_sample_wise=False,
-        save_path=output_dir,
-        save_filenames='annotated_train_data.fcs',
-        val_range=(0.0, 2 ** 20),
-        keep_unscaled=False,
-        fcs_metadata_dicts=None,
-    )
-
-    del gp
-
-    # ###### Output validation ###### #
-    # dim_red_methods = ('som', 'pca', 'umap', 'tsne')
-    # output_dir = os.path.join(save_path, 'output')
-
-    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_train_data.fcs'))
-    print("# ### Annotated test data:\n", annotated_test_data)
-    df = annotated_test_data[1]
-    print("# Channels:\n", df.columns)
-
-    for drm in dim_red_methods:
-        fig, ax = plt.subplots(dpi=300)
-        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred', palette='deep', ax=ax)
-        plt.legend(title='Pred', markerscale=4)
-        plt.savefig(os.path.join(output_dir, f'{drm}.png'), dpi=300)
-        plt.close('all')
-
-
-def main_pipeline_workflow_fcnn():
-
-    import os
-    import random
-    import readfcs
-    import matplotlib.pyplot as plt
-    import matplotlib
-
-    matplotlib.use('Agg')
-    random.seed(42)
-
-    from seaborn import scatterplot
-    from flagx import GatingPipeline
-
-    # ###### Initial training ###### #
-    # ### Set parameters
-    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow/pipeline_workflow_fcnn')
-    os.makedirs(save_path, exist_ok=True)
-
-    data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
-    data_fns = sorted(os.listdir(data_dir))
-    random.shuffle(data_fns)
-
-    # train_data_fns = data_fns[0:75]
-    train_data_fns = data_fns[0:10]  # Todo
-    test_data_fns = data_fns[75:78]
-
-    with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
-        for line in train_data_fns:
-            f.write(line + '\n')
-
-    with open(os.path.join(save_path, 'test_samples.txt'), 'w') as f:
-        for line in test_data_fns:
-            f.write(line + '\n')
-
-    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
-    label_key = 'population'
-
-    preprocessing_kwargs = {'flavour': 'arcsinh', 'flavour_kwargs': {'cofactor': 150}}
-
-    gating_method_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cuda', 'verbosity': 2}
-
-    # ### Instantiate the pipeline, train, and save
-    gp = GatingPipeline(
-        train_data_file_path=data_dir,
-        train_data_file_names=train_data_fns,
-        train_data_file_type='fcs',
-        save_path=save_path,
-        channels=channels,
-        label_key=label_key,
-        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
-        relabel_data_kwargs=None,
-        preprocessing_kwargs=preprocessing_kwargs,
-        gating_method='fcnn_softmax',
-        gating_method_kwargs=gating_method_kwargs,
-        verbosity=2,
-    )
-
-    gp.train()
-
-    gp.save(filename='trained_pipeline.pkl', filepath=None)
-
-    del gp
-
-    # ###### Inference with new data ###### #
-    # ### Set parameters
-    output_dir = os.path.join(save_path, 'output')
-    os.makedirs(output_dir, exist_ok=True)
-
-    dim_red_methods = ('pca', 'umap', 'tsne')
-    dim_red_method_kwargs = (None, {'n_jobs': 12}, {'n_jobs': 12})
-
-    # ### Load the pipeline
-    gp = GatingPipeline.load(filename='trained_pipeline.pkl', filepath=save_path)
-
-    gp.inference(
-        data_file_path=data_dir,
-        data_file_names=test_data_fns,
-        gate=True,
-        dim_red_methods=dim_red_methods,
-        dim_red_method_kwargs=dim_red_method_kwargs,
-        save_sample_wise=False,
-        save_path=output_dir,
-        save_filenames='annotated_test_data.fcs',
-        val_range=(0.0, 2 ** 20),
-        keep_unscaled=True,
-        fcs_metadata_dicts=None,
-    )
-
-    gp.inference(
-        data_file_path=data_dir,
-        data_file_names=train_data_fns,
-        gate=True,
-        dim_red_methods=dim_red_methods,
-        dim_red_method_kwargs=dim_red_method_kwargs,
-        save_sample_wise=False,
-        save_path=output_dir,
-        save_filenames='annotated_train_data.fcs',
-        val_range=(0.0, 2 ** 20),
-        keep_unscaled=False,
-        fcs_metadata_dicts=None,
-    )
-
-    del gp
-
-    # ###### Output validation ###### #
-
-    quit()
-
-    output_dir = os.path.join(save_path, 'output')
-
-    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_train_data.fcs'))
-    print("# ### Annotated test data:\n", annotated_test_data)
-    df = annotated_test_data[1]
-
-    print(type(df))
-    print("# Channels:\n", df.columns)
-
-    for drm in dim_red_methods:
-        fig, ax = plt.subplots(dpi=300)
-        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='pred', palette='deep', ax=ax)
-        plt.legend(title='Pred', markerscale=4)
-        plt.savefig(os.path.join(output_dir, f'{drm}.png'), dpi=300)
-        plt.close('all')
-
-
 
 if __name__ == '__main__':
 
@@ -4525,6 +4268,8 @@ if __name__ == '__main__':
 
     # main_probabilistic_prediction()  # todo
 
+    # main_pipeline_workflow()
+
     # main_performance_score_plots()
 
     # main_cell_percentage_plots()
@@ -4533,7 +4278,7 @@ if __name__ == '__main__':
 
     # main_performance_plot_manuscript()
 
-    main_n_samples_plot_manuscript()
+    # main_n_samples_plot_manuscript()
 
     # main_precision_and_recall_plot_manuscript()
 
@@ -4548,11 +4293,8 @@ if __name__ == '__main__':
     # main_dataset_balance_plot_supplement()
 
 
-    # main_pipeline_workflow()
 
-    # main_pipeline_workflow_som()
 
-    # main_pipeline_workflow_fcnn()
 
 
     # Todo: pipeline output for fcnn is not df?
