@@ -579,10 +579,12 @@ def plot_performance_score_box_plot_cw(
     classes = []
     for res_df in sample_wise_res_dfs:
         for c in res_df.columns.tolist():
-            if c != -1:
+            if c != -1 and c != 'NA':
                 classes.append(c)
     classes = list(set(classes))
-    num_classes = len(classes)
+
+    # print(classes)
+    # num_classes = len(classes)
 
     if method_names is None:
         method_names = [f"M_{i + 1}" for i in range(num_methods)]
@@ -593,13 +595,13 @@ def plot_performance_score_box_plot_cw(
     for method_idx, method_df in enumerate(sample_wise_res_dfs):
         method_name = method_names[method_idx]
         for class_label in method_df.columns:
-            if class_label == -1 or class_label == str(-1):
+            if class_label == -1 or class_label == str(-1) or class_label == 'NA':
                 continue
             scores = method_df[class_label].tolist()
             for score in scores:
                 long_data.append({
                     'Method': method_name,
-                    'Cell Type Label': str(int(class_label)),
+                    'Cell Type Label': class_label,  # str(int(class_label)),
                     'Score': score
                 })
 
