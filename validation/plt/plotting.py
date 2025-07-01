@@ -783,14 +783,31 @@ def plot_class_balance(
         'Percentage': percentages.to_numpy(),
     })
 
+    # Change order such that others is always plotted at the end
+    label_order = sorted(set(plot_data['Cell Type Label']))
+    if 'Out' in label_order:
+        label_order.remove('Out')
+        label_order.append('Out')
+    if 'O' in label_order:
+        label_order.remove('O')
+        label_order.append('O')
+
     # Barplot
     sns.barplot(
-        data=plot_data, x='Cell Type Label', y='Count', hue='Cell Type Label', palette=palette, legend=False, ax=ax
+        data=plot_data,
+        x='Cell Type Label',
+        y='Count',
+        hue='Cell Type Label',
+        order=label_order,
+        palette=palette,
+        legend=False,
+        ax=ax
     )
 
     # Add vertical labels
     max_count = plot_data['Count'].max()
-    for idx, row in plot_data.iterrows():
+    for idx, label in enumerate(label_order):
+        row = plot_data[plot_data['Cell Type Label'] == label].iloc[0]
         is_max = row['Count'] == max_count
         y_pos = (row['Count'] * 0.85) if is_max else (row['Count'] + (0.01 * total))
 
