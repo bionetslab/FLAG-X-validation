@@ -402,7 +402,7 @@ def plot_performance_score_box_plot(
     ax.set_xlabel('Dataset')
     if y_label is None:
         y_label = 'Score'
-    ax.set_ylabel(f'{score_mode.capitalize()} {y_label.capitalize()}')
+    ax.set_ylabel(f'{score_mode.capitalize()} {y_label}')
     ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
 
     if title is not None:
