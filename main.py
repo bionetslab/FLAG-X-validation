@@ -2313,6 +2313,163 @@ def main_probabilistic_prediction():
 
 
 def main_random_sample_order_experiment():
+    import os
+    import random
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.utils import eval_wrapper_sample_wise
+
+    # ### Set flags and important variables here #######################################################################
+    data_set = 'lymphoma_tube1'
+    # 'lymphoma_tube1', 'lymphoma_tube1_binary'
+
+    classifier = 'som'  # 'som', 'softmax'
+
+    max_n_samples = 21
+
+    n_trials = 100
+
+    ####################################################################################################################
+
+    random.seed(42)
+    np.random.seed(42)
+
+    base_p = os.path.join(os.getcwd(), 'results/random_sample_order_trials')
+
+    preprocessing_trafo = 'log10_channelwisecutoff' if data_set != 'flowcyt' else 'log10_cutoff100'
+
+    # Set the others label
+    if data_set == 'imstat':
+        others_label = 8
+    elif data_set == 'flowcyt':
+        others_label = 5
+    else:
+        others_label = None
+
+    # Set the positive label
+    if data_set in {'lymphoma_tube1_binary', 'lymphoma_tube2_binary'}:
+        pos_label = 1
+    else:
+        pos_label = None
+
+    # Set the abstention label
+    abstention_label = -1 if classifier == 'som' else None
+
+    # Set the save_path
+    save_p = os.path.join(base_p, classifier, data_set, preprocessing_trafo)
+    os.makedirs(save_p, exist_ok=True)
+
+    # Set the data path
+    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo)
+
+    # Load the sample-wise test data
+    samples_p_test = os.path.join(data_p, 'sample_wise_test')
+    n_samples_test = len([f for f in os.listdir(samples_p_test) if f.startswith('x_')])
+    sample_names_test = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples_test)]
+    samples_x_test = [np.load(os.path.join(samples_p_test, f'x_{sn}.npy')) for sn in sample_names_test]
+    samples_y_test = [np.load(os.path.join(samples_p_test, f'y_{sn}.npy')) for sn in sample_names_test]
+
+    # Get the sample names of the train data
+    samples_p_train = os.path.join(data_p, 'sample_wise_train')
+    n_samples_train = len([f for f in os.listdir(samples_p_train) if f.startswith('x_')])
+    sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
+
+    # Init dfs to track performance, prec, rec, f1, micro, macro, weighted, binary (if available)
+    dummy_df = pd.DataFrame(np.nan, index=list(range(n_trials)), columns=list(range(1, max_n_samples + 1)))
+    n_modes = 3 if pos_label is None else 4
+    res_dfs = [dummy_df.copy() for _ in range(n_modes * 3)]
+    metrics = ['prec', ] * n_modes + ['rec', ] * n_modes + ['f1'] * n_modes
+    modes = ['micro', 'macro', 'weighted'] * 3 if pos_label is None else ['micro', 'macro', 'weighted', 'binary'] * 3
+
+    train_samples_df = dummy_df.copy().astype(str)
+
+    for n in range(n_trials):
+        # Pick random train samples and load
+        selected_train_samples = random.sample(sample_names_train, max_n_samples)
+        samples_x_train = [np.load(os.path.join(samples_p_train, f'x_{sn}.npy')) for sn in selected_train_samples]
+        samples_y_train = [np.load(os.path.join(samples_p_train, f'y_{sn}.npy')) for sn in selected_train_samples]
+
+        train_samples_df.loc[n, :] = selected_train_samples
+        train_samples_df.to_csv(os.path.join(save_p, 'train_samples.csv'))
+
+        for i in range(1, max_n_samples + 1):
+
+            # Select the samples to train with
+            current_x_trains = samples_x_train[0:i]
+            current_y_trains = samples_y_train[0:i]
+
+            # Concatenate and shuffle rows
+            x_train = np.concatenate(current_x_trains, axis=0)
+            y_train = np.concatenate(current_y_trains, axis=0)
+            shuffle_permutation = np.random.permutation(x_train.shape[0])
+            x_train = x_train[shuffle_permutation, :]
+            y_train = y_train[shuffle_permutation]
+
+            # Instantiate classifier
+            if classifier == 'som':
+                clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(25, 25),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.1,
+                    initialization='pca',
+                    n_epochs=1000,
+                    radius_0=-0.25,
+                    radius_n=0.1,
+                    radius_cooling='linear',
+                    learning_rate_0=0.1,
+                    learning_rate_n=0.05,
+                    learning_rate_decay='exponential',
+                    verbosity=2,
+                )
+            else:
+                clf = SoftmaxClassifier(
+                    layer_sizes=(128, 64, 32),
+                    n_epochs=20,
+                    data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 3},
+                    device=None,  # Tries to use default cuda device, if none available cpu
+                    verbosity=2
+                )
+
+            # ### Fit the classifier
+            clf.fit(X=x_train, y=y_train)
+
+            # ### Predict
+            samples_y_pred = []
+            for x, sn in zip(samples_x_test, sample_names_test):
+                samples_y_pred.append(clf.predict(X=x))
+
+            # ### Evaluate
+            # Compute sample-wise evaluation metrics
+            out_sw = eval_wrapper_sample_wise(
+                y_trues=samples_y_test,
+                y_preds=samples_y_pred,
+                abstention_label=abstention_label,
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2,
+            )
+
+            # Save results
+            for res_df, metric, mode in zip(res_dfs, metrics, modes):
+
+                if metric == 'prec':
+                    out_df = out_sw[0]
+                elif metric == 'rec':
+                    out_df = out_sw[1]
+                else:  # f1
+                    out_df = out_sw[2]
+
+                res_df.loc[n, i] = out_df.loc['mean', mode]
+
+                res_df.to_csv(os.path.join(save_p, f'res_df_{metric}_{mode}.csv'))
+
+
+
+def main_nofsss_experiment():
     # Todo
     pass
 
@@ -2828,7 +2985,6 @@ def main_n_samples_plot_manuscript():
     }
 
     conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
-    conversion_mapping_methods_predres = {'FCNN': 'softmax_classifier', 'SOM-Classifier': 'som_classifier'}
 
     all_records = []
 
@@ -2884,13 +3040,20 @@ def main_n_samples_plot_manuscript():
     df_all['n_samples'] = df_all['n_samples'].astype(int)
 
     # Subset dataframe
+    # keep_bool = (
+    #         (df_all['n_samples'] >= 20) |
+    #         (df_all['n_samples'] % 2 == 0) |
+    #         (df_all['n_samples'] == 1) |
+    #         ((df_all['n_samples'] == 15) & (df_all['dataset'] == 'Flowcyt'))
+    # )
+
     keep_bool = (
-            (df_all['n_samples'] >= 20) |
-            (df_all['n_samples'] % 2 == 0) |
+            (df_all['n_samples'] % 5 == 0) |
             (df_all['n_samples'] == 1) |
-            ((df_all['n_samples'] == 15) & (df_all['dataset'] == 'Flowcyt'))
+            (df_all['n_samples'] >= 70) |
+            ((df_all['n_samples'] == 22) & (df_all['dataset'] == 'Flowcyt'))
     )
-    # df_all = df_all[keep_bool]
+    df_all = df_all[keep_bool]
 
     print(df_all)
 
@@ -2910,7 +3073,9 @@ def main_n_samples_plot_manuscript():
         gridspec_kw=None
     )
 
-    for ds, max_n, plot_label in zip(dataset_names, max_n_samples, ['A', 'B', 'C', 'D', 'E', 'F']):
+    plot_labels = list('ABCDEF')
+
+    for ds, max_n, plot_label in zip(dataset_names, max_n_samples, plot_labels):
 
         df_sub = df_all.loc[
             (df_all['dataset'] == ds) & (df_all['n_events'] == 'all') & (df_all['order'] == 'random')
@@ -2997,8 +3162,8 @@ def main_n_samples_plot_manuscript():
 
     # Adjust font sizes
     ax_label_fontsize = 12
-    for key in ['A', 'B']:
-        ax = axd[key]
+    for label in plot_labels:
+        ax = axd[label]
         ax.set_title(ax.get_title(), fontsize=ax_label_fontsize + 2)
         ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
         ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
@@ -3008,173 +3173,6 @@ def main_n_samples_plot_manuscript():
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
     plt.savefig(
         os.path.join(plot_dir, f'n_samples.png'),
-        dpi=fig.dpi
-    )
-    plt.close('all')
-
-
-    quit()
-
-    # ### Plot performance comparison for random vs ordered and num events
-    # One plot per method, per dataset, and per order, hue=ds_frac  => 6 subplots
-    ds_frac_plot = [0.01, 0.25, 0.5, 0.75, 1.0]
-
-    plot_combinations = [
-        ('Imstat', 'FCNN', 'random'), ('Imstat', 'SOM-Classifier', 'random'),
-        ('LT1 b', 'FCNN', 'random'), ('LT1 b', 'SOM-Classifier', 'random'),
-        # ('LT1 b', 'FCNN', 'ordered'), ('LT1 b', 'SOM-Classifier', 'ordered')
-    ]
-
-    abline_all_samples_perf = True
-
-    fig = plt.figure(figsize=(8, 6), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        AB
-        CD
-        """,
-        gridspec_kw=None
-    )
-
-    for c, plot_label in zip(plot_combinations, ['A', 'B', 'C', 'D']):
-        ds = c[0]
-        m = c[1]
-        o = c[2]
-        df_sub = df_all.loc[
-            (df_all['dataset'] == ds) &
-            (df_all['method'] == m) &
-            (df_all['order'] == o) &
-            (df_all['ds_frac'].isin(ds_frac_plot))
-            ].copy()
-
-        ax = axd[plot_label]
-
-        sns.lineplot(
-            data=df_sub,
-            x='n_samples',
-            y='score',
-            hue='ds_frac',
-            errorbar=('ci', 95),
-            n_boot=1000,
-            seed=42,
-            err_style='band',
-            marker='o',
-            markersize=3,
-            palette='magma',
-            ax=ax,
-        )
-
-        if abline_all_samples_perf:
-
-            try:
-                res_path = os.path.join(
-                    './results/pred_eval',
-                    conversion_mapping_methods_predres[m],
-                    conversion_mapping_datasets[ds],
-                    data_trafo,
-                    f'res_df_sw_avg_{performance_score}.csv'
-                )
-
-                score = pd.read_csv(res_path, index_col=0).loc['mean', performance_score_mode]
-
-                ax.axhline(
-                    y=score,
-                    linestyle='--',
-                    linewidth=1,
-                    color='grey',
-                    alpha=0.8,
-                    label='All Samples',
-                )
-
-                x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
-                y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
-                y_pos = score + y_offset  # just above the line
-
-                # Draw text
-                ax.text(
-                    x=x_pos,
-                    y=y_pos,
-                    s=f'{score:.3f}',
-                    color='grey',
-                    va='bottom',
-                    ha='right',
-                    fontsize=8,
-                    alpha=0.95,
-                    clip_on=True
-                )
-
-
-            except FileNotFoundError:
-                print('###')
-                pass
-
-        ax.set_title(f'{ds} | {m}')
-        ax.set_xlabel('Number of Training Samples')
-        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
-        ax.legend(title='Downsampling Fraction')
-
-    # Adjust font sizes
-    ax_label_fontsize = 12
-    for key in ['A', 'B', 'C', 'D']:
-        ax = axd[key]
-        ax.set_title(ax.get_title(), fontsize=ax_label_fontsize + 2)
-        ax.set_xlabel(ax.get_xlabel(), fontsize=ax_label_fontsize)
-        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
-        ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
-        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(
-        os.path.join(plot_dir, f'n_samples_ds_frac_supplement.png'),
-        dpi=fig.dpi
-    )
-    plt.close('all')
-
-    # ### Plot performance comparison for random vs ordered
-    # One plot per method, hue=order, fixed: dataset=LT1 b, ds_frac=1.0  => 2 subplots
-    ds_frac_plot = 1.0
-    dataset_plot = 'LT1 b'
-
-    fig = plt.figure(figsize=(10, 4), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        AB
-        """,
-        gridspec_kw=None
-    )
-
-    for m, plot_label in zip(['FCNN', 'SOM-Classifier'], ['A', 'B']):
-        df_sub = df_all.loc[
-            (df_all['dataset'] == dataset_plot) &
-            (df_all['ds_frac'] == ds_frac_plot) &
-            (df_all['method'] == m)
-            ].copy()
-
-        ax = axd[plot_label]
-
-        sns.lineplot(
-            data=df_sub,
-            x='n_samples',
-            y='score',
-            hue='order',
-            errorbar=('ci', 95),
-            n_boot=1000,
-            seed=42,
-            err_style='band',
-            marker='o',
-            markersize=4,
-            palette='Accent',
-            ax=ax,
-        )
-
-        ax.set_title(m)
-        ax.set_xlabel('Number of Training Samples')
-        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
-        ax.legend(title='Sample Order')
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=14)
-    plt.savefig(
-        os.path.join(plot_dir, f'n_samples_per_dataset_random_vs_ordered.png'),
         dpi=fig.dpi
     )
     plt.close('all')
@@ -3403,6 +3401,48 @@ def main_performance_score_plot_supplement():
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
 
+    # Define mappings from integer to letter labels
+    lm_imstat = {
+        '-1': 'NA',
+        '1': 'B',  # B cell
+        '2': 'Th',  # T helper
+        '3': 'NK',  # NK cell
+        '4': 'M*',  # (CD16+)',  # atypical CD16+ Monocytes
+        '5': 'M',  # Other Monocytes
+        '6': 'G',  # Granulocytes
+        '7': 'OUT',  # Sorted out
+        '8': 'O'  # Unclassified
+    }
+
+    lm_lt1 = {
+        '-1': 'NA',  # Not assigned
+        '1': 'B',  # B cells
+        '9': 'dyB',  # Dying B
+        '7': 'CD45- (ERY)',  # Erythroid (CD45-)
+        '10': 'O'  # Others
+    }
+    lm_lt2 = lm_lt1
+
+    lm_lt1b = {
+        '-1': 'NA',
+        '1': 'B',
+        '0': 'O'
+    }
+    lm_lt2b = lm_lt1b
+
+    lm_flowcyt = {
+        '-1': 'NA',
+        '0': 'T',  # T lymphocyte
+        '1': 'B',  # B lymphocyte
+        '2': 'MON',  # Monocyte
+        '3': 'MAS',  # Mast cell
+        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
+        '5': 'O'  # Others
+    }
+
+    label_mappings = {
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+    }
 
     # Initialize the mosaic
     fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
@@ -3420,13 +3460,14 @@ def main_performance_score_plot_supplement():
     # ### Plot the performance scores
     # Load the results dataframes
     base_path = os.path.join(os.getcwd(), 'results/pred_eval')
-    dataset_dirs = [conversion_mapping_datasets[ds] for ds in dataset_names]
-    method_dirs = [conversion_mapping_methods[method] for method in method_names]
 
     res_dfs = []
-    for ds in dataset_dirs:
+    for dataset_name in dataset_names:
         res_dfs_sub = []
-        for m in method_dirs:
+        for method in method_names:
+
+            ds = conversion_mapping_datasets[dataset_name]
+            m = conversion_mapping_methods[method]
 
             # Always show results for arcsinh for gatemeclass
             if m == 'gatemeclass_no_abstention' and data_trafo == 'log10_channelwisecutoff':
@@ -3441,6 +3482,16 @@ def main_performance_score_plot_supplement():
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
                 res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
+
+                print('# ###', dataset_name)
+                print(res_df.columns)
+
+                # Change the column names to letter labels
+                label_mapping = label_mappings[dataset_name]
+                res_df = res_df.rename(columns=label_mapping)
+
+                print(res_df.columns)
+
             except FileNotFoundError:
                 res_df = pd.DataFrame()
                 print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
@@ -3449,10 +3500,10 @@ def main_performance_score_plot_supplement():
         res_dfs.append(res_dfs_sub)
 
 
-    for rdfl, dsn, label in zip(res_dfs, dataset_names, ['A', 'B', 'C', 'D', 'E', 'F']):
+    for rdf, dsn, label in zip(res_dfs, dataset_names, ['A', 'B', 'C', 'D', 'E', 'F']):
 
         plot_performance_score_box_plot_cw(
-            sample_wise_res_dfs=rdfl,
+            sample_wise_res_dfs=rdf,
             method_names=method_names,
             y_label=conversion_mapping_y_label[performance_score],
             title=dsn,
@@ -3763,7 +3814,7 @@ def main_population_size_plot_supplement():
     lm_lt1b = {
         '-1': 'NA',
         '1': 'B',
-        '0': 'OTH'
+        '0': 'O'
     }
     lm_lt2b = lm_lt1b
 
@@ -4040,6 +4091,249 @@ def main_dataset_balance_plot_supplement():
     plt.savefig('./results/plots/dataset_balances_supplement.png', dpi=fig.dpi)
 
 
+def main_n_samples_ordered_plot_supplement():
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    from matplotlib.lines import Line2D
+
+    from validation.plt import annotate_mosaic
+
+    # Configuration ####################################################################################################
+    performance_score = 'f1'  # f1, prec, rec
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    dataset_names = ['LT1', 'LT1 b']
+    max_n_samples = 20
+
+    method_names = ['FCNN', 'SOM-Classifier']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    ####################################################################################################################
+
+    # Directory mappings
+    conversion_mapping_datasets = {'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary'}
+
+    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
+
+    data_ordered = []
+    for ds in dataset_names:
+        ds_dir = conversion_mapping_datasets[ds]
+
+        for method in method_names:
+            method_dir = conversion_mapping_methods[method]
+
+            file_path_ordered = os.path.join(
+                './results/n_samples_n_events',
+                method_dir,
+                ds_dir,
+                'log10_channelwisecutoff',
+                'ordered',
+                f'res_df_{performance_score}_{performance_score_mode}.csv'
+            )
+
+            df_ordered = pd.read_csv(file_path_ordered, index_col=0)
+
+            for i in range(1, max_n_samples + 1):
+
+                score = df_ordered.loc['all', str(i)]
+
+                data_ordered.append({
+                    'dataset': ds,
+                    'method': method,
+                    'order': 'ordered',
+                    'n_samples': i,
+                    'score': score
+                })
+
+    data_random = []
+    for ds in dataset_names:
+        ds_dir = conversion_mapping_datasets[ds]
+
+        for method in method_names:
+            method_dir = conversion_mapping_methods[method]
+
+            file_path_random = os.path.join(
+                './results/random_sample_order_trials',
+                method_dir,
+                ds_dir,
+                'log10_channelwisecutoff',
+                f'res_df_{performance_score}_{performance_score_mode}.csv'
+            )
+
+            try:
+                df_random = pd.read_csv(file_path_random, index_col=0)
+            except FileNotFoundError:
+                continue
+
+            for n in df_random.index:
+                for i in df_random.columns[: max_n_samples]:
+                    score = df_random.loc[n, i]
+                    data_random.append({
+                        'dataset': ds,
+                        'method': method,
+                        'order': 'random',
+                        'trial_no': n,
+                        'n_samples': i,
+                        'score': score
+                    })
+
+    # Load the results for all samples
+    dict_all_data = dict()
+    for ds in dataset_names:
+        ds_dir = conversion_mapping_datasets[ds]
+        for method in method_names:
+            method_dir = conversion_mapping_methods[method]
+            file_path = os.path.join(
+                './results/pred_eval',
+                method_dir + '_classifier',
+                ds_dir,
+                'log10_channelwisecutoff',
+                f'res_df_sw_avg_{performance_score}.csv'
+            )
+
+            df = pd.read_csv(file_path, index_col=0)
+            score = df.loc['mean', performance_score_mode]
+
+            if ds in dict_all_data:
+                dict_all_data[ds][method] = score
+            else:
+                dict_all_data[ds] = {method: score}
+
+
+    # Create DataFrames
+    df_ordered = pd.DataFrame(data_ordered)
+    df_ordered['n_samples'] = df_ordered['n_samples'].astype(int)
+
+    df_random = pd.DataFrame(data_random)
+    df_random['n_samples'] = df_random['n_samples'].astype(int)
+
+    # ### Plot performance comparison for methods
+    # Define a palette
+    mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
+    palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
+
+    fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        """,
+        gridspec_kw=None
+    )
+
+    for ds, plot_label in zip(dataset_names, ['A', 'B']):
+
+        ax = axd[plot_label]
+
+        df_random_sub = df_random.loc[(df_random['dataset'] == ds)].copy()
+
+        sns.lineplot(
+            data=df_random_sub,
+            x='n_samples',
+            y='score',
+            hue='method',
+            errorbar=('ci', 95),
+            n_boot=1000,
+            seed=42,
+            err_style='band',
+            marker='o',
+            markersize=4,
+            palette=palette,
+            ax=ax,
+        )
+
+
+        df_ordered_sub = df_ordered.loc[(df_ordered['dataset'] == ds)].copy()
+
+        sns.lineplot(
+            data=df_ordered_sub,
+            x='n_samples',
+            y='score',
+            hue='method',
+            marker='^',
+            markersize=4,
+            palette=palette,
+            ax=ax,
+        )
+
+        # Set title and axis labels
+        ax.set_title(ds)
+        ax.set_xlabel('Number of Training Samples')
+        ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
+
+        # Set min and max number of samples as x ticks
+        x_min, x_max = 1, max_n_samples
+        current_ticks = ax.get_xticks()
+        current_ticks = [tick for tick in current_ticks if x_min <= tick <= x_max]
+        new_ticks = [x_min] + current_ticks + [x_max]
+        ax.set_xticks(new_ticks)
+        ax.set_xticklabels([str(int(tick)) for tick in new_ticks])
+
+        # Plot the all samples scores
+        for method in method_names:
+
+            score = dict_all_data[ds][method]
+            color = palette.get(method, 'grey')
+
+            ax.axhline(
+                y=score,
+                linestyle='--',
+                linewidth=1,
+                color=color,
+                alpha=0.8,
+                # label=f'{method_name} (all samples)',
+            )
+
+            # x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
+            # y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+            # y_pos = score + y_offset  # just above the line
+
+            # Draw text
+            # ax.text(
+            #     x=x_pos,
+            #     y=y_pos,
+            #     s=f'{score:.3f}',
+            #     color=color,
+            #     va='bottom',
+            #     ha='right',
+            #     fontsize=8,
+            #     alpha=1.0,
+            #       clip_on=True
+            # )
+
+        # Define all legend components
+        method_handles = [
+            Line2D([0], [0], color=palette[method], lw=2, label=method)
+            for method in method_names
+        ]
+
+        order_handles = [
+            Line2D([0], [0], marker='o', color='grey', linestyle='None', label='Random'),
+            Line2D([0], [0], marker='^', color='grey', linestyle='None', label='Ordered')
+        ]
+
+        all_samples_handle = [
+            Line2D([0], [0], linestyle='--', color='grey', linewidth=1, label='All Samples')
+        ]
+
+        # Combine all handles
+        all_handles = method_handles + order_handles + all_samples_handle
+
+        legend_loc = 'center right' if ds == 'LT1' else 'lower right'
+
+        # Create single unified legend
+        ax.legend(handles=all_handles, title='Method & Order', loc=legend_loc)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    plt.savefig(
+        os.path.join(plot_dir, f'n_samples_random_vs_ordered_supplement.png'),
+        dpi=300
+    )
+    plt.close('all')
 
 
 def main_pipeline_workflow():
@@ -4130,7 +4424,7 @@ def main_pipeline_workflow():
     gp_som.save(filename='trained_pipeline_som.pkl')
 
     # ### Train the FCNN-softmax-classifier gating pipeline
-    fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cuda', 'verbosity': 2}
+    fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cpu', 'verbosity': 2}
 
     # ### Instantiate the pipeline, train, and save
     save_path_fcnn = os.path.join(save_path, 'fcnn')
@@ -4167,6 +4461,8 @@ def main_pipeline_workflow():
 
     # ### Inference with the SOM pipeline
     gp_som = GatingPipeline.load(filename='trained_pipeline_som.pkl', filepath=save_path_som)
+
+    gp_som.verbosity = 2
 
     gp_som.inference(
         data_file_path=data_dir,
@@ -4263,13 +4559,15 @@ if __name__ == '__main__':
 
     # main_softmax()
 
-    # main_n_samples_experiment() # todo: started last cases on weneg and ramses
+    # main_n_samples_experiment() # todo: started last cases on ramses
 
     # main_local_training()
 
     # main_probabilistic_prediction()  # todo
 
-    main_pipeline_workflow()
+    # main_pipeline_workflow()  # todo
+
+    # main_random_sample_order_experiment()  # todo: started on ramses and weneg
 
     # main_performance_score_plots()
 
@@ -4292,6 +4590,8 @@ if __name__ == '__main__':
     # main_dataset_size_plot_supplement()
 
     # main_dataset_balance_plot_supplement()
+
+    main_n_samples_ordered_plot_supplement()
 
 
 
