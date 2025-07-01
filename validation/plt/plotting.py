@@ -620,11 +620,18 @@ def plot_performance_score_box_plot_cw(
         # Disable outliers
         sns_boxplot_kwargs.setdefault('showfliers', False)
 
+    # Change order such that others is always plotted at the end
+    label_order = sorted(set(long_df['Cell Type Label']))
+    if 'O' in label_order:
+        label_order.remove('O')
+        label_order.append('O')
+
     ax = sns.boxplot(
         data=long_df,
         x='Cell Type Label',
         y='Score',
         hue='Method',
+        order=label_order,
         palette=palette,
         zorder=2,
         ax=ax,
@@ -656,6 +663,7 @@ def plot_performance_score_box_plot_cw(
             x='Cell Type Label',
             y='Score',
             hue='Method',
+            order=label_order,
             palette=palette,
             legend=False,
             zorder=1,
