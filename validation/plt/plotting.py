@@ -671,7 +671,7 @@ def plot_performance_score_box_plot_cw(
     ax.set_xlabel('Cell Type')
     if y_label is None:
         y_label = 'Score'
-    ax.set_ylabel(f'{y_label.capitalize()}')
+    ax.set_ylabel(f'{y_label}')
     ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
 
     if title is not None:
