@@ -13,6 +13,7 @@ def export_to_fcs(
         layer_key: Union[str, None] = None,
         val_range: Tuple[float, float] = (0.0, 2**20),
         keep_unscaled: bool = False,
+        label_key: Union[int, str, None] = None,
         sample_wise: bool = False,  # whether to save to individual or one fcs file
         y_preds: Union[List[np.ndarray], None] = None,
         y_preds_name: Union[str, None] = None,
@@ -25,25 +26,55 @@ def export_to_fcs(
         fcs_metadata_dicts: Union[Dict, List[Dict], None] = None,
 ) -> Union[List[pd.DataFrame], Tuple[List[pd.DataFrame], pd.DataFrame]]:
 
-    if y_preds is None and dim_red_coords is None  and other_annotations is None:
-        raise ValueError("Either 'y_preds' or 'dim_red_coords' or 'other_annotations' must not be None.")
+    # if y_preds is None and dim_red_coords is None  and other_annotations is None:
+    #     raise ValueError("Either 'y_preds' or 'dim_red_coords' or 'other_annotations' must not be None.")
 
     fcs_dfs = _init_fcs_dfs(data_list=data_list, layer_key=layer_key)
 
+    # Scale the label column if label key is passed
+    if label_key is not None:
+
+        # Get the ith entry of the index
+        if isinstance(label_key, int):
+            label_col = fcs_dfs[0].columns[label_key]
+        else:
+            label_col = label_key
+
+        # Check if the label column exists in all dataframes
+        if all(label_col in fcs_df.columns for fcs_df in fcs_dfs):
+
+            label_vectors = [fcs_df.loc[:, label_col].to_numpy() for fcs_df in fcs_dfs]
+
+            label_vectors_scaled = _scale_columns(cols=label_vectors, val_range=val_range, sample_wise=sample_wise)
+
+            for fcs_df, label_vec in zip(fcs_dfs, label_vectors_scaled):
+                if keep_unscaled:
+                    fcs_df[label_col + '_unscaled'] = fcs_df.loc[:, label_col].copy()
+                    fcs_df.loc[:, label_col] = label_vec
+                else:
+                    fcs_df.loc[:, label_col] = label_vec
+
     annotations = []
+
+    # Check whether any of the dataframes already contains a sample id column
+    exists_id_col = any('sample_id' in fcs_df.columns for fcs_df in fcs_dfs)
 
     # Add sample ids
     if not sample_wise:
-        sample_ids = []
-        fns = []
-        for i, adata in enumerate(data_list):
-            fn = adata.uns['filename']
-            fns.append(fn)
-            sample_ids.append(np.full(adata.shape[0], i + 1))
 
-        annotations.append((sample_ids, 'sample_id'))
+        # Only annotate with sample id if no previous annotations are found
+        if not exists_id_col:
 
-        sample_fn_id_df = pd.DataFrame({'filenames': fns, 'sample_id': range(1, len(fns) + 1)})
+            sample_ids = []
+            fns = []
+            for i, adata in enumerate(data_list):
+                fn = adata.uns['filename']
+                fns.append(fn)
+                sample_ids.append(np.full(adata.shape[0], i + 1))
+
+            annotations.append((sample_ids, 'sample_id'))
+
+            sample_fn_id_df = pd.DataFrame({'filenames': fns, 'sample_id': range(1, len(fns) + 1)})
 
     if y_preds is not None:
         if y_preds_name is None:
@@ -109,7 +140,7 @@ def export_to_fcs(
         sample_wise=sample_wise,
     )
 
-    if not sample_wise:
+    if not sample_wise and not exists_id_col:
         out = fcs_dfs, sample_fn_id_df
     else:
         out = fcs_dfs
