@@ -267,6 +267,7 @@ class GatingPipeline:
             layer_key=raw_layer_key,
             val_range=val_range,
             keep_unscaled=keep_unscaled,
+            label_key=self.label_key,
             sample_wise=save_sample_wise,
             y_preds=y_preds,
             y_preds_name=f'prediction_{self.gating_method}',
