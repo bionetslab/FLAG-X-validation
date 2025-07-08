@@ -110,8 +110,14 @@ class GatingPipeline:
             self.binary_classes_ = False
 
         if self.prediction_threshold is None:
-            self.prediction_threshold = 0.5 if self.binary_classes_ is False else 0.0
-
+            if self.binary_classes_:
+                self.prediction_threshold = 0.5
+                if self.verbosity >= 2:
+                    print('# ### Setting default prediction threshold to 0.5 for binary classification.')
+            else:
+                self.prediction_threshold = 0.0
+                if self.verbosity >= 2:
+                    print('# ### ')
 
         # Instantiate the gating module of the pipeline
         if self.gating_method_kwargs is None:
@@ -162,8 +168,8 @@ class GatingPipeline:
     ):
 
         # Load and process the data
-        fdm_save_p = os.path.join(self.save_path, 'inference_data_manager_output')
-        os.makedirs(fdm_save_p, exist_ok=True)
+        # fdm_save_p = os.path.join(self.save_path, 'inference_data_manager_output')
+        # os.makedirs(fdm_save_p, exist_ok=True)
 
         # Load and process the data
         fdm, _, _ = self._data_pipeline(
@@ -171,7 +177,7 @@ class GatingPipeline:
             data_file_names=data_file_names,
             data_file_type=self.train_data_file_type,
             label_key=None,  # No labels here
-            data_manager_save_path=fdm_save_p,
+            data_manager_save_path=None,
             fn_prefix_saving=None,
             save_meta_info=False,
         )
@@ -299,6 +305,9 @@ class GatingPipeline:
         if data_file_names is None:
             data_file_names = os.listdir(data_file_path)
 
+        if not save_meta_info:
+            data_manager_save_path = None
+
         # For reproducibility and consistency
         data_file_names = sorted(data_file_names)
 
@@ -328,7 +337,7 @@ class GatingPipeline:
             reference_channel_names = self.channel_names_alignment_kwargs.get('reference_channel_names', None)
             fdm.align_channel_names(
                 reference_channel_names=reference_channel_names,  # None -> use 1st entry of train data list as reference
-                filename_log_df=f'{fn_prefix_saving}og_channel_names.csv',
+                filename_log_df=f'{fn_prefix_saving}og_channel_names.csv'  if save_meta_info else None,  # Save only during training
             )
 
         # Relabel data if relabel_data_kwargs is not None
