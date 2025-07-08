@@ -51,7 +51,7 @@ class FlowDataManager:
         self._data_file_type = data_file_type  # If None guessed from file ending of 1st filename, assume all have same type
 
         self._data_file_path = data_file_path if data_file_path is not None else os.getcwd()  # Path to .fcs/.csv
-        self._save_path = save_path if save_path is not None else os.path.join(os.getcwd(), 'data_handling') # Path to save any results to
+        self._save_path = save_path if save_path is not None else os.getcwd() # Path to save any results to
         os.makedirs(self._save_path, exist_ok=True)
 
         self._verbosity = verbosity
