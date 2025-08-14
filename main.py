@@ -2014,7 +2014,7 @@ def main_local_training():
     ]
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
-    num_samples = [10, 10, 10, 10, 10, 3]
+    num_samples = [10, 10, 10, 10, 10, 5]
 
     preprocessing_trafos = ['log10_channelwisecutoff', 'log10_cutoff100']
 
@@ -2468,10 +2468,256 @@ def main_random_sample_order_experiment():
                 res_df.to_csv(os.path.join(save_p, f'res_df_{metric}_{mode}.csv'))
 
 
-
 def main_nofsss_experiment():
-    # Todo
-    pass
+    import os
+    import time
+    import random
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.utils import get_time_str, eval_wrapper, eval_wrapper_sample_wise
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+    num_samples = [10, 10, 10, 10, 10, 5]
+
+    preprocessing_trafos = ['log10_channelwisecutoff', 'log10_cutoff100']
+
+    gating_method = 'softmax'  # 'som', 'softmax'
+
+    fit = True
+    predict = True
+    evaluate = True
+    ####################################################################################################################
+
+    abstention_label = -1 if gating_method == 'som' else None
+
+    for data_set, others_label, pos_label, n in zip(data_sets, others_labels, pos_labels, num_samples):
+        for trafo in preprocessing_trafos:
+
+            # Set random seed anew in each iteration
+            random.seed(42)
+            np.random.seed(42)
+
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{trafo}')
+
+            if not os.path.exists(data_p):
+                print(f'# ### No data found for dataset "{data_set}" and transformation "{trafo}". Continue.\n')
+                continue
+
+            # Define path where results will be saved to
+            save_p = os.path.join(os.getcwd(), f'results/local_training/{gating_method}/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
+
+            if fit:
+
+                # Load training data
+                data_p_train = os.path.join(data_p, 'sample_wise_train')
+                n_samples_train = len(
+                    [fn for fn in os.listdir(data_p_train) if fn.startswith('x_')])
+                sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
+
+                # Sample n sample names from list
+                sample_names_train = random.sample(sample_names_train, k=n)
+
+                with open(os.path.join(save_p, 'train_samples.txt'), 'w') as f:
+                    for s in sample_names_train:
+                        f.write(s + "\n")
+
+                x_trains = [np.load(os.path.join(data_p_train, f'x_{sn}.npy')) for sn in sample_names_train]
+                y_trains = [np.load(os.path.join(data_p_train, f'y_{sn}.npy')) for sn in sample_names_train]
+
+                x_train = np.concatenate(x_trains)
+                y_train = np.concatenate(y_trains)
+
+                permutation_indices = np.random.permutation(y_train.shape[0])
+                x_train = x_train[permutation_indices, :]
+                y_train = y_train[permutation_indices]
+
+                if gating_method == 'som':
+                    # Instantiate the SOM classifier
+                    if trafo == 'arcsinh_cofactor150':
+
+                        clf = SomClassifier(
+                            som_topology='planar',
+                            som_grid_type='rectangular',
+                            som_dimensions=(25, 25),
+                            neighborhood='gaussian',
+                            gaussian_neighborhood_sigma=0.25,
+                            initialization='pca',
+                            n_epochs=200,
+                            radius_0=-0.25,
+                            radius_n=0.01,
+                            radius_cooling='linear',
+                            learning_rate_0=0.5,
+                            learning_rate_n=0.05,
+                            learning_rate_decay='exponential',
+                            verbosity=2,
+                        )
+                    else:
+                        clf = SomClassifier(
+                            som_topology='planar',
+                            som_grid_type='rectangular',
+                            som_dimensions=(25, 25),
+                            neighborhood='gaussian',
+                            gaussian_neighborhood_sigma=0.1,
+                            initialization='pca',
+                            n_epochs=1000,
+                            radius_0=-0.25,
+                            radius_n=0.1,
+                            radius_cooling='linear',
+                            learning_rate_0=0.1,
+                            learning_rate_n=0.05,
+                            learning_rate_decay='exponential',
+                            verbosity=2,
+                        )
+                else:  # FCNN
+                    clf = SoftmaxClassifier(
+                        layer_sizes=(128, 64, 32),
+                        n_epochs=20,
+                        data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                        device=None,  # Tries to use default cuda device, if none available cpu
+                        verbosity=2
+                    )
+
+                # Fit and track time
+                print('# ### Starting fit ...')
+                st_fit = time.time()
+                clf.fit(X=x_train, y=y_train)
+                et_fit = time.time()
+                fit_time_sek = et_fit - st_fit
+                fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
+                print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
+
+                fit_time_df = pd.DataFrame(
+                    data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
+                )
+                fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+                clf.save(filepath=save_p)
+
+            else:
+                # Load the SOM classifier
+                clf = SomClassifier.load(filepath=save_p)
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+                print('# ### Starting prediction ...')
+                st_pred = time.time()
+                y_pred = clf.predict(X=x_test)
+                et_pred = time.time()
+                pred_time_sek = et_pred - st_pred
+                pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
+                print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
+
+                pred_time_df = pd.DataFrame(
+                    data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
+                )
+                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                # Load the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test = [np.load(os.path.join(samples_p, f'x_{sn}.npy')) for sn in sample_names]
+
+                samples_y_pred = []
+                samples_pred_times = []
+
+                print('# ### Starting sample-wise prediction ...')
+                for x in samples_x_test:
+                    st = time.time()
+                    samples_y_pred.append(clf.predict(X=x))
+                    et = time.time()
+                    samples_pred_times.append(et - st)
+
+                samples_pred_times_df = pd.DataFrame(index=sample_names, columns=['pred_time'])
+                samples_pred_times_df['pred_time'] = samples_pred_times
+                m = samples_pred_times_df['pred_time'].mean(axis=0)
+                std = samples_pred_times_df['pred_time'].std(axis=0)
+                samples_pred_times_df.loc['mean'] = m
+                samples_pred_times_df.loc['std'] = std
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, sn in zip(samples_y_pred, sample_names):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+            else:
+                # Load the predictions
+                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [
+                    f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+                ]
+                samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+                if gating_method == 'som':
+                    out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                # Load the labels of the sample-wise test data
+                samples_p = os.path.join(data_p, 'sample_wise_test')
+                n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_y_test = [np.load(os.path.join(samples_p, f'y_{sn}.npy')) for sn in sample_names]
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                if gating_method == 'som':
+                    out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
 def main_performance_score_plots():
@@ -2741,7 +2987,89 @@ def main_time_table():
         columns=multi_columns
     )
 
-    df.to_csv(os.path.join(plot_dir, f'times_table_{data_trafo}.csv'), index=False)
+    df.to_csv(os.path.join(plot_dir, f'times_table_{data_trafo}.csv'))
+
+    print(df)
+
+
+def main_time_table_local():
+
+    import os
+    import numpy as np
+    import pandas as pd
+
+    # ### Set flags and important variables here #######################################################################
+
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+
+    method_names = ['FCNN', 'SOM-clf']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-clf': 'som'}
+
+    # Load the results dataframes
+    base_path = os.path.join(os.getcwd(), 'results/local_training')
+    inference_time_dfs = []
+    train_times = []
+    table_data = []
+    for ds in dataset_names:
+        inference_time_dfs_sub = []
+        train_times_sub = []
+        table_data_sub = []
+        for m in method_names:
+
+            ds_dir = conversion_mapping_datasets[ds]
+            m_dir = conversion_mapping_methods[m]
+            data_trafo = 'log10_channelwisecutoff'  if ds != 'Flowcyt' else 'log10_cutoff100'
+
+            inference_time_df_path = os.path.join(base_path, m_dir, ds_dir, data_trafo, 'samples_pred_times_df.csv')
+            train_time_df_path = os.path.join(base_path, m_dir, ds_dir, data_trafo, 'fit_time_df.csv')
+
+            try:
+                inference_time_df = pd.read_csv(inference_time_df_path, index_col=0)
+                train_time_df = pd.read_csv(train_time_df_path, index_col=0)
+                train_time = train_time_df.loc['fit_time', 'total s']
+            except FileNotFoundError:
+                inference_time_df = pd.DataFrame()
+                train_time_df = pd.DataFrame()
+                train_time = np.nan
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            inference_time_dfs_sub.append(inference_time_df)
+            train_times_sub.append(train_time)
+            table_data_sub.append(inference_time_df.loc['mean', 'pred_time'] if not inference_time_df.empty else np.nan)
+
+        inference_time_dfs.append(inference_time_dfs_sub)
+        train_times.append(train_times_sub)
+        table_data.append(train_times_sub)
+        table_data.append(table_data_sub)
+
+    column_tuples = [(dataset, phase) for dataset in dataset_names for phase in ['Train', 'Inference']]
+    multi_columns = pd.MultiIndex.from_tuples(column_tuples, names=['Dataset', 'Phase'])
+
+    # Create empty DataFrame with method names as rows and multi-level columns
+    df = pd.DataFrame(
+        data=np.array(table_data).T,
+        index=method_names,
+        columns=multi_columns
+    )
+
+    df.to_csv(os.path.join(plot_dir, f'times_table_local.csv'))
 
     print(df)
 
@@ -2799,7 +3127,7 @@ def main_performance_plot_manuscript():
         '4': 'M*', # (CD16+)',  # atypical CD16+ Monocytes
         '5': 'M',  # Other Monocytes
         '6': 'G',  # Granulocytes
-        '7': 'OUT',  # Sorted out
+        '7': 'Out',  # Sorted out
         '8': 'O'  # Unclassified
     }
 
@@ -2908,7 +3236,7 @@ def main_performance_plot_manuscript():
         method_names=method_names,
         dataset_names=dataset_names_perf,
         score_mode=performance_score_mode,
-        y_label=conversion_mapping_y_label[performance_score],
+        y_label=conversion_mapping_y_label[performance_score] + ' Score',
         sns_boxplot_kwargs=None,
         plot_points=True,
         point_kwargs=None,
@@ -2931,7 +3259,7 @@ def main_performance_plot_manuscript():
         labels = [lm_imstat[label] for label in labels]
 
         # Define label order for the legend
-        label_order = ['NA', 'B', 'Th', 'NK', 'M', 'M*', 'G', 'OUT', 'O']
+        label_order = ['NA', 'B', 'Th', 'NK', 'M', 'M*', 'G', 'Out', 'O']
 
         # Reorder handles and labels (sort based on predefined order)
         ordered = sorted(zip(handles, labels), key=lambda x: label_order.index(x[1]))
@@ -2946,7 +3274,7 @@ def main_performance_plot_manuscript():
     ax_e.tick_params(axis='x', labelsize=ax_label_fontsize)
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig('./results/plots/performance.png', dpi=fig.dpi)
+    plt.savefig('./results/plots/performance_manuscript.png', dpi=fig.dpi)
 
 
 def main_n_samples_plot_manuscript():
@@ -3172,7 +3500,7 @@ def main_n_samples_plot_manuscript():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
     plt.savefig(
-        os.path.join(plot_dir, f'n_samples.png'),
+        os.path.join(plot_dir, f'n_samples_manuscript.png'),
         dpi=fig.dpi
     )
     plt.close('all')
@@ -3186,6 +3514,7 @@ def main_precision_and_recall_plot_manuscript():
     import matplotlib.pyplot as plt
     import seaborn as sns
 
+    from matplotlib.ticker import FormatStrFormatter
     from validation.utils import prec_rec_f1_avg_sample_wise
     from validation.plt import annotate_mosaic
 
@@ -3314,13 +3643,13 @@ def main_precision_and_recall_plot_manuscript():
         ax = axd[plot_label]
 
         marker_styles = {
-            'Precision': 's',
-            'Recall': 'o'
+            'Precision': 'o',
+            'Recall': '^'
         }
 
         line_styles = {
-            'Precision': (5, 1),
-            'Recall': (1, 1)
+            'Precision': (4, 2),
+            'Recall': (1, 0)
         }
 
         sns.lineplot(
@@ -3329,17 +3658,23 @@ def main_precision_and_recall_plot_manuscript():
             y='Score',
             hue='Method',
             style='Metric',
-            dashes=False,
+            dashes=line_styles,
             markers=marker_styles,
-            # marker='o',
-            markersize=4,
-            linewidth=0.75,
+            markersize=5,
+            markeredgecolor='black',
+            markeredgewidth=0.5,
+            linewidth=1.5,
             palette=palette,
             ax=ax,
         )
 
         ax.set_title(ds)
-        ax.grid(True, alpha=0.7)
+        ax.grid(True, alpha=0.6)
+
+        ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+
+        if ds == 'LT2 b':
+            ax.legend(loc='lower center')
 
     # Adjust font sizes
     ax_label_fontsize = 12
@@ -3353,9 +3688,196 @@ def main_precision_and_recall_plot_manuscript():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
     plt.savefig(
-        os.path.join(plot_dir, f'recall_precision.png'),
+        os.path.join(plot_dir, f'recall_precision_manuscript.png'),
         dpi=fig.dpi
     )
+    plt.close('all')
+
+
+def main_population_size_plot_supplement():
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    from itertools import chain
+    from validation.plt import plot_cell_pop_size_pred_vs_gt, annotate_mosaic
+
+    ####################################################################################################################
+    dataset_names = ['LT1', 'LT1 b', 'LT2', 'LT2 b', 'Flowcyt']
+
+    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
+
+    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {
+        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
+        'SOM-Classifier': 'som_classifier'
+    }
+
+    # Define mappings from integer to letter labels
+    lm_lt1 = {
+        '-1': 'NA',  # Not assigned
+        '1': 'B',  # B cells
+        '9': 'dyB',  # Dying B
+        '7': 'CD45- (ERY)',  # Erythroid (CD45-)
+        '10': 'O'  # Others
+    }
+    lm_lt2 = lm_lt1
+
+    lm_lt1b = {
+        '-1': 'NA',
+        '1': 'B',
+        '0': 'O'
+    }
+    lm_lt2b = lm_lt1b
+
+    lm_flowcyt = {
+        '-1': 'NA',
+        '0': 'T',  # T lymphocyte
+        '1': 'B',  # B lymphocyte
+        '2': 'M',  # Monocyte
+        '3': 'Ma',  # Mast cell
+        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
+        '5': 'O'  # Others
+    }
+
+    # Build global colormap
+    label_mappings = {'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt}
+    all_letter_labels = sorted(set(chain.from_iterable(m.values() for m in label_mappings.values())))
+
+    # global_palette = sns.color_palette("hls", len(all_letter_labels))
+    global_palette = sns.color_palette("Set2") + sns.color_palette("Accent")
+    global_color_mapping = dict(zip(all_letter_labels, global_palette))
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(11, 12), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        ABCDE
+        FGHIJ
+        K.LMN
+        O.PQR
+        STUVW
+        """
+    )
+
+    # ### Plot the population percentages
+    # Load the plot data
+    base_path_y_true = os.path.join(os.getcwd(), 'data/np_files')
+    base_path_y_pred = os.path.join(os.getcwd(), 'results/pred_eval')
+
+    plot_labels = list('ABCDEFGHIJKLMNOPQRSTUVW')
+    legend_subplots = list('AFKOS')
+    plot_label_iter = iter([l for l in plot_labels if l not in legend_subplots])
+
+    for dataset_name in dataset_names:
+
+        dataset_dir = conversion_mapping_datasets[dataset_name]
+
+        # Set data trafo to be used
+        is_flowcyt = (dataset_dir == 'flowcyt')
+        base_trafo = 'log10_cutoff100' if is_flowcyt and data_trafo == 'log10_channelwisecutoff' else 'log10_channelwisecutoff'
+
+        # Load the sample-wise data (ground truth and prediction)
+        y_true_path = os.path.join(base_path_y_true, dataset_dir, base_trafo, 'sample_wise_test')
+
+        n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
+        y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+        y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
+
+        # Define color mapping
+        cell_type_labels = np.unique(np.concatenate(y_trues)).tolist()
+        # palette = sns.color_palette("Accent", len(cell_type_labels) + 1)
+        label_mapping = label_mappings[dataset_name]
+        color_mapping = {
+            str(int_label): global_color_mapping[label_mapping[str(int_label)]]
+            for int_label in [-1] + cell_type_labels
+        }
+
+        for method in method_names:
+
+            method_dir = conversion_mapping_methods[method]
+
+            # No results for gatemeclass and LT2, LT2 b -> continue
+            if method_dir == 'gatemeclass_no_abstention' and dataset_name in {'LT2', 'LT2 b'}:
+                continue
+
+            # Always show results for arcsinh for gatemeclass
+            if method_dir == 'gatemeclass_no_abstention' and base_trafo in {'log10_channelwisecutoff', 'log10_cutoff100'}:
+                data_trafo_load = 'arcsinh_cofactor150'
+            else:
+                data_trafo_load = base_trafo
+
+
+            y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir, data_trafo_load, 'samples_y_pred')
+            y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+
+            # Load the predictions, skip missing files
+            y_preds = []
+            y_trues_plot = []
+            for yt, f in zip(y_trues, y_pred_filenames):
+                try:
+                    yp = np.load(os.path.join(y_pred_path, f)).astype(int)
+                    y_preds.append(yp)
+                    y_trues_plot.append(yt)
+                except FileNotFoundError:
+                    print(f'# ### No y_pred found for: {method}, {dataset_name}, {data_trafo_load}, {f}')
+
+            ax = axd[next(plot_label_iter)]
+
+            plot_cell_pop_size_pred_vs_gt(
+                y_trues=y_trues_plot,
+                y_preds=y_preds,
+                percentage=True,
+                palette=color_mapping,
+                title=method,
+                point_size=11.0,
+                # show_r2=True,
+                # show_pearson=True,
+                ax=ax,
+            )
+
+            # ax.set_title(f'{method}, {dataset_name}')
+            ax.set_ylabel('Pred. Population Size (%)')
+            ax.get_legend().remove()
+
+    # Build legends
+    for a, b, c in zip(list('CHLPU'), legend_subplots, dataset_names):
+
+        label_mapping = label_mappings[c]
+
+        handles, labels = axd[a].get_legend_handles_labels()
+        labels = [label_mapping[label] for label in labels]
+
+        axd[b].legend(
+            handles,
+            labels,
+            frameon=False,
+            ncol=2 if len(handles) >= 6 else 1,
+            loc='center'
+        )
+        axd[b].axis('off')
+        axd[b].set_title(f'Dataset: {c}')
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=14)
+    plt.savefig('./results/plots/population_sizes_supplement.png', dpi=fig.dpi)
     plt.close('all')
 
 
@@ -3410,7 +3932,7 @@ def main_performance_score_plot_supplement():
         '4': 'M*',  # (CD16+)',  # atypical CD16+ Monocytes
         '5': 'M',  # Other Monocytes
         '6': 'G',  # Granulocytes
-        '7': 'OUT',  # Sorted out
+        '7': 'Out',  # Sorted out
         '8': 'O'  # Unclassified
     }
 
@@ -3434,8 +3956,8 @@ def main_performance_score_plot_supplement():
         '-1': 'NA',
         '0': 'T',  # T lymphocyte
         '1': 'B',  # B lymphocyte
-        '2': 'MON',  # Monocyte
-        '3': 'MAS',  # Mast cell
+        '2': 'M',  # Monocyte
+        '3': 'Ma',  # Mast cell
         '4': 'HSPC',  # Hematopoietic stem and progenitor cell
         '5': 'O'  # Others
     }
@@ -3483,14 +4005,9 @@ def main_performance_score_plot_supplement():
                 res_df = pd.read_csv(res_df_path, index_col=0)
                 res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
 
-                print('# ###', dataset_name)
-                print(res_df.columns)
-
                 # Change the column names to letter labels
                 label_mapping = label_mappings[dataset_name]
                 res_df = res_df.rename(columns=label_mapping)
-
-                print(res_df.columns)
 
             except FileNotFoundError:
                 res_df = pd.DataFrame()
@@ -3505,7 +4022,7 @@ def main_performance_score_plot_supplement():
         plot_performance_score_box_plot_cw(
             sample_wise_res_dfs=rdf,
             method_names=method_names,
-            y_label=conversion_mapping_y_label[performance_score],
+            y_label=conversion_mapping_y_label[performance_score] + ' Score',
             title=dsn,
             palette=palette,
             sns_boxplot_kwargs=None,
@@ -3528,8 +4045,210 @@ def main_performance_score_plot_supplement():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
-    plt.savefig(f'./results/plots/performance_{performance_score}_supplement.png', dpi=fig.dpi)
+    plt.savefig(f'./results/plots/performance_supplement.png', dpi=fig.dpi)
     plt.close('all')
+
+
+def main_performance_plot_local_supplement():
+
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib.patches import Patch
+
+    from validation.plt import plot_performance_score_box_plot, plot_performance_score_box_plot_cw, annotate_mosaic
+
+    ####################################################################################################################
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+
+    method_names = ['FCNN', 'SOM-Classifier']
+
+    performance_score = 'f1'  # f1, prec, rec
+    performance_score_mode = 'macro'  # macro, micro, weighted, binary
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    conversion_mapping_methods = {
+        'FCNN': 'softmax',
+        'SOM-Classifier': 'som'
+    }
+
+    conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
+
+    # Define mappings from integer to letter labels
+    lm_imstat = {
+        '-1': 'NA',
+        '1': 'B',  # B cell
+        '2': 'Th',  # T helper
+        '3': 'NK',  # NK cell
+        '4': 'M*',  # (CD16+)',  # atypical CD16+ Monocytes
+        '5': 'M',  # Other Monocytes
+        '6': 'G',  # Granulocytes
+        '7': 'Out',  # Sorted out
+        '8': 'O'  # Unclassified
+    }
+
+    lm_lt1 = {
+        '-1': 'NA',  # Not assigned
+        '1': 'B',  # B cells
+        '9': 'dyB',  # Dying B
+        '7': 'CD45- (ERY)',  # Erythroid (CD45-)
+        '10': 'O'  # Others
+    }
+    lm_lt2 = lm_lt1
+
+    lm_lt1b = {
+        '-1': 'NA',
+        '1': 'B',
+        '0': 'O'
+    }
+    lm_lt2b = lm_lt1b
+
+    lm_flowcyt = {
+        '-1': 'NA',
+        '0': 'T',  # T lymphocyte
+        '1': 'B',  # B lymphocyte
+        '2': 'M',  # Monocyte
+        '3': 'Ma',  # Mast cell
+        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
+        '5': 'O'  # Others
+    }
+
+    label_mappings = {
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+    }
+
+    # Define a palette
+    methods = ['dummy0', 'dummy1'] + method_names
+    palette = dict(zip(methods, sns.color_palette("Set2", len(methods))))
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AAAB
+        CCDD
+        EEFF
+        GGHH
+        """,
+        # gridspec_kw={'height_ratios': [1/4, 1/4, 1/2]}
+    )
+
+    # ### Plot the performance scores
+    # Load the results dataframes
+    base_path = os.path.join(os.getcwd(), 'results/local_training')
+
+    res_dfs = []
+    for ds in dataset_names:
+        res_dfs_sub = []
+        for m in method_names:
+
+            ds_dir = conversion_mapping_datasets[ds]
+            method_dir = conversion_mapping_methods[m]
+            data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
+
+            res_df_path = os.path.join(
+                base_path, method_dir, ds_dir, data_trafo, f'res_df_sw_avg_{performance_score}.csv'
+            )
+
+            try:
+                res_df = pd.read_csv(res_df_path, index_col=0)
+                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
+            except FileNotFoundError:
+                res_df = pd.DataFrame()
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            res_dfs_sub.append(res_df)
+        res_dfs.append(res_dfs_sub)
+
+    plot_performance_score_box_plot(
+        sample_wise_res_dfs=res_dfs,
+        method_names=method_names,
+        dataset_names=dataset_names,
+        score_mode=performance_score_mode,
+        y_label=conversion_mapping_y_label[performance_score] + ' Score',
+        title='All Datasets | Macro',
+        palette=palette,
+        sns_boxplot_kwargs=None,
+        plot_points=True,
+        point_kwargs=None,
+        boxplot_alpha=0.9,
+        ax=axd['A'],
+    )
+
+    res_dfs = []
+    for dataset_name in dataset_names:
+        res_dfs_sub = []
+        for method in method_names:
+
+            ds = conversion_mapping_datasets[dataset_name]
+            m = conversion_mapping_methods[method]
+
+            data_trafo = 'log10_channelwisecutoff' if dataset_name != 'Flowcyt' else 'log10_cutoff100'
+
+            res_df_path = os.path.join(base_path, m, ds, data_trafo, f'res_df_sw_cw_{performance_score}.csv')
+
+            try:
+                res_df = pd.read_csv(res_df_path, index_col=0)
+                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
+
+                # Change the column names to letter labels
+                label_mapping = label_mappings[dataset_name]
+                res_df = res_df.rename(columns=label_mapping)
+
+            except FileNotFoundError:
+                res_df = pd.DataFrame()
+                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+
+            res_dfs_sub.append(res_df)
+        res_dfs.append(res_dfs_sub)
+
+    for rdf, dsn, label in zip(res_dfs, dataset_names, ['C', 'D', 'E', 'F', 'G', 'H']):
+
+        plot_performance_score_box_plot_cw(
+            sample_wise_res_dfs=rdf,
+            method_names=method_names,
+            y_label=conversion_mapping_y_label[performance_score] + ' Score',
+            title=dsn + ' | Class-wise',
+            palette=palette,
+            sns_boxplot_kwargs=None,
+            plot_points=True,
+            point_kwargs=None,
+            boxplot_alpha=0.9,
+            ax=axd[label],
+        )
+
+    # Extract legend handles and labels from axd['A']
+    handles, labels = axd['A'].get_legend_handles_labels()
+    filtered = [(h, l) for h, l in zip(handles, labels) if isinstance(h, Patch)]
+    handles, labels = zip(*filtered) if filtered else ([], [])
+
+    # Plot the legend separately in panel 'B'
+    axd['B'].axis('off')
+    axd['B'].legend(handles, labels, loc='center', frameon=False, ncol=1)
+
+    for key, ax in axd.items():
+        if key != 'B':
+            ax.set_xlabel(None)
+            ax.get_legend().remove()
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+
+    plt.savefig('./results/plots/performance_local_supplement.png', dpi=fig.dpi)
 
 
 def main_n_samples_plot_supplement():
@@ -3764,333 +4483,6 @@ def main_n_samples_plot_supplement():
     plt.close('all')
 
 
-def main_population_size_plot_supplement():
-    import os
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    from itertools import chain
-    from validation.plt import plot_cell_pop_size_pred_vs_gt, annotate_mosaic
-
-    ####################################################################################################################
-    dataset_names = ['LT1', 'LT1 b', 'LT2', 'LT2 b', 'Flowcyt']
-
-    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
-
-    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-    ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    # Convert method names to corresponding dir names
-    conversion_mapping_methods = {
-        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
-        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-Classifier': 'som_classifier'
-    }
-
-    # Define mappings from integer to letter labels
-    lm_lt1 = {
-        '-1': 'NA',  # Not assigned
-        '1': 'B',  # B cells
-        '9': 'dyB',  # Dying B
-        '7': 'CD45- (ERY)',  # Erythroid (CD45-)
-        '10': 'O'  # Others
-    }
-    lm_lt2 = lm_lt1
-
-    lm_lt1b = {
-        '-1': 'NA',
-        '1': 'B',
-        '0': 'O'
-    }
-    lm_lt2b = lm_lt1b
-
-    lm_flowcyt = {
-        '-1': 'NA',
-        '0': 'T',  # T lymphocyte
-        '1': 'B',  # B lymphocyte
-        '2': 'MON',  # Monocyte
-        '3': 'MAS',  # Mast cell
-        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
-        '5': 'O'  # Others
-    }
-
-    # Build global colormap
-    label_mappings = {'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt}
-    all_letter_labels = sorted(set(chain.from_iterable(m.values() for m in label_mappings.values())))
-
-    # global_palette = sns.color_palette("hls", len(all_letter_labels))
-    global_palette = sns.color_palette("Set2") + sns.color_palette("Accent")
-    global_color_mapping = dict(zip(all_letter_labels, global_palette))
-
-    # Initialize the mosaic
-    fig = plt.figure(figsize=(11, 12), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        ABCDE
-        FGHIJ
-        K.LMN
-        O.PQR
-        STUVW
-        """
-    )
-
-    # ### Plot the population percentages
-    # Load the plot data
-    base_path_y_true = os.path.join(os.getcwd(), 'data/np_files')
-    base_path_y_pred = os.path.join(os.getcwd(), 'results/pred_eval')
-
-    plot_labels = list('ABCDEFGHIJKLMNOPQRSTUVW')
-    legend_subplots = list('AFKOS')
-    plot_label_iter = iter([l for l in plot_labels if l not in legend_subplots])
-
-    for dataset_name in dataset_names:
-
-        dataset_dir = conversion_mapping_datasets[dataset_name]
-
-        # Set data trafo to be used
-        is_flowcyt = (dataset_dir == 'flowcyt')
-        base_trafo = 'log10_cutoff100' if is_flowcyt and data_trafo == 'log10_channelwisecutoff' else 'log10_channelwisecutoff'
-
-        # Load the sample-wise data (ground truth and prediction)
-        y_true_path = os.path.join(base_path_y_true, dataset_dir, base_trafo, 'sample_wise_test')
-
-        n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
-        y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-        y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
-
-        # Define color mapping
-        cell_type_labels = np.unique(np.concatenate(y_trues)).tolist()
-        # palette = sns.color_palette("Accent", len(cell_type_labels) + 1)
-        label_mapping = label_mappings[dataset_name]
-        color_mapping = {
-            str(int_label): global_color_mapping[label_mapping[str(int_label)]]
-            for int_label in [-1] + cell_type_labels
-        }
-
-        for method in method_names:
-
-            method_dir = conversion_mapping_methods[method]
-
-            # No results for gatemeclass and LT2, LT2 b -> continue
-            if method_dir == 'gatemeclass_no_abstention' and dataset_name in {'LT2', 'LT2 b'}:
-                continue
-
-            # Always show results for arcsinh for gatemeclass
-            if method_dir == 'gatemeclass_no_abstention' and base_trafo in {'log10_channelwisecutoff', 'log10_cutoff100'}:
-                data_trafo_load = 'arcsinh_cofactor150'
-            else:
-                data_trafo_load = base_trafo
-
-
-            y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir, data_trafo_load, 'samples_y_pred')
-            y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-
-            # Load the predictions, skip missing files
-            y_preds = []
-            y_trues_plot = []
-            for yt, f in zip(y_trues, y_pred_filenames):
-                try:
-                    yp = np.load(os.path.join(y_pred_path, f)).astype(int)
-                    y_preds.append(yp)
-                    y_trues_plot.append(yt)
-                except FileNotFoundError:
-                    print(f'# ### No y_pred found for: {method}, {dataset_name}, {data_trafo_load}, {f}')
-
-            ax = axd[next(plot_label_iter)]
-
-            plot_cell_pop_size_pred_vs_gt(
-                y_trues=y_trues_plot,
-                y_preds=y_preds,
-                percentage=True,
-                palette=color_mapping,
-                title=method,
-                point_size=11.0,
-                # show_r2=True,
-                # show_pearson=True,
-                ax=ax,
-            )
-
-            # ax.set_title(f'{method}, {dataset_name}')
-            ax.set_ylabel('Pred. Population Size (%)')
-            ax.get_legend().remove()
-
-    # Build legends
-    for a, b, c in zip(list('CHLPU'), legend_subplots, dataset_names):
-
-        label_mapping = label_mappings[c]
-
-        handles, labels = axd[a].get_legend_handles_labels()
-        labels = [label_mapping[label] for label in labels]
-
-        axd[b].legend(
-            handles,
-            labels,
-            frameon=False,
-            ncol=2 if len(handles) >= 6 else 1,
-            loc='center'
-        )
-        axd[b].axis('off')
-        axd[b].set_title(f'Dataset: {c}')
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=14)
-    plt.savefig('./results/plots/cell_percentage_supplement.png', dpi=fig.dpi)
-    plt.close('all')
-
-
-def main_dataset_size_plot_supplement():
-
-    import os
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    from validation.plt import plot_sample_sizes, annotate_mosaic
-
-
-    ####################################################################################################################
-    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2']
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-    ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    y_trains = []
-    y_tests = []
-    for ds in dataset_names:
-
-        # Load the sample-wise data
-        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds], 'arcsinh_cofactor150')
-
-        y_train_dir = os.path.join(base_path, 'sample_wise_train')
-        num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
-        y_train_filenames = [f'y_sample_{str(i).zfill(2)}_train.npy' for i in range(num_y_trains)]
-        y_trains.append([np.load(os.path.join(y_train_dir, f)).astype(int) for f in y_train_filenames])
-
-        y_test_dir = os.path.join(base_path, 'sample_wise_test')
-        num_y_test = len([f for f in os.listdir(y_test_dir) if f.startswith('y_')])
-        y_test_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(num_y_test)]
-        y_tests.append([np.load(os.path.join(y_test_dir, f)).astype(int) for f in y_test_filenames])
-
-    # Initialize the mosaic
-    fig = plt.figure(figsize=(8, 11), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        AB
-        CD
-        EF
-        GH
-        """
-    )
-
-    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH']):
-
-        plot_sample_sizes(
-            ys=ytr, title=f'{ds} Train', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[0]]
-        )
-        plot_sample_sizes(
-            ys=yte, title=f'{ds} Test', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[1]]
-        )
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-
-    plt.savefig('./results/plots/dataset_sizes_supplement.png', dpi=fig.dpi)
-
-
-def main_dataset_balance_plot_supplement():
-
-    import os
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    from validation.plt import plot_class_balance, annotate_mosaic
-
-    ####################################################################################################################
-    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-    ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    y_trains = []
-    y_tests = []
-    for ds in dataset_names:
-        # Load the sample-wise data
-        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds],
-                                 'arcsinh_cofactor150')
-
-        y_train_dir = os.path.join(base_path, 'sample_wise_train')
-        num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
-        y_train_filenames = [f'y_sample_{str(i).zfill(2)}_train.npy' for i in range(num_y_trains)]
-        y_trains.append([np.load(os.path.join(y_train_dir, f)).astype(int) for f in y_train_filenames])
-
-        y_test_dir = os.path.join(base_path, 'sample_wise_test')
-        num_y_test = len([f for f in os.listdir(y_test_dir) if f.startswith('y_')])
-        y_test_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(num_y_test)]
-        y_tests.append([np.load(os.path.join(y_test_dir, f)).astype(int) for f in y_test_filenames])
-
-    # Initialize the mosaic
-    fig = plt.figure(figsize=(8, 11), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        AABB
-        CCDD
-        EEFF
-        GGHH
-        IJKL
-        """
-    )
-
-    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL']):
-        plot_class_balance(
-            ys=ytr, title=f'{ds} Train', palette=None, ax=axd[labels[0]]
-        )
-        plot_class_balance(
-            ys=yte, title=f'{ds} Test', ax=axd[labels[1]]
-        )
-
-    # ### Manually adjust axis labels
-    # for key in ['F', 'G', 'H', 'J', 'K', 'L']:
-    #     ax = axd[key]
-    #     ax.set_ylabel(None)
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-
-    plt.savefig('./results/plots/dataset_balances_supplement.png', dpi=fig.dpi)
-
-
 def main_n_samples_ordered_plot_supplement():
     import os
     import pandas as pd
@@ -4107,6 +4499,7 @@ def main_n_samples_ordered_plot_supplement():
 
     dataset_names = ['LT1', 'LT1 b']
     max_n_samples = 20
+    max_n_trails = 30
 
     method_names = ['FCNN', 'SOM-Classifier']
 
@@ -4170,7 +4563,7 @@ def main_n_samples_ordered_plot_supplement():
             except FileNotFoundError:
                 continue
 
-            for n in df_random.index:
+            for n in df_random.index[: max_n_trails]:
                 for i in df_random.columns[: max_n_samples]:
                     score = df_random.loc[n, i]
                     data_random.append({
@@ -4336,6 +4729,197 @@ def main_n_samples_ordered_plot_supplement():
     plt.close('all')
 
 
+def main_dataset_size_plot_supplement():
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from validation.plt import plot_sample_sizes, annotate_mosaic
+
+
+    ####################################################################################################################
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    y_trains = []
+    y_tests = []
+    for ds in dataset_names:
+
+        # Load the sample-wise data
+        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds], 'arcsinh_cofactor150')
+
+        y_train_dir = os.path.join(base_path, 'sample_wise_train')
+        num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
+        y_train_filenames = [f'y_sample_{str(i).zfill(2)}_train.npy' for i in range(num_y_trains)]
+        y_trains.append([np.load(os.path.join(y_train_dir, f)).astype(int) for f in y_train_filenames])
+
+        y_test_dir = os.path.join(base_path, 'sample_wise_test')
+        num_y_test = len([f for f in os.listdir(y_test_dir) if f.startswith('y_')])
+        y_test_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(num_y_test)]
+        y_tests.append([np.load(os.path.join(y_test_dir, f)).astype(int) for f in y_test_filenames])
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 11), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        CD
+        EF
+        GH
+        """
+    )
+
+    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH']):
+
+        plot_sample_sizes(
+            ys=ytr, title=f'{ds} Train', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[0]]
+        )
+        plot_sample_sizes(
+            ys=yte, title=f'{ds} Test', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[1]]
+        )
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+
+    plt.savefig('./results/plots/dataset_sizes_supplement.png', dpi=fig.dpi)
+
+
+def main_dataset_balance_plot_supplement():
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from validation.plt import plot_class_balance, annotate_mosaic
+
+    ####################################################################################################################
+    dataset_names = ['Imstat', 'Flowcyt', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/plots')
+    ####################################################################################################################
+
+    # Create dir to save plots into
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    conversion_mapping_datasets = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Define mappings from integer to letter labels
+    lm_imstat = {
+        '-1': 'NA',
+        '1': 'B',  # B cell
+        '2': 'Th',  # T helper
+        '3': 'NK',  # NK cell
+        '4': 'M*',  # (CD16+)',  # atypical CD16+ Monocytes
+        '5': 'M',  # Other Monocytes
+        '6': 'G',  # Granulocytes
+        '7': 'Out',  # Sorted out
+        '8': 'O'  # Unclassified
+    }
+
+    lm_lt1 = {
+        '-1': 'NA',  # Not assigned
+        '1': 'B',  # B cells
+        '9': 'dyB',  # Dying B
+        '7': 'CD45- (ERY)',  # Erythroid (CD45-)
+        '10': 'O'  # Others
+    }
+    lm_lt2 = lm_lt1
+
+    lm_lt1b = {
+        '-1': 'NA',
+        '1': 'B',
+        '0': 'O'
+    }
+    lm_lt2b = lm_lt1b
+
+    lm_flowcyt = {
+        '-1': 'NA',
+        '0': 'T',  # T lymphocyte
+        '1': 'B',  # B lymphocyte
+        '2': 'M',  # Monocyte
+        '3': 'Ma',  # Mast cell
+        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
+        '5': 'O'  # Others
+    }
+
+    # Build global colormap
+    label_mappings = {
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+    }
+
+    y_trains = []
+    y_tests = []
+    for ds in dataset_names:
+        # Load the sample-wise data
+        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds],
+                                 'arcsinh_cofactor150')
+
+        y_train_dir = os.path.join(base_path, 'sample_wise_train')
+        num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
+        y_train_filenames = [f'y_sample_{str(i).zfill(2)}_train.npy' for i in range(num_y_trains)]
+        y_trains.append([np.load(os.path.join(y_train_dir, f)).astype(int) for f in y_train_filenames])
+
+        y_test_dir = os.path.join(base_path, 'sample_wise_test')
+        num_y_test = len([f for f in os.listdir(y_test_dir) if f.startswith('y_')])
+        y_test_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(num_y_test)]
+        y_tests.append([np.load(os.path.join(y_test_dir, f)).astype(int) for f in y_test_filenames])
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 11), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AABB
+        CCDD
+        EEFF
+        GGHH
+        IJKL
+        """
+    )
+
+    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL']):
+
+        # Remap to letter labels
+        label_map = label_mappings[ds]
+
+        ytr_remapped = [np.array([label_map[str(l)] for l in arr]) for arr in ytr]
+        yte_remapped = [np.array([label_map[str(l)] for l in arr]) for arr in yte]
+
+        plot_class_balance(
+            ys=ytr_remapped, title=f'{ds} Train', palette=None, ax=axd[labels[0]]
+        )
+        plot_class_balance(
+            ys=yte_remapped, title=f'{ds} Test', ax=axd[labels[1]]
+        )
+
+    # ### Manually adjust axis labels
+    # for key in ['F', 'G', 'H', 'J', 'K', 'L']:
+    #     ax = axd[key]
+    #     ax.set_ylabel(None)
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+
+    plt.savefig('./results/plots/dataset_balances_supplement.png', dpi=fig.dpi)
+
+
 def main_pipeline_workflow():
     import os
     import random
@@ -4349,18 +4933,78 @@ def main_pipeline_workflow():
     from seaborn import scatterplot
     from flagx import GatingPipeline
 
+    train = True
+
     # ###### Initial training ###### #
     # ### Set parameters
-    save_path = os.path.join(os.getcwd(), 'results/pipeline_workflow/som_fcnn')
+    data_subdir = 'imstat'
+    # data_subdir = 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels'
+    # data_subdir = 'lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels'
+
+    if data_subdir == 'imstat':
+        channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+        label_key = 'population'
+        cutoff_dict = {
+            'FS INT': 100000, 'SS INT': 20000, '16-FITC': 250, '56-PE': 450, '3-ECD': 700,
+            '4-PC7': 1200,
+            '19-APC': 1700,
+            '14-APC700': 900,
+            '8-PB': 450, '45-CO': 500
+        }
+
+    elif data_subdir == 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels':
+        channels = [
+            'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
+            'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
+        ]
+        label_key = 'population'
+        cutoff_dict = {
+            'FS': 100000, 'SS': 20000, 'kappavCD8_FITC': 500, 'lambdavCD7_PE': 400, 'CD23_ECD': 500,
+            'CD79bvCD4_PC5.5': 1200, 'CD5_PC7': 300, 'CD38_APC': 700,
+            'CD19_APC_A700': 150,
+            'CD20vCD3_APC_A750': 500, 'FMC7vCD2_PB': 500, 'CD45_KrOr': 1000
+        }
+
+    else:
+        channels = [
+            'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
+            'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
+        ]
+        label_key = 'population'
+        cutoff_dict = {
+            'FS': 100000, 'SS': 20000, 'CD103_FITC': 300, 'CD43_PE': 1500, 'CD25_ECD': 1000,
+            'CD10_PC5.5': 1000, 'CD200_PC7': 1000, 'CD52_APC': 150, 'CD11c_APC_A700': 200,
+            'CD20_APC_A750': 300, 'IgM_PB': 400, 'CD19_KrOr': 200,
+        }
+
+    save_path = os.path.join('./results/pipeline_workflow', data_subdir)
     os.makedirs(save_path, exist_ok=True)
 
-    data_dir = os.path.join(os.getcwd(), 'data/raw/imstat')
+    data_dir = os.path.join('./data/raw', data_subdir)
     data_fns = sorted(os.listdir(data_dir))
     random.shuffle(data_fns)
 
     # train_data_fns = data_fns[0:75]
-    train_data_fns = data_fns[0:10]
-    test_data_fns = data_fns[75:78]
+    train_data_fns = data_fns[0:20]
+    test_data_fns_unfiltered = data_fns[75:]
+
+    if data_subdir != 'imstat':
+        # Select test files from each comdition
+        conditions = {'NB', 'CLL', 'DLBCL', 'MCL', 'FL'}  # 'HCL', 'LPL', 'MZL', 'MBL', 'BL', 'UC'}
+        conditions_seen = set()
+        test_data_fns = []
+        for fn in test_data_fns_unfiltered:
+            fn_parts = fn.split('_')
+            condition = fn_parts[1]
+
+            if condition in conditions and condition not in conditions_seen:
+                test_data_fns.append(fn)
+                conditions_seen.add(condition)
+
+            if conditions == conditions_seen:
+                break
+    else:
+        test_data_fns = test_data_fns_unfiltered[0:5]
 
     with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
         for line in train_data_fns:
@@ -4370,86 +5014,75 @@ def main_pipeline_workflow():
         for line in test_data_fns:
             f.write(line + '\n')
 
-    channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
-    label_key = 'population'
+    preprocessing_kwargs = {'flavour': 'log10_w_custom_cutoffs', 'flavour_kwargs': {'cutoffs': cutoff_dict}}
 
-    cutoff_dict_imstat = {
-        'FS INT': 100000, 'SS INT': 20000, '16-FITC': 250, '56-PE': 450, '3-ECD': 700,
-        '4-PC7': 1200,
-        '19-APC': 1700,
-        '14-APC700': 900,
-        '8-PB': 450, '45-CO': 500
-    }
-    preprocessing_kwargs = {'flavour': 'log10_w_custom_cutoffs', 'flavour_kwargs': {'cutoffs': cutoff_dict_imstat}}
-
-    # ### Train the SOM-classifier gating pipeline
-    som_kwargs = {
-        'som_topology': 'planar',
-        'som_grid_type': 'rectangular',
-        'som_dimensions': (25, 25),
-        'neighborhood': 'gaussian',
-        'gaussian_neighborhood_sigma': 0.25,
-        'initialization': 'pca',
-        'n_epochs': 1000,
-        'radius_0': -0.25,
-        'radius_n': 0.01,
-        'radius_cooling': 'linear',
-        'learning_rate_0': 0.5,
-        'learning_rate_n': 0.05,
-        'learning_rate_decay': 'exponential',
-        'verbosity': 2
-    }
-
-    # ### Instantiate the pipeline, train, and save
     save_path_som = os.path.join(save_path, 'som')
     os.makedirs(save_path_som, exist_ok=True)
 
-    gp_som = GatingPipeline(
-        train_data_file_path=data_dir,
-        train_data_file_names=train_data_fns,
-        train_data_file_type='fcs',
-        save_path=save_path_som,
-        channels=channels,
-        label_key=label_key,
-        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
-        relabel_data_kwargs=None,
-        preprocessing_kwargs=preprocessing_kwargs,
-        gating_method='som',
-        gating_method_kwargs=som_kwargs,
-        verbosity=1,
-    )
-
-    gp_som.train()
-
-    gp_som.save(filename='trained_pipeline_som.pkl')
-
-    # ### Train the FCNN-softmax-classifier gating pipeline
-    fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cpu', 'verbosity': 2}
-
-    # ### Instantiate the pipeline, train, and save
     save_path_fcnn = os.path.join(save_path, 'fcnn')
     os.makedirs(save_path_fcnn, exist_ok=True)
 
-    gp_fcnn = GatingPipeline(
-        train_data_file_path=data_dir,
-        train_data_file_names=train_data_fns,
-        train_data_file_type='fcs',
-        save_path=save_path_fcnn,
-        channels=channels,
-        label_key=label_key,
-        channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
-        relabel_data_kwargs=None,
-        preprocessing_kwargs=preprocessing_kwargs,
-        gating_method='fcnn',
-        gating_method_kwargs=fcnn_kwargs,
-        verbosity=1,
-    )
+    if train:
+        # ### Train the SOM-classifier gating pipeline
+        som_kwargs = {
+            'som_topology': 'planar',
+            'som_grid_type': 'rectangular',
+            'som_dimensions': (25, 25),
+            'neighborhood': 'gaussian',
+            'gaussian_neighborhood_sigma': 0.25,
+            'initialization': 'pca',
+            'n_epochs': 1000,
+            'radius_0': -0.25,
+            'radius_n': 0.01,
+            'radius_cooling': 'linear',
+            'learning_rate_0': 0.5,
+            'learning_rate_n': 0.05,
+            'learning_rate_decay': 'exponential',
+            'verbosity': 2
+        }
 
-    gp_fcnn.train()
+        gp_som = GatingPipeline(
+            train_data_file_path=data_dir,
+            train_data_file_names=train_data_fns,
+            train_data_file_type='fcs',
+            save_path=save_path_som,
+            channels=channels,
+            label_key=label_key,
+            channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+            relabel_data_kwargs=None,
+            preprocessing_kwargs=preprocessing_kwargs,
+            gating_method='som',
+            gating_method_kwargs=som_kwargs,
+            verbosity=2,
+        )
 
-    gp_fcnn.save(filename='trained_pipeline_fcnn.pkl')
+        gp_som.train()
 
-    del gp_som, gp_fcnn
+        gp_som.save(filename='trained_pipeline_som.pkl')
+
+        # ### Train the FCNN-softmax-classifier gating pipeline
+        fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cpu', 'verbosity': 2}
+
+        gp_fcnn = GatingPipeline(
+            train_data_file_path=data_dir,
+            train_data_file_names=train_data_fns,
+            train_data_file_type='fcs',
+            save_path=save_path_fcnn,
+            channels=channels,
+            label_key=label_key,
+            channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+            relabel_data_kwargs=None,
+            preprocessing_kwargs=preprocessing_kwargs,
+            gating_method='fcnn',
+            gating_method_kwargs=fcnn_kwargs,
+            verbosity=2,
+        )
+
+        gp_fcnn.train()
+
+        gp_fcnn.save(filename='trained_pipeline_fcnn.pkl')
+
+        del gp_som, gp_fcnn
 
     # ###### Inference with new data ###### #
     # ### Set parameters
@@ -4526,9 +5159,9 @@ def main_pipeline_workflow():
     del gp_som, gp_fcnn
 
     # ###### Output validation ###### #
-    annotated_test_data = readfcs.view(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    annotated_test_data = readfcs.read(os.path.join(output_dir, 'annotated_test_data.fcs'))
     print("# ### Annotated test data:\n", annotated_test_data)
-    df = annotated_test_data[1]
+    df = annotated_test_data.to_df()
     print("# Channels:\n", df.columns)
 
     for drm in dim_red_methods:
@@ -4538,6 +5171,102 @@ def main_pipeline_workflow():
             plt.legend(title='Pred', markerscale=4)
             plt.savefig(os.path.join(output_dir, f'gating_{gm}_dimred_{drm}.png'), dpi=300)
             plt.close('all')
+
+
+def main_pipeline_output_downsampling():
+
+    import os
+    import numpy as np
+
+    from flagx.io import FlowDataManager, export_to_fcs
+    from validation.utils.val_utils import get_downsampling_bool
+
+    np.random.seed(42)
+
+    # ### Set parameters
+    data_dir = 'imstat'
+    # data_dir = 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels'
+    # data_dir = 'lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels'
+
+    results_path = os.path.join(os.getcwd(), 'results/pipeline_workflow', data_dir, 'output')
+
+    data_files = ['annotated_train_data.fcs', 'annotated_test_data.fcs']
+
+    label_key = 'population'
+
+    total_events = 200000
+
+    for data_file in data_files:
+
+        # Instantiate a datamanager
+        fdm = FlowDataManager(
+            data_file_names=[data_file, ],
+            data_file_type=None,
+            data_file_path=results_path,
+            save_path=results_path,
+            verbosity=2,
+        )
+
+        # Load data file to anndata
+        fdm.load_data_files_to_anndata()
+
+        adata = fdm.anndata_list_[0]
+
+        # Extract the labels
+        col_index = adata.var_names.get_loc(label_key)
+        labels = adata.X[:, col_index]
+
+        # Extract the sample ids
+        col_index = adata.var_names.get_loc('sample_id')
+        sample_ids = adata.X[:, col_index]
+
+        # Double stratified downsampling
+        ds_bool_sample_based = get_downsampling_bool(
+            y=sample_ids,
+            target_num_events=total_events,
+            stratified=True
+        )
+
+        sample_ids_downsampled = sample_ids[ds_bool_sample_based]
+        sample_ids_unique, counts = np.unique(sample_ids_downsampled, return_counts=True)
+
+        ds_bool = np.zeros_like(sample_ids).astype(bool)
+        for sample_id, count in zip(sample_ids_unique, counts):
+
+            sample_id_bool = (sample_ids == sample_id)
+
+            labels_current_sample = labels[sample_id_bool]
+
+            ds_bool_current_sample = get_downsampling_bool(
+                y=labels_current_sample,
+                target_num_events=count,
+                stratified=True
+            )
+
+            ds_bool[sample_id_bool] = ds_bool_current_sample
+
+        adata_downsampled = adata[ds_bool, :].copy()
+
+        # Remove redundant channels
+        var_names = adata_downsampled.var_names.tolist()
+        keep_bool = np.array([v not in {'som_no_scatter_1', 'som_no_scatter_2', 'som_unit_id'} for v in var_names])
+
+        print('# ###', data_file)
+        print(adata_downsampled.var_names)
+        adata_downsampled = adata_downsampled[:, keep_bool].copy()
+        print(adata_downsampled.var_names)
+
+        print(adata)
+        print(adata_downsampled)
+
+
+        export_to_fcs(
+            data_list=[adata_downsampled, ],
+            save_path=results_path,
+            save_filenames=data_file[:-4] + f'_downsampled_{total_events}_events.fcs',
+        )
+
+
 
 
 
@@ -4567,6 +5296,8 @@ if __name__ == '__main__':
 
     # main_pipeline_workflow()  # todo
 
+    # main_pipeline_output_downsampling()
+
     # main_random_sample_order_experiment()  # todo: started on ramses and weneg
 
     # main_performance_score_plots()
@@ -4575,23 +5306,27 @@ if __name__ == '__main__':
 
     # main_time_table()
 
+    # main_time_table_local()  # todo
+
     # main_performance_plot_manuscript()
 
     # main_n_samples_plot_manuscript()
 
     # main_precision_and_recall_plot_manuscript()
 
+    # main_population_size_plot_supplement()
+
     # main_performance_score_plot_supplement()
+
+    # main_performance_plot_local_supplement()
 
     # main_n_samples_plot_supplement()
 
-    # main_population_size_plot_supplement()
+    # main_n_samples_ordered_plot_supplement()
 
     # main_dataset_size_plot_supplement()
 
     # main_dataset_balance_plot_supplement()
-
-    main_n_samples_ordered_plot_supplement()
 
 
 
