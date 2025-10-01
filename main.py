@@ -4823,11 +4823,9 @@ def main_pipeline_workflow():
 
     # ###### Initial training ###### #
     # ### Set parameters
-    data_subdir = 'imstat'
-    # data_subdir = 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels'
-    # data_subdir = 'lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels'
+    dataset = 'LT2'  # Imstat, LT1, LT2
 
-    if data_subdir == 'imstat':
+    if dataset == 'Imstat':
         channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
         label_key = 'population'
         cutoff_dict = {
@@ -4838,7 +4836,7 @@ def main_pipeline_workflow():
             '8-PB': 450, '45-CO': 500
         }
 
-    elif data_subdir == 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels':
+    elif dataset == 'LT1':
         channels = [
             'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
             'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
@@ -4851,7 +4849,7 @@ def main_pipeline_workflow():
             'CD20vCD3_APC_A750': 500, 'FMC7vCD2_PB': 500, 'CD45_KrOr': 1000
         }
 
-    else:
+    else:  # LT2
         channels = [
             'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
             'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
@@ -4863,34 +4861,152 @@ def main_pipeline_workflow():
             'CD20_APC_A750': 300, 'IgM_PB': 400, 'CD19_KrOr': 200,
         }
 
-    save_path = os.path.join('./results/pipeline_workflow', data_subdir)
+    dataset_to_dir = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels',
+        'LT2': 'lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels',
+    }
+
+    # ## Define train and test files
+    if dataset == 'Imstat':
+        train_data_fns = [
+            '20150312-1 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019511 001.fcs',
+            'ER_000000_H1_150305_ED.fcs',
+            '20150320-1 IOTest Test 16-56-3-4-19-14-8-45 00019651 001.fcs',
+            '20150317-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019558 001.fcs',
+            '20150318-3 VersaLyse VersaLyseFix 16-56-3-4-19-14-8-45 00019593 001.fcs',
+            'ER_000050_H1_150311_ED.fcs',
+            '20150312-2 IOTest Test 16-56-3-4-19-14-8-45 00019495 001.fcs',
+            '20150312-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019496 001.fcs',
+            '20150320-1 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019654 001.fcs',
+            'ER_000018_H1_150306_ED.fcs',
+            '20150320-3 IOTest Test 16-56-3-4-19-14-8-45 00019661 001.fcs',
+            '20150319-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019617 001.fcs',
+            '20150320-2 VersaLyse VersaLyse 16-56-3-4-19-14-8-45 00019658 001.fcs',
+            'ER_000025_H1_150309_ED.fcs',
+            '20150318-3 IOTest Test 16-56-3-4-19-14-8-45 00019588 001.fcs',
+            '20150318-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019572 001.fcs',
+            '20150317-2 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019557 001.fcs',
+            'ER_000006_H1_150305_ED.fcs',
+            '20150312-1 IOTest Test 16-56-3-4-19-14-8-45 00019508 001.fcs',
+            '20150319-3 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019637 001.fcs',
+        ]
+        test_data_fns = [
+            'ER_000057_H1_150311_ED.fcs',
+            '20150318-2 Quick Quick 16-56-3-4-19-14-8-45 00019581 001.fcs',
+            '20150318-1 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019574 001.fcs',
+            '20150320-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019657 001.fcs',
+            '20150318-1 IOTest Test 16-56-3-4-19-14-8-45 00019571 001.fcs',
+            'ER_000001_H1_150305_ED.fcs',
+            '20150320-3 Quick Quick 16-56-3-4-19-14-8-45 00019660 001.fcs',
+            '20150312-2 VersaLyse VersaLyse 16-56-3-4-19-14-8-45 00019500 001.fcs',
+            '20150318-3 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019592 001.fcs',
+            '20150319-3 IOTest Test 16-56-3-4-19-14-8-45 00019619 001.fcs',
+        ]
+
+    elif dataset == 'LT1':
+        train_data_fns = [
+            '4790_NB_T1_d13_N48k.fcs',
+            '1910_CLL_T1_d13_N100k.fcs',
+            '3280_DLBCL_T1_d13_N73k.fcs',
+            '1560_MCL_T1_d13_N100k.fcs',
+            '0290_FL_T1_d13_N100k.fcs',
+            '3630_HCL_T1_d13_N100k.fcs',
+            '0550_LPL_T1_d13_N100k.fcs',
+            '4010_MZL_T1_d13_N100k.fcs',
+            '1350_MBL_T1_d13_N100k.fcs',
+            '3110_BL_T1_d13_N100k.fcs',
+            '3180_UC_T1_d13_N100k.fcs',
+            '6110_NB_T1_d13_N74k.fcs',
+            '0480_CLL_T1_d13_N100k.fcs',
+            '1090_DLBCL_T1_d13_N100k.fcs',
+            '1500_MCL_T1_d13_N100k.fcs',
+            '1030_FL_T1_d13_N100k.fcs',
+            '3090_HCL_T1_d13_N100k.fcs',
+            '0760_LPL_T1_d13_N100k.fcs',
+            '2490_MZL_T1_d13_N83k.fcs',
+            '3420_MBL_T1_d13_N100k.fcs',
+        ]
+        test_data_fns = [
+            '5630_NB_T1_d13_N100k.fcs',
+            '0910_CLL_T1_d13_N100k.fcs',
+            '0220_DLBCL_T1_d13_N100k.fcs',
+            '1990_FL_T1_d13_N100k.fcs',
+            '2740_HCL_T1_d13_N40k.fcs',
+            '2100_LPL_T1_d13_N100k.fcs',
+            '3730_MZL_T1_d13_N100k.fcs',
+            '2990_MBL_T1_d13_N100k.fcs',
+            '3670_UC_T1_d13_N100k.fcs',
+            '4490_NB_T1_d13_N100k.fcs',
+        ]
+    else:
+        train_data_fns = [
+            '4790_NB_T2_d13_N100k.fcs',
+            '1910_CLL_T2_d13_N100k.fcs',
+            '3280_DLBCL_T2_d13_N65k.fcs',
+            '1560_MCL_T2_d13_N100k.fcs',
+            '0290_FL_T2_d13_N100k.fcs',
+            '3630_HCL_T2_d13_N100k.fcs',
+            '0550_LPL_T2_d13_N100k.fcs',
+            '4010_MZL_T2_d13_N100k.fcs',
+            '1350_MBL_T2_d13_N100k.fcs',
+            '3110_BL_T2_d13_N100k.fcs',
+            '3180_UC_T2_d13_N100k.fcs',
+            '6110_NB_T2_d13_N79k.fcs',
+            '0480_CLL_T2_d13_N100k.fcs',
+            '1090_DLBCL_T2_d13_N100k.fcs',
+            '1500_MCL_T2_d13_N100k.fcs',
+            '1030_FL_T2_d13_N100k.fcs',
+            '3090_HCL_T2_d13_N100k.fcs',
+            '1740_LPL_T2_d13_N100k.fcs',
+            '2490_MZL_T2_d13_N100k.fcs',
+            '3420_MBL_T2_d13_N100k.fcs',
+        ]
+        test_data_fns = [
+            '5630_NB_T2_d13_N100k.fcs',
+            '0910_CLL_T2_d13_N100k.fcs',
+            '0220_DLBCL_T2_d13_N100k.fcs',
+            '1990_FL_T2_d13_N100k.fcs',
+            '2740_HCL_T2_d13_N68k.fcs',
+            '2100_LPL_T2_d13_N100k.fcs',
+            '3730_MZL_T2_d13_N100k.fcs',
+            '2990_MBL_T2_d13_N100k.fcs',
+            '3670_UC_T2_d13_N100k.fcs',
+            '4490_NB_T2_d13_N100k.fcs',
+        ]
+
+    # ### Randomized train and test file selection
+    # data_fns = sorted(os.listdir(data_dir))
+    # random.shuffle(data_fns)
+
+    # train_data_fns = data_fns[0:75]
+    # train_data_fns = data_fns[0:20]
+    # test_data_fns_unfiltered = data_fns[75:]
+
+    # if data_subdir != 'imstat':
+        # Select test files from each condition
+    #     conditions = {'NB', 'CLL', 'DLBCL', 'MCL', 'FL'}  # 'HCL', 'LPL', 'MZL', 'MBL', 'BL', 'UC'}
+    #     conditions_seen = set()
+    #     test_data_fns = []
+    #     for fn in test_data_fns_unfiltered:
+    #         fn_parts = fn.split('_')
+    #         condition = fn_parts[1]
+
+    #        if condition in conditions and condition not in conditions_seen:
+    #             test_data_fns.append(fn)
+    #             conditions_seen.add(condition)
+
+    #         if conditions == conditions_seen:
+    #             break
+    # else:
+    #     test_data_fns = test_data_fns_unfiltered[0:5]
+
+    data_subdir = dataset_to_dir[dataset]
+
+    save_path = os.path.join('results/pipeline_workflow', dataset)
     os.makedirs(save_path, exist_ok=True)
 
     data_dir = os.path.join('./data/raw', data_subdir)
-    data_fns = sorted(os.listdir(data_dir))
-    random.shuffle(data_fns)
-
-    # train_data_fns = data_fns[0:75]
-    train_data_fns = data_fns[0:20]
-    test_data_fns_unfiltered = data_fns[75:]
-
-    if data_subdir != 'imstat':
-        # Select test files from each comdition
-        conditions = {'NB', 'CLL', 'DLBCL', 'MCL', 'FL'}  # 'HCL', 'LPL', 'MZL', 'MBL', 'BL', 'UC'}
-        conditions_seen = set()
-        test_data_fns = []
-        for fn in test_data_fns_unfiltered:
-            fn_parts = fn.split('_')
-            condition = fn_parts[1]
-
-            if condition in conditions and condition not in conditions_seen:
-                test_data_fns.append(fn)
-                conditions_seen.add(condition)
-
-            if conditions == conditions_seen:
-                break
-    else:
-        test_data_fns = test_data_fns_unfiltered[0:5]
 
     with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
         for line in train_data_fns:
@@ -4947,7 +5063,7 @@ def main_pipeline_workflow():
         gp_som.save(filename='trained_pipeline_som.pkl')
 
         # ### Train the FCNN-softmax-classifier gating pipeline
-        fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cpu', 'verbosity': 2}
+        fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cuda', 'verbosity': 2}
 
         gp_fcnn = GatingPipeline(
             train_data_file_path=data_dir,
@@ -4973,7 +5089,8 @@ def main_pipeline_workflow():
     # ###### Inference with new data ###### #
     # ### Set parameters
     output_dir = os.path.join(save_path, 'output')
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir_test_samples = os.path.join(output_dir, 'test_samples')
+    os.makedirs(output_dir_test_samples, exist_ok=True)
 
     dim_red_methods = ('som', 'pca', 'umap', 'tsne')
     dim_red_method_kwargs = (None, None, {'n_jobs': 12}, {'n_jobs': 12})
@@ -4983,20 +5100,7 @@ def main_pipeline_workflow():
 
     gp_som.verbosity = 2
 
-    gp_som.inference(
-        data_file_path=data_dir,
-        data_file_names=test_data_fns,
-        gate=True,
-        dim_red_methods=dim_red_methods,
-        dim_red_method_kwargs=dim_red_method_kwargs,
-        save_sample_wise=False,
-        save_path=output_dir,
-        save_filenames='annotated_test_data.fcs',
-        val_range=(0.0, 2 ** 20),
-        keep_unscaled=False,
-        fcs_metadata_dicts=None,
-    )
-
+    # Train data
     gp_som.inference(
         data_file_path=data_dir,
         data_file_names=train_data_fns,
@@ -5011,15 +5115,30 @@ def main_pipeline_workflow():
         fcs_metadata_dicts=None,
     )
 
-    # ### Inference with the FCNN pipeline
-    gp_fcnn = GatingPipeline.load(filename='trained_pipeline_fcnn.pkl', filepath=save_path_fcnn)
+    # Test data individual samples
+    for fn in test_data_fns:
+        print(f'annotated_{fn}')
+        gp_som.inference(
+            data_file_path=data_dir,
+            data_file_names=[fn, ],
+            gate=True,
+            dim_red_methods=dim_red_methods,
+            dim_red_method_kwargs=dim_red_method_kwargs,
+            save_sample_wise=False,
+            save_path=output_dir_test_samples,
+            save_filenames=f'annotated_{fn}',  # Todo: fix input format (expects list if samplewise== True)
+            val_range=(0.0, 2 ** 20),
+            keep_unscaled=False,
+            fcs_metadata_dicts=None,
+        )
 
-    gp_fcnn.inference(
-        data_file_path=output_dir,
-        data_file_names=['annotated_test_data.fcs', ],
+    # Test data samples concatenated
+    gp_som.inference(
+        data_file_path=data_dir,
+        data_file_names=test_data_fns,
         gate=True,
-        dim_red_methods=None,
-        dim_red_method_kwargs=None,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
         save_sample_wise=False,
         save_path=output_dir,
         save_filenames='annotated_test_data.fcs',
@@ -5028,6 +5147,10 @@ def main_pipeline_workflow():
         fcs_metadata_dicts=None,
     )
 
+    # ### Inference with the FCNN pipeline
+    gp_fcnn = GatingPipeline.load(filename='trained_pipeline_fcnn.pkl', filepath=save_path_fcnn)
+
+    # Train data
     gp_fcnn.inference(
         data_file_path=output_dir,
         data_file_names=['annotated_train_data.fcs', ],
@@ -5042,6 +5165,37 @@ def main_pipeline_workflow():
         fcs_metadata_dicts=None,
     )
 
+    # Test data individual samples
+    for fn in test_data_fns:
+        gp_fcnn.inference(
+            data_file_path=output_dir_test_samples,
+            data_file_names=[f'annotated_{fn}', ],
+            gate=True,
+            dim_red_methods=None,
+            dim_red_method_kwargs=None,
+            save_sample_wise=False,
+            save_path=output_dir_test_samples,
+            save_filenames=f'annotated_{fn}',
+            val_range=(0.0, 2 ** 20),
+            keep_unscaled=False,
+            fcs_metadata_dicts=None,
+        )
+
+    # Test data samples concatenated
+    gp_fcnn.inference(
+        data_file_path=output_dir,
+        data_file_names=['annotated_test_data.fcs', ],
+        gate=True,
+        dim_red_methods=None,
+        dim_red_method_kwargs=None,
+        save_sample_wise=False,
+        save_path=output_dir,
+        save_filenames='annotated_test_data.fcs',
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=False,
+        fcs_metadata_dicts=None,
+    )
+
     del gp_som, gp_fcnn
 
     # ###### Output validation ###### #
@@ -5051,6 +5205,11 @@ def main_pipeline_workflow():
     print("# Channels:\n", df.columns)
 
     for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='sample_id', palette='deep', ax=ax)
+        plt.legend(title='Sample ID', markerscale=4)
+        plt.savefig(os.path.join(output_dir, f'sample_id_dimred_{drm}.png'), dpi=300)
+        plt.close('all')
         for gm in ['som', 'fcnn']:
             fig, ax = plt.subplots(dpi=300)
             scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue=f'prediction_{gm}', palette='deep', ax=ax)
@@ -5070,87 +5229,107 @@ def main_pipeline_output_downsampling():
     np.random.seed(42)
 
     # ### Set parameters
-    data_dir = 'imstat'
-    # data_dir = 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels'
-    # data_dir = 'lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels'
-
-    results_path = os.path.join(os.getcwd(), 'results/pipeline_workflow', data_dir, 'output')
-
+    datasets = ['Imstat', 'LT1', 'LT2']
     data_files = ['annotated_train_data.fcs', 'annotated_test_data.fcs']
-
     label_key = 'population'
+    sample_id_key = 'sample_id'
 
-    total_events = 200000
+    target_num_events = 100000
 
-    for data_file in data_files:
+    double_stratified = False
+    # Stratify w.r.t. num events per sample and cell types, if False fixed  num events per sample
 
-        # Instantiate a datamanager
-        fdm = FlowDataManager(
-            data_file_names=[data_file, ],
-            data_file_type=None,
-            data_file_path=results_path,
-            save_path=results_path,
-            verbosity=2,
-        )
+    for dataset in datasets:
 
-        # Load data file to anndata
-        fdm.load_data_files_to_anndata()
+        results_path = os.path.join(os.getcwd(), 'results/pipeline_workflow', dataset, 'output')
 
-        adata = fdm.anndata_list_[0]
+        for data_file in data_files:
 
-        # Extract the labels
-        col_index = adata.var_names.get_loc(label_key)
-        labels = adata.X[:, col_index]
-
-        # Extract the sample ids
-        col_index = adata.var_names.get_loc('sample_id')
-        sample_ids = adata.X[:, col_index]
-
-        # Double stratified downsampling
-        ds_bool_sample_based = get_downsampling_bool(
-            y=sample_ids,
-            target_num_events=total_events,
-            stratified=True
-        )
-
-        sample_ids_downsampled = sample_ids[ds_bool_sample_based]
-        sample_ids_unique, counts = np.unique(sample_ids_downsampled, return_counts=True)
-
-        ds_bool = np.zeros_like(sample_ids).astype(bool)
-        for sample_id, count in zip(sample_ids_unique, counts):
-
-            sample_id_bool = (sample_ids == sample_id)
-
-            labels_current_sample = labels[sample_id_bool]
-
-            ds_bool_current_sample = get_downsampling_bool(
-                y=labels_current_sample,
-                target_num_events=count,
-                stratified=True
+            # Instantiate a datamanager
+            fdm = FlowDataManager(
+                data_file_names=[data_file, ],
+                data_file_type=None,
+                data_file_path=results_path,
+                save_path=results_path,
+                verbosity=2,
             )
 
-            ds_bool[sample_id_bool] = ds_bool_current_sample
+            # Load data file to anndata
+            fdm.load_data_files_to_anndata()
 
-        adata_downsampled = adata[ds_bool, :].copy()
+            adata = fdm.anndata_list_[0]
 
-        # Remove redundant channels
-        var_names = adata_downsampled.var_names.tolist()
-        keep_bool = np.array([v not in {'som_no_scatter_1', 'som_no_scatter_2', 'som_unit_id'} for v in var_names])
+            # Extract the labels
+            col_index = adata.var_names.get_loc(label_key)
+            labels = adata.X[:, col_index]
 
-        print('# ###', data_file)
-        print(adata_downsampled.var_names)
-        adata_downsampled = adata_downsampled[:, keep_bool].copy()
-        print(adata_downsampled.var_names)
+            # Extract the sample ids
+            col_index = adata.var_names.get_loc(sample_id_key)
+            sample_ids = adata.X[:, col_index]
 
-        print(adata)
-        print(adata_downsampled)
+            if double_stratified:  # ### Double stratified downsampling
 
+                # Get the downsampling bool where stratification w.r.t. num events per sample is used
+                ds_bool_sample_based = get_downsampling_bool(
+                    y=sample_ids,
+                    target_num_events=target_num_events,
+                    stratified=True
+                )
 
-        export_to_fcs(
-            data_list=[adata_downsampled, ],
-            save_path=results_path,
-            save_filenames=data_file[:-4] + f'_downsampled_{total_events}_events.fcs',
-        )
+                # Get the event count per sample
+                # (used as target num events for population size-based, sample-wise stratified downsampling)
+                sample_ids_downsampled = sample_ids[ds_bool_sample_based]
+                sample_ids_unique, counts = np.unique(sample_ids_downsampled, return_counts=True)
+
+                # Downsample per sample, stratify w.r.t. population sizes
+                ds_bool = np.zeros_like(sample_ids).astype(bool)
+                for sample_id, count in zip(sample_ids_unique, counts):
+
+                    sample_id_bool = (sample_ids == sample_id)
+
+                    labels_current_sample = labels[sample_id_bool]
+
+                    ds_bool_current_sample = get_downsampling_bool(
+                        y=labels_current_sample,
+                        target_num_events=count,
+                        stratified=True
+                    )
+
+                    ds_bool[sample_id_bool] = ds_bool_current_sample
+            else:  # ### Same num events per sample, stratify w.r.t. population sizes
+
+                # Define num events per sample such that target_num_events is reached
+                unique_sample_ids = np.unique(sample_ids)
+                num_samples = unique_sample_ids.shape[0]
+                base = target_num_events // num_samples
+                remainder = target_num_events % num_samples
+                events_per_sample = np.full(num_samples, base, dtype=int)
+                events_per_sample[:remainder] += 1
+
+                # Downsample per sample, stratify w.r.t. population sizes
+                ds_bool = np.zeros_like(sample_ids).astype(bool)
+                for sample_id, num_events in zip(unique_sample_ids, events_per_sample):
+                    sample_bool = (sample_ids == sample_id)
+                    labels_current_sample = labels[sample_bool]
+
+                    ds_bool_current_sample = get_downsampling_bool(
+                        y=labels_current_sample,
+                        target_num_events=num_events,
+                        stratified=True
+                    )
+                    ds_bool[sample_bool] = ds_bool_current_sample
+
+            # Apply downsampling
+            adata_downsampled = adata[ds_bool, :].copy()
+
+            print(f'# ### Num events before: {adata.n_obs}, after: {adata_downsampled.n_obs}')
+            print(adata_downsampled)
+
+            export_to_fcs(
+                data_list=[adata_downsampled, ],
+                save_path=results_path,
+                save_filenames=data_file[:-4] + f'_downsampled_{target_num_events}_events.fcs',
+            )
 
 
 def main_plot_minority_count():
@@ -5712,6 +5891,336 @@ def main_plot_minority_count():
     plt.close('all')
 
 
+def main_minority_count_figure():
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
+    import seaborn as sns
+
+    from validation.utils.val_utils import get_downsampling_bool, _get_expanding_iterator_list
+    from validation.plt import annotate_mosaic
+
+    # ### Set flags and important variables here #######################################################################
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
+    method_names = ['FCNN', 'SOM-Classifier']
+
+    plot_dir = os.path.join(os.getcwd(), 'results/minority_count')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Convert dataset names to corresponding dir names
+    dataset_to_datasetdir = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    dataset_to_n_samples = {
+        'Flowcyt': list(range(1, 6)) + list(range(10, 22, 5)) + [22, ],
+        'Imstat': list(range(1, 21)) + list(range(25, 76, 5)),
+        'LT1': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
+        'LT2': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
+        'LT1 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
+        'LT2 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
+    }
+    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']  # [100, 1000, 5000, 10000, 20000, 50000, 'all']
+
+
+    generate_res_df = True
+
+    ####################################################################################################################
+
+    # Generate or load the results dataframe
+    if generate_res_df:
+
+        # ### Generate the minority count dataframe
+        res_dfs_minority_count = []
+        for dataset in datasets:
+
+            # Set random seed
+            np.random.seed(42)
+
+            # Set data path
+            trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            data_p = os.path.join(
+                os.getcwd(), 'data/np_files', dataset_to_datasetdir[dataset], trafo, 'sample_wise_train'
+            )
+
+            # Get number of samples for which to compute population size information
+            n_samples = dataset_to_n_samples[dataset]
+
+            # Generate iter list (same as for n samples experiment)
+            iter_list = _get_expanding_iterator_list(n=len(n_events), m=len(n_samples))
+
+            n_samples_list = []
+            n_events_list = []
+            median_minority_count_list = []
+            total_minority_count_list = []
+            mean_minority_count_list = []
+            min_minority_count_list = []
+
+            for i, j in iter_list:
+
+                # Load the label vectors of the train samples
+                sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples[j])]
+                y_trains = [np.load(os.path.join(data_p, f'y_{sn}.npy')) for sn in sample_names_train]
+
+                # Downsample
+                if n_events[i] != 'all':
+                    keep_bools = []
+                    for y in y_trains:
+                        ds_keep_bool = get_downsampling_bool(
+                            y=y, target_num_events=n_events[i], stratified=True
+                        )
+                        keep_bools.append(ds_keep_bool)
+
+                    y_trains = [y[kb] for y, kb in zip(y_trains, keep_bools)]
+
+                # Concatenate and shuffle row-wise (just for consistency with n samples experiment)
+                y_train = np.concatenate(y_trains, axis=0)
+                shuffle_permutation = np.random.permutation(y_train.shape[0])
+                y_train = y_train[shuffle_permutation]
+
+                # Get the median minority class size across samples
+                minority_counts = []
+                for labels in y_trains:
+                    unique, counts = np.unique(labels, return_counts=True)
+                    minority_counts.append(counts.min())
+
+                median_minority_count = np.median(minority_counts)
+                total_minority_count = sum(minority_counts)
+                mean_minority_count = sum(minority_counts) / len(minority_counts)
+                min_minority_count = min(minority_counts)
+
+                median_minority_count_list.append(median_minority_count)
+                total_minority_count_list.append(total_minority_count)
+                mean_minority_count_list.append(mean_minority_count)
+                min_minority_count_list.append(min_minority_count)
+                n_samples_list.append(n_samples[j])
+                n_events_list.append(n_events[i])
+
+            res_dfs_minority_count_dataset = pd.DataFrame(
+                {
+                    'n_samples': n_samples_list,
+                    'n_events': n_events_list,
+                    'median_minority_count': median_minority_count_list,
+                    'total_minority_count': total_minority_count_list,
+                    'mean_minority_count': mean_minority_count_list,
+                    'min_minority_count': min_minority_count_list,
+                    'dataset': [dataset, ] * len(median_minority_count_list)
+                }
+            )
+
+            res_dfs_minority_count.append(res_dfs_minority_count_dataset)
+
+            res_df_minority_count_dataset_wide = res_dfs_minority_count_dataset.pivot(
+                index='n_events',
+                columns='n_samples',
+                values='median_minority_count'
+            )
+
+            print(f'# ### Minority class count {dataset}:\n{res_df_minority_count_dataset_wide}')
+
+            res_df_minority_count_dataset_wide.to_csv(
+                os.path.join(plot_dir, f'minority_count_{dataset.replace(' ', '')}.csv')
+            )
+
+        res_df_minority_count = pd.concat(res_dfs_minority_count, axis=0, ignore_index=True)
+        res_df_minority_count.to_csv(os.path.join(plot_dir, f'minority_count.csv'))
+
+        # ### Generate the performance dataframe
+        dataset_to_max_n = {'Imstat': 75, 'LT1': 73, 'LT2': 73, 'LT1 b': 73, 'LT2 b': 73, 'Flowcyt': 22}
+        method_to_dir = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
+        all_records = []
+        for dataset in datasets:
+
+            max_n = dataset_to_max_n[dataset]
+            ds_dir = dataset_to_datasetdir[dataset]
+            data_trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
+
+            for method in method_names:
+                for n in n_events:
+                    for i in range(1, max_n + 1):
+
+                        method_dir = method_to_dir[method]
+
+                        if i == max_n and n == 'all':  # Load previously computed scores for (all samples, all events)
+                            file_path = os.path.join(
+                                './results/pred_eval',
+                                method_dir + '_classifier',
+                                ds_dir,
+                                data_trafo,
+                                'res_df_sw_avg_f1.csv'
+                            )
+                        else:
+                            file_path = os.path.join(
+                                './results/n_samples_n_events',
+                                method_dir,
+                                ds_dir,
+                                data_trafo,
+                                'random',
+                                'detailed_res',
+                                f'nevents_{n}_nsamples_{i}',
+                                'res_df_sw_avg_f1.csv'
+                            )
+
+                        try:
+                            df = pd.read_csv(file_path, index_col=0)
+                            df = df.drop(index=['mean', 'std'], errors='ignore')
+                            for val in df['macro']:
+                                all_records.append({
+                                    'dataset': dataset,
+                                    'method': method,
+                                    'n_events': n,
+                                    'n_samples': i,
+                                    'score': val
+                                })
+
+                        except FileNotFoundError as e:
+                            # print(f"# Missing: {file_path}")
+                            continue
+
+        # Concatenate and aggregate
+        res_df_performance = pd.DataFrame(all_records)
+        res_df_performance['n_samples'] = res_df_performance['n_samples'].astype(int)
+        res_df_performance = (
+            res_df_performance
+            .groupby(['dataset', 'method', 'n_events', 'n_samples'], as_index=False)
+            .agg({'score': 'mean'})
+        )
+
+        res_df_performance.to_csv(os.path.join(plot_dir, f'performance.csv'))
+
+        # Merge dataframes
+        res_df = pd.merge(res_df_performance, res_df_minority_count, on=['n_samples', 'n_events', 'dataset'])
+
+        res_df.to_csv(os.path.join(plot_dir, 'res_df.csv'))
+
+    else:
+        res_df = pd.read_csv(os.path.join(plot_dir, 'res_df.csv'), index_col=0)
+        n_events_col = [int(n) if n != 'all' else n for n in res_df['n_events']]
+        res_df['n_events'] = n_events_col
+
+
+    # Subset dataframe to values to be plotted
+    keep_bool_n_events = res_df['n_events'].isin(n_events)
+    keep_bool_n_samples = (
+            (res_df['n_samples'] % 5 == 0) |
+            (res_df['n_samples'] == 1) |
+            (res_df['n_samples'] >= 70) |
+            ((res_df['n_samples'] == 22) & (res_df['dataset'] == 'Flowcyt'))
+    )
+    keep_bool = np.logical_and(keep_bool_n_events, keep_bool_n_samples)
+    res_df = res_df[keep_bool].copy()
+
+    print(res_df)
+
+    palette = sns.color_palette('crest', as_cmap=True)
+
+    mc_modes = ['total', 'mean', 'median', 'min']
+    mc_mode_to_ax_label = {
+        'total': 'Total minority count',
+        'mean': 'Mean minority count',
+        'median': 'Median minority count',
+        'min': 'Min. minority count',
+    }
+
+    for mc_mode in mc_modes:
+
+        fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
+        axd = fig.subplot_mosaic(
+            '''
+            XY.
+            ABC
+            DEF
+            GHI
+            JKL
+            ''',
+            gridspec_kw={'height_ratios': [0.5, 1, 1, 1, 1]}
+        )
+
+        dataset_method_tuples = [(ds, mth) for mth in method_names for ds in datasets]
+        for subplot_key, (dataset, method) in zip(list('ABCDEFGHIJKL'), dataset_method_tuples):
+
+            # Subset the dataframe
+            keep_bool_dataset = (res_df['dataset'] == dataset)
+            keep_bool_method = (res_df['method'] == method)
+            keep_bool = keep_bool_dataset & keep_bool_method
+            res_df_plot = res_df[keep_bool].copy()
+
+            ax = axd[subplot_key]
+
+            sns.scatterplot(
+                res_df_plot,
+                x=f'{mc_mode}_minority_count',
+                y='score',
+                hue='n_samples',
+                style='n_events',
+                legend=True,
+                palette=palette,
+                ax=ax,
+            )
+
+            ax.set_xscale('log')
+
+            ax.set_title(f'{dataset} | {method}')
+
+        # Add colorbar
+        ax = axd['X']
+        norm = mpl.colors.Normalize(vmin=0, vmax=1)
+        cbar = mpl.colorbar.ColorbarBase(
+            ax,
+            cmap=palette,
+            norm=norm,
+            orientation='horizontal',
+        )
+        cbar.set_ticks([])
+        cbar.set_ticks([0, 1])
+        cbar.set_ticklabels(['1 sample', 'all samples'])
+        cbar.set_label('Number of samples', fontsize=10, labelpad=5)
+        cbar.ax.xaxis.set_label_position('top')
+        cbar.ax.xaxis.label.set_horizontalalignment('center')
+
+        # Add a legend
+        ax = axd['Y']
+        handles, labels = axd['A'].get_legend_handles_labels()
+
+        style_handles = []
+        style_labels = []
+        for h, l in zip(handles, labels):
+            if l in [str(i) for i in n_events]:
+                style_handles.append(h)
+                style_labels.append(l)
+
+        ax.axis('off')
+        ax.legend(
+            style_handles,
+            style_labels,
+            title='Number of events',
+            ncol=2,
+            frameon=True,
+        )
+
+        for key, ax in axd.items():
+            if not key in {'X', 'Y'}:
+                ax.legend_.remove()
+
+                ax.set_ylabel('Macro F1')
+                ax.set_xlabel(mc_mode_to_ax_label[mc_mode])
+
+        annotate_mosaic(fig, axd, fontsize=None, excluded=['X', 'Y'])
+
+        fig.savefig(os.path.join(plot_dir, f'fig_{mc_mode}.png'), dpi=fig.dpi)
+
+
+
+
+
+
+
+
 
 
 
@@ -5740,7 +6249,7 @@ if __name__ == '__main__':
 
     # main_probabilistic_prediction()  # todo
 
-    main_pipeline_workflow()  # todo
+    # main_pipeline_workflow()
 
     # main_pipeline_output_downsampling()
 
@@ -5771,6 +6280,9 @@ if __name__ == '__main__':
     # main_dataset_balance_plot_supplement()
 
     # main_plot_minority_count()
+
+    main_minority_count_figure()
+
 
 
     # Todo: pipeline output for fcnn is not df?
