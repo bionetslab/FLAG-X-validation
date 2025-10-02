@@ -5898,6 +5898,9 @@ def main_minority_count_figure():
     import matplotlib.pyplot as plt
     import matplotlib as mpl
     import seaborn as sns
+    import matplotlib.patheffects as pe
+
+    from matplotlib.ticker import LogLocator
 
     from validation.utils.val_utils import get_downsampling_bool, _get_expanding_iterator_list
     from validation.plt import annotate_mosaic
@@ -5925,10 +5928,11 @@ def main_minority_count_figure():
         'LT1 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
         'LT2 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
     }
-    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']  # [100, 1000, 5000, 10000, 20000, 50000, 'all']
+    n_events = [5000, 10000, 20000, 50000, 'all']  # [100, 1000, 5000, 10000, 20000, 50000, 'all']
 
+    plot_num_events = False
 
-    generate_res_df = True
+    generate_res_df = False
 
     ####################################################################################################################
 
@@ -6104,6 +6108,36 @@ def main_minority_count_figure():
         res_df['n_events'] = n_events_col
 
 
+    # Load performance scores for all samples
+    all_records = []
+    for ds in datasets:
+
+        ds_dir = dataset_to_datasetdir[ds]
+        data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
+
+        for method in method_names:
+
+            method_dir = 'som' if method == 'SOM-Classifier' else 'softmax'
+
+            file_path = os.path.join(
+                './results/pred_eval',
+                method_dir + '_classifier',
+                ds_dir,
+                data_trafo,
+                f'res_df_sw_avg_f1.csv'
+            )
+
+            df = pd.read_csv(file_path, index_col=0)
+
+            all_records.append({
+                'dataset': ds,
+                'method': method,
+                'score': df.loc['mean', 'macro']
+            })
+
+    # Create DataFrame
+    res_df_all_data_performance = pd.DataFrame(all_records)
+
     # Subset dataframe to values to be plotted
     keep_bool_n_events = res_df['n_events'].isin(n_events)
     keep_bool_n_samples = (
@@ -6117,7 +6151,8 @@ def main_minority_count_figure():
 
     print(res_df)
 
-    palette = sns.color_palette('crest', as_cmap=True)
+    # palette = sns.color_palette('crest', as_cmap=True)
+    palette = sns.color_palette('RdBu', as_cmap=True)
 
     mc_modes = ['total', 'mean', 'median', 'min']
     mc_mode_to_ax_label = {
@@ -6132,7 +6167,7 @@ def main_minority_count_figure():
         fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
         axd = fig.subplot_mosaic(
             '''
-            XY.
+            XYZ
             ABC
             DEF
             GHI
@@ -6157,13 +6192,48 @@ def main_minority_count_figure():
                 x=f'{mc_mode}_minority_count',
                 y='score',
                 hue='n_samples',
-                style='n_events',
+                style='n_events' if plot_num_events else None,
                 legend=True,
                 palette=palette,
                 ax=ax,
             )
 
+            # Format x axis
             ax.set_xscale('log')
+            ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0], numticks=10))
+
+            # Add all data performance hline
+            row_bool = (
+                    (res_df_all_data_performance['dataset'] == dataset)
+                    & (res_df_all_data_performance['method'] == method)
+            )
+            score = res_df_all_data_performance.loc[row_bool, 'score'].iloc[0]
+
+            color = 'black'
+            ax.axhline(
+                y=score,
+                linestyle='--',
+                linewidth=1,
+                color=color,
+                alpha=0.8,
+            )
+
+            x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
+            y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+            y_pos = score - y_offset
+            va = 'top'
+            ax.text(
+                x=x_pos,
+                y=y_pos,
+                s=f'{score:.3f}',
+                color=color,
+                va=va,
+                ha='right',
+                fontsize=8,
+                alpha=0.95,
+                clip_on=False,
+                path_effects=[pe.withStroke(linewidth=1.0, foreground='white')]
+            )
 
             ax.set_title(f'{dataset} | {method}')
 
@@ -6178,41 +6248,69 @@ def main_minority_count_figure():
         )
         cbar.set_ticks([])
         cbar.set_ticks([0, 1])
-        cbar.set_ticklabels(['1 sample', 'all samples'])
+        cbar.set_ticklabels(['1 sample', 'all\nsamples'])
         cbar.set_label('Number of samples', fontsize=10, labelpad=5)
         cbar.ax.xaxis.set_label_position('top')
         cbar.ax.xaxis.label.set_horizontalalignment('center')
 
-        # Add a legend
-        ax = axd['Y']
-        handles, labels = axd['A'].get_legend_handles_labels()
+        if plot_num_events:
+            # Add a legend
+            ax = axd['Z']
+            handles, labels = axd['A'].get_legend_handles_labels()
 
-        style_handles = []
-        style_labels = []
-        for h, l in zip(handles, labels):
-            if l in [str(i) for i in n_events]:
-                style_handles.append(h)
-                style_labels.append(l)
+            style_handles = []
+            style_labels = []
+            for h, l in zip(handles, labels):
+                if l in [str(i) for i in n_events]:
+                    style_handles.append(h)
+                    style_labels.append(l)
+
+            ax.axis('off')
+            ax.legend(
+                style_handles,
+                style_labels,
+                title='Number of events',
+                ncol=2,
+                frameon=True,
+            )
+        else:
+            axd['Z'].axis('off')
+
+        # Add table
+        table_data = [
+            ['Dataset', 'All Samples'],
+            ['Flowcyt', 22],
+            ['Imstat', 75],
+            ['LT1, LT2', 73]
+        ]
+
+        ax = axd['Y']
+        table = ax.table(cellText=table_data, loc='center', cellLoc='center')
+
+        # Format
+        table.auto_set_font_size(False)
+        table.set_fontsize(9)
+        table.scale(1.0, 1.2)
+
+        ncols = len(table_data[0])
+        for col in range(ncols):
+            cell = table[(0, col)]
+            cell.set_facecolor('lightgreen')
+            cell.set_text_props(weight='bold')
 
         ax.axis('off')
-        ax.legend(
-            style_handles,
-            style_labels,
-            title='Number of events',
-            ncol=2,
-            frameon=True,
-        )
+
 
         for key, ax in axd.items():
-            if not key in {'X', 'Y'}:
+            if not key in {'X', 'Y', 'Z'}:
                 ax.legend_.remove()
 
                 ax.set_ylabel('Macro F1')
                 ax.set_xlabel(mc_mode_to_ax_label[mc_mode])
 
-        annotate_mosaic(fig, axd, fontsize=None, excluded=['X', 'Y'])
+        annotate_mosaic(fig, axd, fontsize=None, excluded=['X', 'Y', 'Z'])
 
-        fig.savefig(os.path.join(plot_dir, f'fig_{mc_mode}.png'), dpi=fig.dpi)
+        fig.savefig(os.path.join(plot_dir, f'minority_count_{mc_mode}.png'), dpi=fig.dpi)
 
 
 
