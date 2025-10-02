@@ -9,8 +9,6 @@ from typing import Union, Tuple, Callable, Dict, List, Literal, Any
 
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
-from flagx.io import FlowDataManager
-
 
 def set_pandas_print_options():
     # Set pandas print options such that alls columns and rows are displayed
