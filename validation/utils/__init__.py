@@ -8,7 +8,8 @@ from .val_utils import (
     confusion_matrix_df, confusion_matrix_df_sample_wise,
     eval_wrapper, eval_wrapper_sample_wise,
     get_time_str,
-    get_error_dataframe
+    get_error_dataframe,
+    get_downsampling_bool
 )
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     'confusion_matrix_df', 'confusion_matrix_df_sample_wise',
     'eval_wrapper', 'eval_wrapper_sample_wise',
     'get_time_str',
-    'get_error_dataframe'
+    'get_error_dataframe',
+    'get_downsampling_bool'
 ]
