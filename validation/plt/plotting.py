@@ -429,6 +429,12 @@ def plot_cell_pop_size_pred_vs_gt(
     # Get the data
     plot_df = _get_plot_df(y_trues=y_trues, y_preds=y_preds)
 
+    # Remove rows with -1 (= abstention)
+    # abstention_df = plot_df[plot_df['labels'] == -1]
+    # print(abstention_df)
+    plot_df = plot_df[plot_df['labels'] != -1]
+
+
     x_col = 'counts_yt'
     y_col = 'counts_yp'
 
@@ -453,7 +459,7 @@ def plot_cell_pop_size_pred_vs_gt(
         y=y_col,
         hue='labels',
         palette=palette,
-        alpha=0.7,
+        alpha=0.8,
         edgecolor='k',
         ax=ax,
     )
@@ -562,6 +568,7 @@ def plot_performance_score_box_plot_cw(
         y_label: Union[str, None] = None,
         title: Union[str, None] = None,
         palette: Union[str, List[str], Dict[str, str], Dict[str, Tuple[float, ...]], None] = None,  # {method: color}
+        label_order: Union[List[str], None] = None,
         sns_boxplot_kwargs: Union[Dict, None] = None,
         plot_points: bool = False,
         point_kwargs: Union[Dict, None] = None,
@@ -620,11 +627,12 @@ def plot_performance_score_box_plot_cw(
         # Disable outliers
         sns_boxplot_kwargs.setdefault('showfliers', False)
 
-    # Change order such that others is always plotted at the end
-    label_order = sorted(set(long_df['Cell Type Label']))
-    if 'O' in label_order:
-        label_order.remove('O')
-        label_order.append('O')
+    # Change label order
+    if label_order is None:
+        label_order = sorted(set(long_df['Cell Type Label']))
+    else:
+        unique_labels = set(long_df['Cell Type Label'])
+        label_order = [l for l in label_order if l in unique_labels]
 
     ax = sns.boxplot(
         data=long_df,
@@ -721,9 +729,9 @@ def plot_sample_sizes(
     if print_total:
         total = sample_sizes.sum()
         ax.text(
-            0.98, 0.98, f'Total Events: {total}',
+            0.02, 0.98, f'Total Events: {total}',
             transform=ax.transAxes,  # Axes coordinates (0–1)
-            ha='right', va='top',  # Align top-right
+            ha='left', va='top',  # Align top-right
             fontsize=10,
             bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')  # Transparent box
         )
@@ -737,8 +745,12 @@ def plot_sample_sizes(
         m = sample_sizes.mean()
         std = sample_sizes.std()
 
-        ax.axhline(y=m - std, color='gold', linestyle='--', linewidth=1.5, label=f'Std: {np.round(std, 3)}')
-        ax.axhline(y=m + std, color='gold', linestyle='--', linewidth=1.5)
+        lower = m - std
+        if lower > sample_sizes.min():
+            ax.axhline(y=lower, color='gold', linestyle='--', linewidth=1.5, label=f'Std: {np.round(std, 3)}')
+        upper = m + std
+        if upper < sample_sizes.max():
+            ax.axhline(y=upper, color='gold', linestyle='--', linewidth=1.5)
         ax.legend()
 
     if title is not None:
@@ -756,6 +768,7 @@ def plot_class_balance(
         ys: List[np.ndarray],
         title: Union[str, None] = None,
         palette: Union[str, List[str], Dict[str, str], Dict[str, Tuple[float, ...]], None] = None,  # {method: color}
+        label_order: Union[List[str], None] = None,
         ax: Union[plt.Axes, None] = None,
 ) -> plt.Axes:
 
@@ -783,14 +796,12 @@ def plot_class_balance(
         'Percentage': percentages.to_numpy(),
     })
 
-    # Change order such that others is always plotted at the end
-    label_order = sorted(set(plot_data['Cell Type Label']))
-    if 'Out' in label_order:
-        label_order.remove('Out')
-        label_order.append('Out')
-    if 'O' in label_order:
-        label_order.remove('O')
-        label_order.append('O')
+    # Change label order
+    if label_order is None:
+        label_order = sorted(set(plot_data['Cell Type Label']))
+    else:
+        unique_labels = set(plot_data['Cell Type Label'])
+        label_order = [l for l in label_order if l in unique_labels]
 
     # Barplot
     sns.barplot(
@@ -944,23 +955,31 @@ def plot_n_samples_n_events(
 
 
 
-def annotate_mosaic(fig: plt.Figure, axd: Dict[str, plt.Axes], fontsize: Union[float, None] = None):
+def annotate_mosaic(
+        fig: plt.Figure, axd: Dict[str, plt.Axes],
+        fontsize: Union[float, None] = None,
+        excluded: Union[List[str], None] = None
+):
+    if excluded is None:
+        excluded = []
     # Annotate subplot mosaic tiles with labels
     for label, ax in axd.items():
-        # ax = fig.add_subplot(axd[label])
-        # ax.annotate(label, xy=(0.1, 1.1), xycoords='axes fraction', ha='center', fontsize=16)
-        # label physical distance to the left and up:
-        trans = mtransforms.ScaledTranslation(-20 / 72, 7 / 72, fig.dpi_scale_trans)
-        ax.text(
-            0.0,
-            0.95,
-            label,
-            transform=ax.transAxes + trans,
-            fontsize=fontsize,
-            va='bottom',
-            fontfamily='sans-serif',
-            fontweight='bold'
-        )
+
+        if not label in excluded:
+            # ax = fig.add_subplot(axd[label])
+            # ax.annotate(label, xy=(0.1, 1.1), xycoords='axes fraction', ha='center', fontsize=16)
+            # label physical distance to the left and up:
+            trans = mtransforms.ScaledTranslation(-20 / 72, 7 / 72, fig.dpi_scale_trans)
+            ax.text(
+                0.0,
+                0.95,
+                label,
+                transform=ax.transAxes + trans,
+                fontsize=fontsize,
+                va='bottom',
+                fontfamily='sans-serif',
+                fontweight='bold'
+            )
 
 
 
