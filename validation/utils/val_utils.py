@@ -922,14 +922,15 @@ def scalability_wrapper(
         function: Callable,
         function_params: Union[Dict[str, Any], None]= None,
         track_gpu: bool = False,
+        tracking_interval: float = 0.1,
         res_dir: Union[str, None] = None,
         res_filename: Union[str, None] = None,
 ) -> Tuple[pd.DataFrame, Any]:
 
     # Start memory tracking
-    memory_samples_cpu, stop_event_cpu, tracker_thread_cpu = track_memory_cpu(interval=TRACKING_INTERVAL)
+    memory_samples_cpu, stop_event_cpu, tracker_thread_cpu = track_memory_cpu(interval=tracking_interval)
     if track_gpu:
-        memory_samples_gpu, stop_event_gpu, tracker_thread_gpu = track_memory_gpu(interval=TRACKING_INTERVAL)
+        memory_samples_gpu, stop_event_gpu, tracker_thread_gpu = track_memory_gpu(interval=tracking_interval)
 
     wall_start = time.perf_counter()
 
