@@ -9,7 +9,8 @@ from .val_utils import (
     eval_wrapper, eval_wrapper_sample_wise,
     get_time_str,
     get_error_dataframe,
-    get_downsampling_bool
+    get_downsampling_bool,
+    scalability_wrapper
 )
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     'eval_wrapper', 'eval_wrapper_sample_wise',
     'get_time_str',
     'get_error_dataframe',
-    'get_downsampling_bool'
+    'get_downsampling_bool',
+    'scalability_wrapper'
 ]

@@ -1,7 +1,10 @@
 
 import os
-import warnings
 import time
+import psutil
+import threading
+import subprocess
+import warnings
 import copy
 import numpy as np
 import pandas as pd
@@ -784,4 +787,202 @@ def get_downsampling_bool(y: np.ndarray, target_num_events: int, stratified: boo
         keep_mask[selected_indices] = True
 
     return keep_mask
+
+
+def get_cpu_memory_mb(process: psutil.Process) -> float:
+    total_mem = 0
+    try:
+        with process.oneshot():
+            children = process.children(recursive=True)
+            all_procs = [process] + children
+            for proc in all_procs:
+
+                try:
+                    if proc.is_running():
+                        total_mem += proc.memory_info().rss
+
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+    except Exception as e:
+        print(f'CPU memory tracking failed with error:\n{e}')
+
+    total_mem /= 1024 ** 2
+
+    return total_mem
+
+
+def track_memory_cpu(interval=0.1):
+    """
+    Tracks total memory (RSS) of the current process + children.
+    Returns a list of memory samples (in MB).
+    """
+
+    process = psutil.Process(os.getpid())
+    memory_samples = [get_cpu_memory_mb(process=process)]
+    stop_event = threading.Event()
+
+    # Initial sample
+    def poll():
+        while not stop_event.is_set():
+            mem = get_cpu_memory_mb(process=process)
+            memory_samples.append(mem)
+            stop_event.wait(interval)
+
+    thread = threading.Thread(target=poll, daemon=True)
+    thread.start()
+
+    return memory_samples, stop_event, thread
+
+
+def track_memory_gpu(interval=0.1):
+    """
+    Tracks GPU 0 memory usage over time in a background thread.
+    Returns (samples_list, stop_event, thread).
+    """
+    memory_samples = []
+    stop_event = threading.Event()
+
+    interval_ms = max(1, int(interval * 1000))
+
+    # Start a persistent nvidia-smi process
+    try:
+        proc = subprocess.Popen(
+            [
+                "nvidia-smi",
+                "-i", "0",  # Pin 1st GPU
+                f"-lms", str(interval_ms),  # Sampling interval in ms
+                "--query-gpu=memory.used",
+                "--format=csv,nounits,noheader"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1
+        )
+    except TypeError:
+        proc = subprocess.Popen(
+            [
+                "nvidia-smi",
+                "-i", "0",
+                f"-lms", str(interval_ms),
+                "--query-gpu=memory.used",
+                "--format=csv,nounits,noheader"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True,  # instead of text=True
+            bufsize=1
+        )
+
+    # Get first sample
+    first = 0
+    if proc.stdout is not None:
+        try:
+            first_line = proc.stdout.readline().strip()
+
+            if first_line:
+                first = int(first_line)
+
+        except Exception as e:
+            pass
+
+    memory_samples.append(first)
+
+    def poll():
+        try:
+            for line in proc.stdout:
+                try:
+                    mem = int(line.strip())
+                except ValueError:
+                    continue
+
+                memory_samples.append(mem)
+
+                if stop_event.is_set():
+                    break
+        finally:
+            # Clean up process when stopping
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            except Exception as e:
+                pass
+
+    thread = threading.Thread(target=poll, daemon=True)
+    thread.start()
+
+    return memory_samples, stop_event, thread
+
+
+def scalability_wrapper(
+        function: Callable,
+        function_params: Union[Dict[str, Any], None]= None,
+        track_gpu: bool = False,
+        res_dir: Union[str, None] = None,
+        res_filename: Union[str, None] = None,
+) -> Tuple[pd.DataFrame, Any]:
+
+    # Start memory tracking
+    memory_samples_cpu, stop_event_cpu, tracker_thread_cpu = track_memory_cpu(interval=TRACKING_INTERVAL)
+    if track_gpu:
+        memory_samples_gpu, stop_event_gpu, tracker_thread_gpu = track_memory_gpu(interval=TRACKING_INTERVAL)
+
+    wall_start = time.perf_counter()
+
+    try:
+
+        if function_params is not None:
+            function_output = function(**function_params)
+        else:
+            function_output = function()
+
+    finally:
+
+        wall_end = time.perf_counter()
+
+        # Stop memory tracker
+        stop_event_cpu.set()
+        tracker_thread_cpu.join()
+
+        if track_gpu:
+            stop_event_gpu.set()
+            tracker_thread_gpu.join()
+
+    # Analyze results
+    wall_time = wall_end - wall_start
+
+    memory_peak_cpu = max(memory_samples_cpu)
+    memory_average_cpu = sum(memory_samples_cpu) / len(memory_samples_cpu)
+
+    if track_gpu:
+        memory_peak_gpu = max(memory_samples_gpu)
+        memory_average_gpu = sum(memory_samples_gpu) / len(memory_samples_gpu)
+    else:
+        memory_peak_gpu = None
+        memory_average_gpu = None
+
+    res = {
+        'wall_time': wall_time,
+        'mem_peak_cpu': memory_peak_cpu,
+        'mem_avg_cpu': memory_average_cpu,
+        'samples_cpu': len(memory_samples_cpu),
+        'mem_peak_gpu': memory_peak_gpu,
+        'mem_avg_gpu': memory_average_gpu,
+        'samples_gpu': len(memory_samples_gpu) if track_gpu else None,
+    }
+    res_df = pd.DataFrame([res])
+
+    if res_dir is not None:
+        if res_filename is None:
+            res_filename = 'scalability_results.csv'
+        res_df.to_csv(os.path.join(res_dir, res_filename))
+
+    return res_df, function_output
+
+
+
 
