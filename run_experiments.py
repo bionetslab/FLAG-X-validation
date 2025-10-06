@@ -1,14 +1,14 @@
 
 import argparse
 
-from main import main_som_classifier, main_dgcytof, main_fcnn, main_gatemeclass
+from main import main_som_classifier, main_dgcytof, main_fcnn, main_gatemeclass, main_som_parameter_tuning
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Run the scripts for generating results.')
 
-    methods = ['som', 'dgcytof', 'fcnn', 'gatemeclass']
+    methods = ['som', 'dgcytof', 'fcnn', 'gatemeclass', 'som_parameter_tuning']
 
     # Add the file argument
     parser.add_argument(
@@ -28,6 +28,7 @@ if __name__ == '__main__':
         'dgcytof': main_dgcytof,
         'fcnn': main_fcnn,
         'gatemeclass': main_gatemeclass,
+        'som_parameter_tuning': main_som_parameter_tuning
     }
 
     method_to_script[args.method]()
