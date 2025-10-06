@@ -621,7 +621,15 @@ def main_som_parameter_tuning():
     os.makedirs(save_p, exist_ok=True)
 
     # ### Load the train data
-    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
+    data_p_default = os.path.join(f'./data/np_files/imstat/{trafo}')
+    data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/imstat/{trafo}'
+
+    if os.path.exists(data_p_hpc):
+        data_p = data_p_hpc
+    elif os.path.exists(data_p_default):
+        data_p = data_p_default
+    else:
+        raise RuntimeError(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".')
 
     x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
     y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
@@ -1732,6 +1740,148 @@ def main_fcnn():
                 cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
+# Todo:
+def main_num_samples_experiment():
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from validation.utils.val_utils import n_samples_experiment_helper
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.plt import plot_n_samples_n_events
+
+    # ### Set flags and important variables here #######################################################################
+    data_set = 'lymphoma_tube1'
+    # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+
+    preprocessing_trafo = 'log10_channelwisecutoff'
+    # 'arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100'
+
+    random_sample_order = False
+
+    classifier = 'softmax'  # 'som', 'softmax'
+
+    inference = True
+
+    if data_set == 'flowcyt':
+        n_samples = list(range(1,6)) + list(range(10, 22, 5)) + [22, ]
+    elif data_set == 'imstat':
+        n_samples = list(range(1,21)) + list(range(25, 76, 5))
+    else:
+        n_samples = list(range(1,21)) + list(range(25, 71, 5)) + [73, ]
+
+    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
+
+    ####################################################################################################################
+
+    np.random.seed(42)
+
+    base_p = os.path.join(os.getcwd(), 'results/n_samples_n_events')
+
+    # Load the sample order file
+    sample_order_file = None
+    if not random_sample_order:
+        if data_set != 'lymphoma_tube1_binary':
+            print(f'No sample order available for {data_set}. Continuing with random order.')
+        else:
+            sample_order_file = os.path.join(
+                base_p, f'sample_order_{data_set}_{preprocessing_trafo}.txt'
+            )
+
+    # Set the others label
+    if data_set == 'imstat':
+        others_label = 8
+    elif data_set == 'flowcyt':
+        others_label = 5
+    else:
+        others_label = None
+
+    # Set the positive label
+    if data_set in {'lymphoma_tube1_binary', 'lymphoma_tube2_binary'}:
+        pos_label = 1
+    else:
+        pos_label = None
+
+    # Set the abstention label
+    abstention_label = -1 if classifier == 'som' else None
+
+    # Set the save_path
+    sample_order_str = 'random' if random_sample_order else 'ordered'
+    save_p = os.path.join(
+        base_p, classifier, data_set, preprocessing_trafo, sample_order_str
+    )
+    os.makedirs(save_p, exist_ok=True)
+
+    # Set the data path
+    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo)
+
+    if inference:
+        if classifier == 'som':
+            # Instantiate the SOM classifier
+            if preprocessing_trafo == 'arcsinh_cofactor150':
+
+                clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(25, 25),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.25,
+                    initialization='pca',
+                    n_epochs=200,
+                    radius_0=-0.25,
+                    radius_n=0.01,
+                    radius_cooling='linear',
+                    learning_rate_0=0.5,
+                    learning_rate_n=0.05,
+                    learning_rate_decay='exponential',
+                    verbosity=2,
+                )
+            else:
+                clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(25, 25),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.1,
+                    initialization='pca',
+                    n_epochs=1000,
+                    radius_0=-0.25,
+                    radius_n=0.1,
+                    radius_cooling='linear',
+                    learning_rate_0=0.1,
+                    learning_rate_n=0.05,
+                    learning_rate_decay='exponential',
+                    verbosity=2,
+                )
+        else:
+            clf = SoftmaxClassifier(
+                layer_sizes=(128, 64, 32),
+                n_epochs=20,
+                data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 3},
+                device=None,  # Tries to use default cuda device, if none available cpu
+                verbosity=2
+            )
+
+        n_samples_experiment_helper(
+            classifier=clf,
+            n_samples=n_samples,
+            n_events=n_events,
+            data_p=data_p,
+            save_p=save_p,
+            abstention_label=abstention_label,
+            others_label=others_label,
+            pos_label=pos_label,
+            sample_order_file=sample_order_file,
+        )
+
+    res_df = pd.read_csv(os.path.join(save_p, 'res_df_f1_macro.csv'), index_col=0)
+
+    print(res_df)
+
+    plot_n_samples_n_events(res_df=res_df, cmap_name='magma')
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'macro_f1.png'), dpi=300)
 
 
 
