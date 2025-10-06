@@ -507,7 +507,7 @@ class FlowDataManager:
                 raise ValueError(
                     'The train-(val-)test-split must be passed as a tuple of non negative decimals that sum to one')
 
-            if save_path is None:
+            if filename_data_split is not None and save_path is None:
                 save_path = os.getcwd()
 
             if len(data_split) == 2:
@@ -530,21 +530,47 @@ class FlowDataManager:
                 return train_data, test_data
 
             else:
-                # Split into train and val-test set
-                perc_val_test_data = data_split[1] + data_split[2]
-                train_data, val_test_data = train_test_split(
-                    data_list,
-                    test_size=perc_val_test_data,
-                    train_size=data_split[0], **kwargs
-                )
 
-                # Split val-test data into val and test set
-                val_data, test_data = train_test_split(
-                    val_test_data,
-                    test_size=data_split[2] / perc_val_test_data,
-                    train_size=data_split[1] / perc_val_test_data,
-                    **kwargs
-                )
+                # Check for stratification
+                stratify = kwargs.pop('stratify', None)
+
+                if stratify is not None:
+
+                    # Split into train and val-test set
+                    perc_val_test_data = data_split[1] + data_split[2]
+                    train_data, train_stratify, val_test_data, val_test_stratify = train_test_split(
+                        data_list, stratify,
+                        test_size=perc_val_test_data,
+                        train_size=data_split[0],
+                        stratify=stratify,
+                        **kwargs
+                    )
+
+                    # Split val-test data into val and test set
+                    val_data, test_data = train_test_split(
+                        val_test_data,
+                        test_size=data_split[2] / perc_val_test_data,
+                        train_size=data_split[1] / perc_val_test_data,
+                        stratify=val_test_stratify,
+                        **kwargs
+                    )
+
+                else:
+                    # Split into train and val-test set
+                    perc_val_test_data = data_split[1] + data_split[2]
+                    train_data, val_test_data = train_test_split(
+                        data_list,
+                        test_size=perc_val_test_data,
+                        train_size=data_split[0], **kwargs
+                    )
+
+                    # Split val-test data into val and test set
+                    val_data, test_data = train_test_split(
+                        val_test_data,
+                        test_size=data_split[2] / perc_val_test_data,
+                        train_size=data_split[1] / perc_val_test_data,
+                        **kwargs
+                    )
 
                 # Save data split to .csv (filename and train, val, test information)
                 if filename_data_split is not None:
@@ -889,6 +915,7 @@ class FlowDataManager:
             inplace=True,
         )
 
+    # Todo: refactor
     @staticmethod
     def sample_wise_downsampling_worker(
             data_list: List[sc.AnnData],
