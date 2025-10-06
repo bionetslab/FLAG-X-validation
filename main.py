@@ -376,17 +376,17 @@ def main_som_parameter_influence_study():
     from validation.utils import set_pandas_print_options, get_downsampling_bool
 
     # ### Set flags and variables ######################################################################################
-    inference = True  # Whether to do the hyperparameter tuning or just view the results
-    test_n_epochs = True
+    inference = False  # Whether to do the hyperparameter tuning or just view the results
+    test_n_epochs = False
 
     random_seed = 42
     downsampling_frac = 0.10
     n_splits = 3
 
-    trafo = 'log10_w_custom_cutoffs'  # 'arcsinh_cofactor150', 'log10_w_custom_cutoffs'
+    trafo = 'log10_w_custom_cutoffs'
 
     # Based on gridsearch for n_epochs, selected n_epochs such that performance is stable with default parameters
-    n_epochs = 6000   # arcsinh_cofactor150: 6000, log10_w_custom_cutoffs: 6000
+    n_epochs = 6000
     ####################################################################################################################
 
     # ### Load the train data
@@ -575,6 +575,272 @@ def main_som_parameter_influence_study():
             plt.close('all')
 
 
+def main_som_parameter_tuning():
+    """
+    Script for running hyperparameter tuning on the immune status dataset. The workflow is as follows:
+        - Preprocessed data is loaded.
+        - Data is downsampled for faster training.
+        - Data is split into train and val.
+        - Results are printed.
+
+    The following flags are defined in the header and can be adjusted as needed:
+    - inference (bool), whether to do the training or just load and print previously generated results.
+    - random_seed (int)
+    - downsampling_frac (float)
+    - val_frac (float), relative size of the validation set
+    - n_epochs (int)
+
+    Returns:
+        None
+    """
+
+    import os
+    import numpy as np
+    import pandas as pd
+
+    from sklearn.model_selection import train_test_split, PredefinedSplit
+
+    from flagx.gating import SomClassifier
+    from validation.utils import set_pandas_print_options, get_downsampling_bool
+
+    # ### Set flags and variables ######################################################################################
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
+    trafo = 'log10_w_custom_cutoffs'
+
+    random_seed = 42
+    downsampling_frac = 0.10
+    val_frac = 0.34
+
+    grid = 'full_grid'  # 'full_grid', 'test'
+
+    n_epochs = 6000
+    ####################################################################################################################
+
+    # Define dir for saving the results
+    save_p = os.path.join(os.getcwd(), f'results/som_parameter_tuning/{trafo}/{grid}')
+    os.makedirs(save_p, exist_ok=True)
+
+    # ### Load the train data
+    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
+
+    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
+    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
+
+    # ### Downsample for faster training
+    np.random.seed(random_seed)
+    target_num_events = int(x.shape[0] * downsampling_frac)
+    print((
+        f'# ### Downsampling training data from {x.shape[0]} events '
+        f'to {target_num_events} events ({int(downsampling_frac * 100)} %)'
+    ))
+    downsampling_bool = get_downsampling_bool(y=y, target_num_events=target_num_events, stratified=True)
+    x = x[downsampling_bool, :]
+    y = y[downsampling_bool]
+
+    # ### Split data into train and val set (performance was observed to be stable across folds => No more cv here)
+    x_train, x_val, y_train, y_val = train_test_split(
+        x, y,
+        test_size=val_frac,
+        stratify=y,
+        random_state=random_seed,
+    )
+
+    # Reconcatenate the data (first train, then val)
+    x = np.vstack((x_train, x_val))
+    y = np.hstack((y_train, y_val))
+
+    # Create a PredefinedSplit according to the previous data split
+    # (https://scikit-learn.org/1.5/modules/cross_validation.html#predefined-split)
+    val_fold = [-1] * x_train.shape[0] + [0] * x_val.shape[0]
+    cv = PredefinedSplit(test_fold=val_fold)
+
+    # ### Define parameter grid, based on the previous experiments
+
+    if grid == 'full_grid':
+        param_grid = {
+            'som_topology': ['planar', ],
+            'som_grid_type': ['rectangular', ],
+            'som_dimensions': [(15, 15), (20, 20), (25, 25)],
+            'neighborhood': ['gaussian', ],
+            'gaussian_neighborhood_sigma': [0.1, 0.5, 1.0],
+            'initialization': ['pca', ],
+            'n_epochs': [n_epochs, ],
+            'radius_0': [-0.25, -0.5, -0.75],
+            'radius_n': [0.1, ],
+            'radius_cooling': ['exponential', ],
+            'learning_rate_0': [0.1, 0.5, 1.0],
+            'learning_rate_n': [0.001, 0.05, 0.1],
+            'learning_rate_decay': ['exponential', ],
+        }
+
+    else:  # test
+        param_grid = {
+            'som_topology': ['planar', ],
+            'som_grid_type': ['rectangular', ],
+            'som_dimensions': [(15, 15), (20, 20), (25, 25)],
+            'neighborhood': ['gaussian', ],
+            'gaussian_neighborhood_sigma': [0.5, ],
+            'initialization': ['pca', ],
+            'n_epochs': [50, ],
+            'radius_0': [-0.75, ],
+            'radius_n': [0.75, ],
+            'radius_cooling': ['linear', ],
+            'learning_rate_0': [0.1, ],
+            'learning_rate_n': [0.01, ],
+            'learning_rate_decay': ['exponential', ],
+        }
+
+    # ### Inference
+    if inference:
+        # Instantiate the SOM classifier
+        som_clf = SomClassifier(verbosity=2)
+
+        # Perform the hyperparameter tuning
+        som_clf.hyperparameter_tuning(
+            X=x,
+            y=y,
+            param_grid=param_grid,
+            cv=cv,
+            scoring='internal',
+            refit=False
+        )
+
+        # Save the SOM classifier
+        som_clf.save(filepath=save_p)
+
+    else:
+        som_clf = SomClassifier.load(filepath=save_p)
+
+    res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
+
+    res_df.to_csv(os.path.join(save_p, f'res_df.csv'))
+
+    set_pandas_print_options()
+    print('# ### Results:\n', res_df)
+    print('# ### Best parameters:\n', som_clf.grid_search_.best_params_)
+    print('# ### Best score:\n', som_clf.grid_search_.best_score_)
+
+
+def main_som_n_epochs_calibration():
+    """
+    Script for finding the optimal number of epochs tp train for given a set of optimized parameters.
+    The workflow is as follows:
+        - Preprocessed data is loaded.
+        - Data is split into train and val. (No downsampling!)
+        - Results are printed.
+
+    The following flags are defined in the header and can be adjusted as needed:
+    - inference (bool), whether to do the training or just load and print previously generated results.
+    - random_seed (int)
+    - val_frac (float), relative size of the validation set
+    - n_epochs (int)
+
+    Returns:
+        None
+    """
+
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    from sklearn.model_selection import train_test_split, PredefinedSplit
+
+    from flagx.gating import SomClassifier
+    from validation.utils import set_pandas_print_options
+    from validation.plt import plot_param_lineplot
+
+    # ### Set flags and variables ######################################################################################
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
+    trafo = 'log10_w_custom_cutoffs'
+
+    random_seed = 42
+    val_frac = 0.34
+
+    # Gridsearch for n_epochs
+    n_epochs = list(range(10, 101, 10)) + list(range(200, 1001, 100)) + list(range(1500, 6001, 500))
+    ####################################################################################################################
+
+    # ### Load the train data
+    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
+
+    x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
+    y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
+
+    # ### Split data into train and val set (performance was observed to be stable across folds => No more cv here)
+    x_train, x_val, y_train, y_val = train_test_split(
+        x, y,
+        test_size=val_frac,
+        stratify=y,
+        random_state=random_seed,
+    )
+
+    # Reconcatenate the data (first train, then val)
+    x = np.vstack((x_train, x_val))
+    y = np.hstack((y_train, y_val))
+
+    # Create a PredefinedSplit according to the previous data split
+    # (https://scikit-learn.org/1.5/modules/cross_validation.html#predefined-split)
+    val_fold = [-1] * x_train.shape[0] + [0] * x_val.shape[0]
+    cv = PredefinedSplit(test_fold=val_fold)
+
+    # ### Load the previously optimized parameters and define a parameter grid with them
+    som_clf_param_tuning = SomClassifier.load(
+        filepath=os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}/full_grid')
+    )
+    best_params = som_clf_param_tuning.grid_search_.best_params_
+
+    print('# ### Best parameters:', best_params)
+
+    # Define dir for saving the results
+    save_p = os.path.join(os.getcwd(), f'results/som_n_epochs_calibration/{trafo}')
+    os.makedirs(save_p, exist_ok=True)
+
+    # ### Inference
+    if inference:
+        # Instantiate the SOM classifier with the best parameters
+        som_clf = SomClassifier(verbosity=1, **best_params)
+
+        # Perform the hyperparameter tuning
+        som_clf.hyperparameter_tuning(
+            X=x,
+            y=y,
+            param_grid={'n_epochs': n_epochs},
+            cv=cv,
+            scoring='internal',
+            refit=False
+        )
+
+        # Save the SOM classifier
+        som_clf.save(filepath=save_p)
+
+    else:
+        som_clf = SomClassifier.load(filepath=save_p)
+
+    res_df = pd.DataFrame(som_clf.grid_search_.cv_results_)
+
+    res_df.to_csv(os.path.join(save_p, f'res_df.csv'))
+
+    set_pandas_print_options()
+    print('# ### Results:\n', res_df)
+    print('# ### Best parameters:\n', som_clf.grid_search_.best_params_)
+    print('# ### Best score:\n', som_clf.grid_search_.best_score_)
+
+    plot_param_lineplot(
+        res_df=res_df,
+        x_col='param_n_epochs',
+        y_col='mean_test_score',
+        xlog10=True,
+        xlog10plusone=False,
+        custom_x_ticks='log10_scale',
+        x_label='n epochs',
+        y_label='Macro F1',
+        dpi=300,
+    )
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_p, 'n_epochs.png'))
+    plt.close('all')
+
 
 
 
@@ -583,5 +849,9 @@ if __name__ == '__main__':
     # main_data_processing()
 
     # main_som_parameter_influence_study()
+
+    # main_som_parameter_tuning()
+
+    # main_som_n_epochs_calibration()
 
     print('done')
