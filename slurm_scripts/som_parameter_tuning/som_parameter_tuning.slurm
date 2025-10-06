@@ -7,7 +7,7 @@
 #SBATCH --mem=240G
 #SBATCH --error=%x_%j.error
 #SBATCH --output=%x_%j.log
-#SBATCH --job-name=som_classifier
+#SBATCH --job-name=som_parameter_tuning
 #SBATCH --export=NONE
 
 unset SLURM_EXPORT_ENV
