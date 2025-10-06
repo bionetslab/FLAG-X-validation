@@ -604,7 +604,7 @@ def main_som_parameter_tuning():
     from validation.utils import set_pandas_print_options, get_downsampling_bool
 
     # ### Set flags and variables ######################################################################################
-    inference = True  # Whether to do the hyperparameter tuning or just view the results
+    inference = False  # Whether to do the hyperparameter tuning or just view the results
     trafo = 'log10_w_custom_cutoffs'
 
     random_seed = 42
@@ -842,6 +842,894 @@ def main_som_n_epochs_calibration():
     plt.close('all')
 
 
+def main_som_classifier():
+
+    import os
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SomClassifier
+    from validation.utils import eval_wrapper, eval_wrapper_sample_wise, scalability_wrapper
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafo = 'log10_w_custom_cutoffs'
+
+    fit = True
+    predict = True
+    evaluate = True
+    ####################################################################################################################
+
+    for data_set, others_label, pos_label in zip(data_sets, others_labels, pos_labels):
+
+        if preprocessing_trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
+            trafo = 'log10_cutoff100'
+        else:
+            trafo = preprocessing_trafo
+
+        print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+        # Check whether train data exists for this dataset and trafo, if not continue
+        data_p_default = os.path.join(f'./data/np_files/{data_set}/{trafo}')
+        data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
+        if os.path.exists(data_p_hpc):
+            data_p = data_p_hpc
+        elif os.path.exists(data_p_default):
+            data_p = data_p_default
+        else:
+            print(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".\nContinue.')
+            continue
+
+        # Define path where results will be saved to
+        save_p = os.path.join(os.getcwd(), f'./results/gating_performance/som_classifier/{data_set}/{trafo}')
+        os.makedirs(save_p, exist_ok=True)
+
+        if fit:
+
+            # Load training data
+            x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+            y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+            # Instantiate the SOM classifier
+            # Todo: load/change params
+            som_clf = SomClassifier(
+                som_topology='planar',
+                som_grid_type='rectangular',
+                som_dimensions=(25, 25),
+                neighborhood='gaussian',
+                gaussian_neighborhood_sigma=0.1,
+                initialization='pca',
+                n_epochs=1000,
+                radius_0=-0.25,
+                radius_n=0.1,
+                radius_cooling='linear',
+                learning_rate_0=0.1,
+                learning_rate_n=0.05,
+                learning_rate_decay='exponential',
+                verbosity=2,
+            )
+
+            # Fit and track time
+            print('# ### Starting fit ...')
+            def dummy_fit():
+                som_clf.fit(X=x_train, y=y_train)
+                return som_clf
+            fit_time_df, som_clf = scalability_wrapper(function=dummy_fit, function_params=None, track_gpu=False)
+
+            fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+
+            som_clf.save(filepath=save_p)
+
+        else:
+            # Load the SOM classifier
+            som_clf = SomClassifier.load(filepath=save_p)
+
+        if predict:
+            # Load the test data
+            x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+            print('# ### Starting prediction ...')
+            def dummy_predict():
+                return som_clf.predict(X=x_test)
+            pred_time_df, y_pred = scalability_wrapper(function=dummy_predict, function_params=None, track_gpu=False)
+            pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+            np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+            # Load the sample-wise test data
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+            samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+            samples_y_pred = []
+            samples_pred_time_dfs = []
+
+            print('# ### Starting sample-wise prediction ...')
+            for x, sn in zip(samples_x_test, samples_x_test_filenames):
+                def dummy_predict_sample():
+                    return som_clf.predict(X=x)
+                pred_time_df_sample, y_pred_sample = scalability_wrapper(
+                    function=dummy_predict_sample, function_params=None, track_gpu=False
+                )
+                pred_time_df_sample['sample_name'] = sn
+                samples_y_pred.append(y_pred_sample)
+                samples_pred_time_dfs.append(pred_time_df_sample)
+
+            samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
+            samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+            os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+            for y, sn in zip(samples_y_pred, sample_names):
+                np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+        else:
+            # Load the predictions
+            y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+
+            samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+            samples_y_pred_filenames = [
+                f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+            ]
+            samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
+
+        if evaluate:
+
+            # Load the labels of the test data
+            y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+            # Compute evaluation metrics for samples concatenated to one
+            out = eval_wrapper(
+                y_true=y_test,
+                y_pred=y_pred,
+                abstention_label=-1,
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2
+            )
+
+            out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+            out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+            out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+            out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+            # Load the labels of the sample-wise test data
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+            samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+            # Compute sample-wise evaluation metrics
+            out_sw = eval_wrapper_sample_wise(
+                y_trues=samples_y_test,
+                y_preds=samples_y_pred,
+                abstention_label=-1,
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2,
+            )
+
+            out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+            out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+            out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+            out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+            out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+            out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+            out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+            os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+            for cf_df, sn in zip(out_sw[6], sample_names):
+                cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
+def main_gatemeclass():
+
+    import os
+    import numpy as np
+    import pandas as pd
+    from validation.gating.gatemeclass import GateMeClassClassifier
+    from validation.utils import eval_wrapper, eval_wrapper_sample_wise, get_error_dataframe, scalability_wrapper
+
+    # ### Set flags and important variables here #######################################################################
+    fit = True
+    predict = True
+    evaluate = True
+
+    allow_abstention = False
+    abstention_label = -1 if allow_abstention else None
+
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafos = ['log10_w_custom_cutoffs', 'arcsinh_cofactor150']
+
+    marker_names_imstat = [
+        'FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO'
+    ]
+    marker_names_lymphoma_t1 = [
+        'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
+        'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
+    ]
+    marker_names_lymphoma_t2 = [
+        'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
+        'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
+    ]
+
+    marker_names_lymphoma_t1_binary = marker_names_lymphoma_t1
+
+    marker_names_lymphoma_t2_binary = marker_names_lymphoma_t2
+
+    marker_names_flowcyt = [
+        'FS INT', 'SS INT', 'FL1 INT_CD14-FITC', 'FL2 INT_CD19-PE', 'FL3 INT_CD13-ECD', 'FL4 INT_CD33-PC5.5',
+        'FL5 INT_CD34-PC7', 'FL6 INT_CD117-APC', 'FL7 INT_CD7-APC700', 'FL8 INT_CD16-APC750', 'FL9 INT_HLA-PB',
+        'FL10 INT_CD45-KO'
+    ]
+
+    marker_names_list = [
+        marker_names_imstat,
+        marker_names_lymphoma_t1, marker_names_lymphoma_t2,
+        marker_names_lymphoma_t1_binary, marker_names_lymphoma_t2_binary,
+        marker_names_flowcyt,
+    ]
+
+
+    ####################################################################################################################
+
+    # Define lists to track errors
+    failure_combinations = []
+    failure_points = []
+    error_types = []
+    error_messages = []
+
+    for data_set, others_label, pos_label, marker_names  in zip(
+            data_sets, others_labels, pos_labels, marker_names_list
+    ):
+        for trafo in preprocessing_trafos:
+
+            if trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
+                trafo = 'log10_cutoff100'
+
+            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+            # Check whether train data exists for this dataset and trafo, if not continue
+            data_p_default = os.path.join(f'./data/np_files/{data_set}/{trafo}')
+            data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
+            if os.path.exists(data_p_hpc):
+                data_p = data_p_hpc
+            elif os.path.exists(data_p_default):
+                data_p = data_p_default
+            else:
+                print(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".\nContinue.')
+                continue
+
+            # Define path where results will be saved to
+            abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
+            save_p = os.path.join(os.getcwd(), f'results/pred_eval/gatemeclass{abstention_str}/{data_set}/{trafo}')
+            os.makedirs(save_p, exist_ok=True)
+
+            # Get the number of samples
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+
+            if fit:
+
+                # Load training data
+                x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+                y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+                # Instantiate the GMC classifier with default parameters
+                gmc_clf = GateMeClassClassifier(
+                    marker_names=marker_names,
+                    gmc_gmm_parameterization='V',
+                    gmc_k=20,
+                    gmc_sampling=0.1,
+                    gmc_reject_option=allow_abstention,
+                    gmc_seed=1,
+                    time_fit_pred=True,
+                    verbosity=1
+                )
+
+                try:
+                    # Fit and track time
+                    def dummy_fit():
+                        gmc_clf.fit(X=x_train, y=y_train)
+                        return gmc_clf
+                    fit_time_df, gmc_clf = scalability_wrapper(function=dummy_fit)
+                    fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+                    gmc_clf.save(filepath=save_p)
+
+                except Exception as e:
+                    # Log errors
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append('fit')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types ,error_messages)
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                    continue
+
+            else:
+                # Load the GMC classifier
+                try:
+                    gmc_clf = GateMeClassClassifier.load(filepath=save_p)
+                except FileNotFoundError:
+                    print(f'# ### Classifier could not be trained without error. Continue.\n')
+                    continue
+
+            if predict:
+                # Load the test data
+                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+                try:
+                    print('# ### Starting prediction ...')
+                    def dummy_predict():
+                        return gmc_clf.predict(X=x_test)
+                    pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
+                    pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+                    np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+                except Exception as e:
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append('predict_concatenated')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                    continue
+
+                # Load the sample-wise test data
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+                samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+                samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+                samples_y_pred = []
+                samples_pred_time_dfs = []
+                successful_fit_idx = []
+                print('# ### Starting sample-wise prediction ...')
+                for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
+                    try:
+                        def dummy_predict_sample():
+                            return gmc_clf.predict(X=x)
+                        pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
+                        pred_time_df_sample['sample_name'] = sn
+                        samples_y_pred.append(y_pred_sample)
+                        samples_pred_time_dfs.append(pred_time_df_sample)
+                        successful_fit_idx.append(i)
+                    except Exception as e:
+                        nan_row = pd.DataFrame([{
+                            'sample_name': sn,
+                            'wall_time': np.nan,
+                            'mem_peak_cpu': np.nan,
+                            'mem_avg_cpu': np.nan,
+                            'samples_cpu': np.nan,
+                            'mem_peak_gpu': np.nan,
+                            'mem_avg_gpu': np.nan,
+                            'samples_gpu': np.nan,
+                        }])
+                        samples_pred_time_dfs.append(nan_row)
+                        failure_combinations.append(f'{data_set}_{trafo}')
+                        failure_points.append(f'predict_{sn}')
+                        error_types.append(type(e).__name__)
+                        error_messages.append(str(e))
+
+                        error_df = get_error_dataframe(
+                            failure_combinations, failure_points, error_types, error_messages
+                        )
+                        error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+
+                samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
+                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+                for y, i in zip(samples_y_pred, successful_fit_idx):
+                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
+
+            else:
+                # Load the predictions
+                try:
+                    y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+                except FileNotFoundError:
+                    print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
+                    continue
+
+                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+                samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+
+                samples_y_pred = []
+                successful_fit_idx = []
+                for i, fn in enumerate(samples_y_pred_filenames):
+                    try:
+                        samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
+                        successful_fit_idx.append(i)
+                    except FileNotFoundError:
+                        print(
+                            f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
+                            f'Cannot include it in evaluation.\n'
+                        )
+                        continue
+
+            if evaluate:
+
+                # Load the labels of the test data
+                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+                # Compute evaluation metrics for samples concatenated to one
+                out = eval_wrapper(
+                    y_true=y_test,
+                    y_pred=y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2
+                )
+
+                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+                if abstention_label is not None:
+                    out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                # Get the sample-wise test data for which the prediction was successful
+                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
+                samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+                samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+                # Compute sample-wise evaluation metrics
+                out_sw = eval_wrapper_sample_wise(
+                    y_trues=samples_y_test,
+                    y_preds=samples_y_pred,
+                    abstention_label=abstention_label,
+                    others_label=others_label,
+                    pos_label=pos_label,
+                    verbosity=2,
+                )
+
+                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+                if abstention_label is not None:
+                    out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+                for cf_df, sn in zip(out_sw[6], sample_names):
+                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
+def main_dgcytof():
+
+    import os
+    import numpy as np
+    import pandas as pd
+    from validation.gating.dgcytof import DgcytofClassifier
+    from validation.utils import eval_wrapper, eval_wrapper_sample_wise, get_error_dataframe, scalability_wrapper
+
+    # ### Set flags and important variables here #######################################################################
+    fit = True
+    predict = True
+    evaluate = True
+
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    others_labels = [8, None, None, None, None, 5]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafo = 'log10_w_custom_cutoffs'
+
+    ####################################################################################################################
+
+    # Define lists to track errors
+    failure_combinations = []
+    failure_points = []
+    error_types = []
+    error_messages = []
+
+    for data_set, others_label, pos_label in zip(data_sets, others_labels, pos_labels):
+
+        if preprocessing_trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
+            trafo = 'log10_cutoff100'
+        else:
+            trafo = preprocessing_trafo
+
+        print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+        # Check whether train data exists for this dataset and trafo, if not continue
+        data_p_default = os.path.join(f'./data/np_files/{data_set}/{trafo}')
+        data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
+        if os.path.exists(data_p_hpc):
+            data_p = data_p_hpc
+        elif os.path.exists(data_p_default):
+            data_p = data_p_default
+        else:
+            print(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".\nContinue.')
+            continue
+
+        # Define path where results will be saved to
+        save_p = os.path.join(os.getcwd(), f'results/pred_eval/dgcytof/{data_set}/{trafo}')
+        os.makedirs(save_p, exist_ok=True)
+
+        # Get the number of samples
+        samples_p = os.path.join(data_p, 'sample_wise_test')
+        n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+
+        if fit:
+
+            # Load training data
+            x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+            y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+            # Instantiate the Dgcytof classifier with default parameters
+            dgcytof_clf = DgcytofClassifier(
+                val_size=0.2,
+                layer_sizes=(128, 64, 32),
+                n_epochs=20,
+                train_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                verbosity=2,
+            )
+
+            try:
+                # Fit and track time
+                print('# ### Starting fit ...')
+                def dummy_fit():
+                    dgcytof_clf.fit(X=x_train, y=y_train)
+                    return dgcytof_clf
+                fit_time_df, dgcytof_clf = scalability_wrapper(function=dummy_fit, track_gpu=True)
+                fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+                dgcytof_clf.save(filepath=save_p)
+
+            except Exception as e:
+                # Log errors
+                failure_combinations.append(f'{data_set}_{trafo}')
+                failure_points.append('fit')
+                error_types.append(type(e).__name__)
+                error_messages.append(str(e))
+
+                error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                continue
+
+        else:
+            try:
+                dgcytof_clf = DgcytofClassifier.load(filepath=save_p)
+            except FileNotFoundError:
+                print(f'# ### Classifier could not be trained without error. Continue.\n')
+                continue
+
+        if predict:
+            # Load the test data
+            x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+            try:
+                print('# ### Starting prediction ...')
+                def dummy_predict():
+                    return dgcytof_clf.predict(X=x_test)
+                pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
+                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+            except Exception as e:
+                failure_combinations.append(f'{data_set}_{trafo}')
+                failure_points.append('predict_concatenated')
+                error_types.append(type(e).__name__)
+                error_messages.append(str(e))
+
+                error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                continue
+
+            # Load the sample-wise test data
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+            samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+            samples_y_pred = []
+            samples_pred_time_dfs = []
+            successful_fit_idx = []
+            print('# ### Starting sample-wise prediction ...')
+            for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
+                try:
+                    def dummy_predict_sample():
+                        return dgcytof_clf.predict(X=x)
+                    pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
+                    pred_time_df_sample['sample_name'] = sn
+                    samples_y_pred.append(y_pred_sample)
+                    samples_pred_time_dfs.append(pred_time_df_sample)
+                    successful_fit_idx.append(i)
+
+                except Exception as e:
+                    nan_row = pd.DataFrame([{
+                        'sample_name': sn,
+                        'wall_time': np.nan,
+                        'mem_peak_cpu': np.nan,
+                        'mem_avg_cpu': np.nan,
+                        'samples_cpu': np.nan,
+                        'mem_peak_gpu': np.nan,
+                        'mem_avg_gpu': np.nan,
+                        'samples_gpu': np.nan,
+                    }])
+                    samples_pred_time_dfs.append(nan_row)
+                    failure_combinations.append(f'{data_set}_{trafo}')
+                    failure_points.append(f'predict_{sn}')
+                    error_types.append(type(e).__name__)
+                    error_messages.append(str(e))
+
+                    error_df = get_error_dataframe(
+                        failure_combinations, failure_points, error_types, error_messages
+                    )
+                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+
+            samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
+            samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+            os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+            for y, i in zip(samples_y_pred, successful_fit_idx):
+                np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
+
+        else:
+            # Load the predictions
+            try:
+                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+            except FileNotFoundError:
+                print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
+                continue
+
+            samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+            samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+            samples_y_pred = []
+            successful_fit_idx = []
+            for i, fn in enumerate(samples_y_pred_filenames):
+                try:
+                    samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
+                    successful_fit_idx.append(i)
+                except FileNotFoundError:
+                    print(
+                        f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
+                        f'Cannot include it in evaluation.\n'
+                    )
+                    continue
+
+        if evaluate:
+
+            # Load the labels of the test data
+            y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+            # Compute evaluation metrics for samples concatenated to one
+            out = eval_wrapper(
+                y_true=y_test,
+                y_pred=y_pred,
+                abstention_label=-1,  # Dgcytof can predict events to be of 'unknown'/-1 class
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2
+            )
+
+            out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+            out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+            out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+            out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+            # Get the sample-wise test data for which the prediction was successful
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
+            samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+            samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+            # Compute sample-wise evaluation metrics
+            out_sw = eval_wrapper_sample_wise(
+                y_trues=samples_y_test,
+                y_preds=samples_y_pred,
+                abstention_label=-1,  # Dgcytof can predict events to be of 'unknown'/-1 class
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2,
+            )
+
+            out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+            out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+            out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+            out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+            out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+            out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+            out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+            os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+            for cf_df, sn in zip(out_sw[6], sample_names):
+                cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
+def main_fcnn():
+    import os
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SoftmaxClassifier
+    from validation.utils import eval_wrapper, eval_wrapper_sample_wise, scalability_wrapper
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = [
+        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+    ]
+    pos_labels = [None, None, None, 1, 1, None]
+
+    preprocessing_trafo = 'log10_w_custom_cutoffs'
+
+    fit = True
+    predict = True
+    evaluate = True
+    ####################################################################################################################
+
+    for data_set, pos_label in zip(data_sets, pos_labels):
+
+        if preprocessing_trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
+            trafo = 'log10_cutoff100'
+        else:
+            trafo = preprocessing_trafo
+
+        print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+
+        # Check whether train data exists for this dataset and trafo, if not continue
+        data_p_default = os.path.join(f'./data/np_files/{data_set}/{trafo}')
+        data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
+        if os.path.exists(data_p_hpc):
+            data_p = data_p_hpc
+        elif os.path.exists(data_p_default):
+            data_p = data_p_default
+        else:
+            print(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".\nContinue.')
+            continue
+
+        # Define path where results will be saved to
+        save_p = os.path.join(os.getcwd(), f'results/pred_eval/fcnn/{data_set}/{trafo}')
+        os.makedirs(save_p, exist_ok=True)
+
+        if fit:
+
+            # Load training data
+            x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+            y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+            # Instantiate the Softmax classifier with default parameters
+            fcnn_clf = SoftmaxClassifier(
+                layer_sizes=(128, 64, 32),
+                n_epochs=20,
+                data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                device=None,  # Tries to use default cuda device, if none available cpu
+                verbosity=2
+            )
+
+            print('# ### Starting fit ...')
+            def dummy_fit():
+                fcnn_clf.fit(X=x_train, y=y_train)
+                return fcnn_clf
+
+            fit_time_df, fcnn_clf = scalability_wrapper(function=dummy_fit, track_gpu=True)
+            fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+            fcnn_clf.save(filepath=save_p)
+
+        else:
+            # Load the SOM classifier
+            fcnn_clf = SoftmaxClassifier.load(filepath=save_p)
+
+        if predict:
+            # Load the test data
+            x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+            print('# ### Starting prediction ...')
+            def dummy_predict():
+                return fcnn_clf.predict(X=x_test)
+            pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
+            pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+            np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+            # Load the sample-wise test data
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+            samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+            samples_y_pred = []
+            samples_pred_time_dfs = []
+
+            print('# ### Starting sample-wise prediction ...')
+            for x, sn in zip(samples_x_test, sample_names):
+                def dummy_predict_sample():
+                    return fcnn_clf.predict(X=x)
+                pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
+                pred_time_df_sample['sample_name'] = sn
+                samples_y_pred.append(y_pred_sample)
+                samples_pred_time_dfs.append(pred_time_df_sample)
+
+            samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
+            samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+            os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+            for y, sn in zip(samples_y_pred, sample_names):
+                np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+        else:
+            # Load the predictions
+            y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+
+            samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+            samples_y_pred_filenames = [
+                f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(len(os.listdir(samples_y_pred_p)))
+            ]
+            samples_y_pred = [np.load(os.path.join(samples_y_pred_p, fn)) for fn in samples_y_pred_filenames]
+
+        if evaluate:
+
+            # Load the labels of the test data
+            y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+            # Compute evaluation metrics for samples concatenated to one
+            out = eval_wrapper(
+                y_true=y_test,
+                y_pred=y_pred,
+                abstention_label=None,
+                others_label=None,
+                pos_label=pos_label,
+                verbosity=2
+            )
+
+            out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+            out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+            out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+
+            # Load the labels of the sample-wise test data
+            samples_p = os.path.join(data_p, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+            samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
+
+            # Compute sample-wise evaluation metrics
+            out_sw = eval_wrapper_sample_wise(
+                y_trues=samples_y_test,
+                y_preds=samples_y_pred,
+                abstention_label=None,
+                others_label=None,
+                pos_label=pos_label,
+                verbosity=2,
+            )
+
+            out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+            out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+            out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+            out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+            out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+            out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+            os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+            for cf_df, sn in zip(out_sw[6], sample_names):
+                cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
+
 
 
 if __name__ == '__main__':
@@ -853,5 +1741,13 @@ if __name__ == '__main__':
     # main_som_parameter_tuning()
 
     # main_som_n_epochs_calibration()
+
+    # main_som_classifier()
+
+    # main_gatemeclass()
+
+    # main_dgcytof()
+
+    # main_fcnn()
 
     print('done')
