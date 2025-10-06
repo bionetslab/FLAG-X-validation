@@ -858,6 +858,10 @@ def main_som_classifier():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
+    data_sets = ['imstat', ]  # todo
+    others_labels = [8, ]  # todo
+    pos_labels = [None, ]  # todo
+
     preprocessing_trafo = 'log10_w_custom_cutoffs'
 
     fit = True
@@ -896,16 +900,20 @@ def main_som_classifier():
             x_train = np.load(os.path.join(data_p, 'x_train.npy'))
             y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
+            x_train = x_train[0:100000, :]
+            y_train = y_train[0:100000]
+
+
             # Instantiate the SOM classifier
             # Todo: load/change params
             som_clf = SomClassifier(
                 som_topology='planar',
                 som_grid_type='rectangular',
-                som_dimensions=(25, 25),
+                som_dimensions=(10, 10),
                 neighborhood='gaussian',
                 gaussian_neighborhood_sigma=0.1,
                 initialization='pca',
-                n_epochs=1000,
+                n_epochs=10,
                 radius_0=-0.25,
                 radius_n=0.1,
                 radius_cooling='linear',
@@ -944,6 +952,7 @@ def main_som_classifier():
             # Load the sample-wise test data
             samples_p = os.path.join(data_p, 'sample_wise_test')
             n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+            n_samples = 6  # todo
             sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
             samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
             samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
@@ -952,7 +961,7 @@ def main_som_classifier():
             samples_pred_time_dfs = []
 
             print('# ### Starting sample-wise prediction ...')
-            for x, sn in zip(samples_x_test, samples_x_test_filenames):
+            for x, sn in zip(samples_x_test, sample_names):
                 def dummy_predict_sample():
                     return som_clf.predict(X=x)
                 pred_time_df_sample, y_pred_sample = scalability_wrapper(
@@ -1117,7 +1126,7 @@ def main_gatemeclass():
 
             # Define path where results will be saved to
             abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
-            save_p = os.path.join(os.getcwd(), f'results/pred_eval/gatemeclass{abstention_str}/{data_set}/{trafo}')
+            save_p = f'./results/gating_performance/gatemeclass{abstention_str}/{data_set}/{trafo}'
             os.makedirs(save_p, exist_ok=True)
 
             # Get the number of samples
@@ -1366,7 +1375,7 @@ def main_dgcytof():
             continue
 
         # Define path where results will be saved to
-        save_p = os.path.join(os.getcwd(), f'results/pred_eval/dgcytof/{data_set}/{trafo}')
+        save_p = f'./results/gating_performance/dgcytof/{data_set}/{trafo}'
         os.makedirs(save_p, exist_ok=True)
 
         # Get the number of samples
@@ -1573,6 +1582,9 @@ def main_fcnn():
     ]
     pos_labels = [None, None, None, 1, 1, None]
 
+    data_sets = ['imstat', ]  # todo
+    pos_labels = [None, ]  # todo
+
     preprocessing_trafo = 'log10_w_custom_cutoffs'
 
     fit = True
@@ -1602,7 +1614,7 @@ def main_fcnn():
             continue
 
         # Define path where results will be saved to
-        save_p = os.path.join(os.getcwd(), f'results/pred_eval/fcnn/{data_set}/{trafo}')
+        save_p = f'./results/gating_performance/fcnn/{data_set}/{trafo}'
         os.makedirs(save_p, exist_ok=True)
 
         if fit:
@@ -1610,6 +1622,9 @@ def main_fcnn():
             # Load training data
             x_train = np.load(os.path.join(data_p, 'x_train.npy'))
             y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+            x_train = x_train[0:100000, :]  # todo
+            y_train = y_train[0:100000]  # todo
 
             # Instantiate the Softmax classifier with default parameters
             fcnn_clf = SoftmaxClassifier(
@@ -1624,7 +1639,6 @@ def main_fcnn():
             def dummy_fit():
                 fcnn_clf.fit(X=x_train, y=y_train)
                 return fcnn_clf
-
             fit_time_df, fcnn_clf = scalability_wrapper(function=dummy_fit, track_gpu=True)
             fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
             fcnn_clf.save(filepath=save_p)
@@ -1647,6 +1661,7 @@ def main_fcnn():
             # Load the sample-wise test data
             samples_p = os.path.join(data_p, 'sample_wise_test')
             n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+            n_samples = 6  # todo
             sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
             samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
             samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
