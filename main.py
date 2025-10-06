@@ -604,7 +604,7 @@ def main_som_parameter_tuning():
     from validation.utils import set_pandas_print_options, get_downsampling_bool
 
     # ### Set flags and variables ######################################################################################
-    inference = False  # Whether to do the hyperparameter tuning or just view the results
+    inference = True  # Whether to do the hyperparameter tuning or just view the results
     trafo = 'log10_w_custom_cutoffs'
 
     random_seed = 42
