@@ -858,10 +858,6 @@ def main_som_classifier():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    data_sets = ['imstat', ]  # todo
-    others_labels = [8, ]  # todo
-    pos_labels = [None, ]  # todo
-
     preprocessing_trafo = 'log10_w_custom_cutoffs'
 
     fit = True
@@ -952,7 +948,6 @@ def main_som_classifier():
             # Load the sample-wise test data
             samples_p = os.path.join(data_p, 'sample_wise_test')
             n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
-            n_samples = 6  # todo
             sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
             samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
             samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
@@ -1582,9 +1577,6 @@ def main_fcnn():
     ]
     pos_labels = [None, None, None, 1, 1, None]
 
-    data_sets = ['imstat', ]  # todo
-    pos_labels = [None, ]  # todo
-
     preprocessing_trafo = 'log10_w_custom_cutoffs'
 
     fit = True
@@ -1623,9 +1615,6 @@ def main_fcnn():
             x_train = np.load(os.path.join(data_p, 'x_train.npy'))
             y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
-            x_train = x_train[0:100000, :]  # todo
-            y_train = y_train[0:100000]  # todo
-
             # Instantiate the Softmax classifier with default parameters
             fcnn_clf = SoftmaxClassifier(
                 layer_sizes=(128, 64, 32),
@@ -1661,7 +1650,6 @@ def main_fcnn():
             # Load the sample-wise test data
             samples_p = os.path.join(data_p, 'sample_wise_test')
             n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
-            n_samples = 6  # todo
             sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
             samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
             samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]

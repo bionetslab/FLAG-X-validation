@@ -5,8 +5,8 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --time=24:00:00
 #SBATCH --mem=240G
-#SBATCH --error=%j.error
-#SBATCH --output=%j.log
+#SBATCH --error=%x_%j.error
+#SBATCH --output=%x_%j.log
 #SBATCH --job-name=som_classifier
 #SBATCH --export=NONE
 

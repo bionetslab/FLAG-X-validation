@@ -24,5 +24,5 @@ export OMP_PROC_BIND=true
 cd $HOME/FLAG-X-validation
 
 echo "[$(date)] Starting FCNN training and inference ..."
-srun python scalability.py -m fcnn
+srun python run_experiments.py -m fcnn
 
