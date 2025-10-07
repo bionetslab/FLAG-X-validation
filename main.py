@@ -1341,10 +1341,10 @@ def main_dgcytof():
     evaluate = True
 
     data_sets = [
-        'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
+        'flowcyt', 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary'
     ]
-    others_labels = [8, None, None, None, None, 5]
-    pos_labels = [None, None, None, 1, 1, None]
+    others_labels = [5, 8, None, None, None, None]
+    pos_labels = [None, None, None, None, 1, 1]
 
     preprocessing_trafo = 'log10_w_custom_cutoffs'
 
@@ -1891,7 +1891,7 @@ if __name__ == '__main__':
 
     # main_som_parameter_influence_study()
 
-    # main_som_parameter_tuning()
+    main_som_parameter_tuning()
 
     # main_som_n_epochs_calibration()
 
