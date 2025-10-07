@@ -24,5 +24,5 @@ export OMP_PROC_BIND=true
 cd $HOME/FLAG-X-validation
 
 echo "[$(date)] Starting DGCyTOF training and inference ..."
-srun python run_experiments.py -m dgcytof
+python run_experiments.py -m dgcytof
 

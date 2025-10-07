@@ -1065,8 +1065,6 @@ def main_gatemeclass():
     others_labels = [8, None, None, None, None, 5]
     pos_labels = [None, None, None, 1, 1, None]
 
-    preprocessing_trafos = ['log10_w_custom_cutoffs', 'arcsinh_cofactor150']
-
     marker_names_imstat = [
         'FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO'
     ]
@@ -1096,6 +1094,7 @@ def main_gatemeclass():
         marker_names_flowcyt,
     ]
 
+    preprocessing_trafo = 'arcsinh_cofactor150'  # 'log10_w_custom_cutoffs', 'arcsinh_cofactor150'
 
     ####################################################################################################################
 
@@ -1108,223 +1107,225 @@ def main_gatemeclass():
     for data_set, others_label, pos_label, marker_names  in zip(
             data_sets, others_labels, pos_labels, marker_names_list
     ):
-        for trafo in preprocessing_trafos:
 
-            if trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
-                trafo = 'log10_cutoff100'
 
-            print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
+        if preprocessing_trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
+            trafo = 'log10_cutoff100'
+        else:
+            trafo = preprocessing_trafo
 
-            # Check whether train data exists for this dataset and trafo, if not continue
-            data_p_default = os.path.join(f'./data/np_files/{data_set}/{trafo}')
-            data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+        print(f'# ###### Data set: {data_set}, trafo: {trafo} ###### #')
 
-            if os.path.exists(data_p_hpc):
-                data_p = data_p_hpc
-            elif os.path.exists(data_p_default):
-                data_p = data_p_default
-            else:
-                print(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".\nContinue.')
+        # Check whether train data exists for this dataset and trafo, if not continue
+        data_p_default = os.path.join(f'./data/np_files/{data_set}/{trafo}')
+        data_p_hpc = f'/home/woody/iwbn/iwbn107h/data/np_files/{data_set}/{trafo}'
+
+        if os.path.exists(data_p_hpc):
+            data_p = data_p_hpc
+        elif os.path.exists(data_p_default):
+            data_p = data_p_default
+        else:
+            print(f'\n# ### No data found at:\nhpc: "{data_p_hpc}"\ndefault: "{data_p_default}".\nContinue.')
+            continue
+
+        # Define path where results will be saved to
+        abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
+        save_p = f'./results/gating_performance/gatemeclass{abstention_str}/{data_set}/{trafo}'
+        os.makedirs(save_p, exist_ok=True)
+
+        # Get the number of samples
+        samples_p = os.path.join(data_p, 'sample_wise_test')
+        n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+
+        if fit:
+
+            # Load training data
+            x_train = np.load(os.path.join(data_p, 'x_train.npy'))
+            y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+
+            # Instantiate the GMC classifier with default parameters
+            gmc_clf = GateMeClassClassifier(
+                marker_names=marker_names,
+                gmc_gmm_parameterization='V',
+                gmc_k=20,
+                gmc_sampling=0.1,
+                gmc_reject_option=allow_abstention,
+                gmc_seed=1,
+                time_fit_pred=True,
+                verbosity=1
+            )
+
+            try:
+                # Fit and track time
+                def dummy_fit():
+                    gmc_clf.fit(X=x_train, y=y_train)
+                    return gmc_clf
+                fit_time_df, gmc_clf = scalability_wrapper(function=dummy_fit)
+                fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+                gmc_clf.save(filepath=save_p)
+
+            except Exception as e:
+                # Log errors
+                failure_combinations.append(f'{data_set}_{trafo}')
+                failure_points.append('fit')
+                error_types.append(type(e).__name__)
+                error_messages.append(str(e))
+
+                error_df = get_error_dataframe(failure_combinations, failure_points, error_types ,error_messages)
+                error_df.to_csv(os.path.join(save_p, 'errors.csv'))
                 continue
 
-            # Define path where results will be saved to
-            abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
-            save_p = f'./results/gating_performance/gatemeclass{abstention_str}/{data_set}/{trafo}'
-            os.makedirs(save_p, exist_ok=True)
+        else:
+            # Load the GMC classifier
+            try:
+                gmc_clf = GateMeClassClassifier.load(filepath=save_p)
+            except FileNotFoundError:
+                print(f'# ### Classifier could not be trained without error. Continue.\n')
+                continue
 
-            # Get the number of samples
-            samples_p = os.path.join(data_p, 'sample_wise_test')
-            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+        if predict:
+            # Load the test data
+            x_test = np.load(os.path.join(data_p, 'x_test.npy'))
 
-            if fit:
+            try:
+                print('# ### Starting prediction ...')
+                def dummy_predict():
+                    return gmc_clf.predict(X=x_test)
+                pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
+                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
 
-                # Load training data
-                x_train = np.load(os.path.join(data_p, 'x_train.npy'))
-                y_train = np.load(os.path.join(data_p, 'y_train.npy'))
+            except Exception as e:
+                failure_combinations.append(f'{data_set}_{trafo}')
+                failure_points.append('predict_concatenated')
+                error_types.append(type(e).__name__)
+                error_messages.append(str(e))
 
-                # Instantiate the GMC classifier with default parameters
-                gmc_clf = GateMeClassClassifier(
-                    marker_names=marker_names,
-                    gmc_gmm_parameterization='V',
-                    gmc_k=20,
-                    gmc_sampling=0.1,
-                    gmc_reject_option=allow_abstention,
-                    gmc_seed=1,
-                    time_fit_pred=True,
-                    verbosity=1
-                )
+                error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+                error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+                continue
 
+            # Load the sample-wise test data
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+            samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
+            samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+
+            samples_y_pred = []
+            samples_pred_time_dfs = []
+            successful_fit_idx = []
+            print('# ### Starting sample-wise prediction ...')
+            for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
                 try:
-                    # Fit and track time
-                    def dummy_fit():
-                        gmc_clf.fit(X=x_train, y=y_train)
-                        return gmc_clf
-                    fit_time_df, gmc_clf = scalability_wrapper(function=dummy_fit)
-                    fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
-                    gmc_clf.save(filepath=save_p)
-
+                    def dummy_predict_sample():
+                        return gmc_clf.predict(X=x)
+                    pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
+                    pred_time_df_sample['sample_name'] = sn
+                    samples_y_pred.append(y_pred_sample)
+                    samples_pred_time_dfs.append(pred_time_df_sample)
+                    successful_fit_idx.append(i)
                 except Exception as e:
-                    # Log errors
+                    nan_row = pd.DataFrame([{
+                        'sample_name': sn,
+                        'wall_time': np.nan,
+                        'mem_peak_cpu': np.nan,
+                        'mem_avg_cpu': np.nan,
+                        'samples_cpu': np.nan,
+                        'mem_peak_gpu': np.nan,
+                        'mem_avg_gpu': np.nan,
+                        'samples_gpu': np.nan,
+                    }])
+                    samples_pred_time_dfs.append(nan_row)
                     failure_combinations.append(f'{data_set}_{trafo}')
-                    failure_points.append('fit')
+                    failure_points.append(f'predict_{sn}')
                     error_types.append(type(e).__name__)
                     error_messages.append(str(e))
 
-                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types ,error_messages)
+                    error_df = get_error_dataframe(
+                        failure_combinations, failure_points, error_types, error_messages
+                    )
                     error_df.to_csv(os.path.join(save_p, 'errors.csv'))
-                    continue
 
-            else:
-                # Load the GMC classifier
+            samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
+            samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+            os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+            for y, i in zip(samples_y_pred, successful_fit_idx):
+                np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
+
+        else:
+            # Load the predictions
+            try:
+                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+            except FileNotFoundError:
+                print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
+                continue
+
+            samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
+            samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
+
+            samples_y_pred = []
+            successful_fit_idx = []
+            for i, fn in enumerate(samples_y_pred_filenames):
                 try:
-                    gmc_clf = GateMeClassClassifier.load(filepath=save_p)
+                    samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
+                    successful_fit_idx.append(i)
                 except FileNotFoundError:
-                    print(f'# ### Classifier could not be trained without error. Continue.\n')
+                    print(
+                        f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
+                        f'Cannot include it in evaluation.\n'
+                    )
                     continue
 
-            if predict:
-                # Load the test data
-                x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+        if evaluate:
 
-                try:
-                    print('# ### Starting prediction ...')
-                    def dummy_predict():
-                        return gmc_clf.predict(X=x_test)
-                    pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
-                    pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
-                    np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+            # Load the labels of the test data
+            y_test = np.load(os.path.join(data_p, 'y_test.npy'))
 
-                except Exception as e:
-                    failure_combinations.append(f'{data_set}_{trafo}')
-                    failure_points.append('predict_concatenated')
-                    error_types.append(type(e).__name__)
-                    error_messages.append(str(e))
+            # Compute evaluation metrics for samples concatenated to one
+            out = eval_wrapper(
+                y_true=y_test,
+                y_pred=y_pred,
+                abstention_label=abstention_label,
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2
+            )
 
-                    error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
-                    error_df.to_csv(os.path.join(save_p, 'errors.csv'))
-                    continue
+            out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+            out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+            out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+            if abstention_label is not None:
+                out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
 
-                # Load the sample-wise test data
-                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
-                samples_x_test_filenames = [f'x_{sn}.npy' for sn in sample_names]
-                samples_x_test = [np.load(os.path.join(samples_p, f)) for f in samples_x_test_filenames]
+            # Get the sample-wise test data for which the prediction was successful
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
+            samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
+            samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
 
-                samples_y_pred = []
-                samples_pred_time_dfs = []
-                successful_fit_idx = []
-                print('# ### Starting sample-wise prediction ...')
-                for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
-                    try:
-                        def dummy_predict_sample():
-                            return gmc_clf.predict(X=x)
-                        pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
-                        pred_time_df_sample['sample_name'] = sn
-                        samples_y_pred.append(y_pred_sample)
-                        samples_pred_time_dfs.append(pred_time_df_sample)
-                        successful_fit_idx.append(i)
-                    except Exception as e:
-                        nan_row = pd.DataFrame([{
-                            'sample_name': sn,
-                            'wall_time': np.nan,
-                            'mem_peak_cpu': np.nan,
-                            'mem_avg_cpu': np.nan,
-                            'samples_cpu': np.nan,
-                            'mem_peak_gpu': np.nan,
-                            'mem_avg_gpu': np.nan,
-                            'samples_gpu': np.nan,
-                        }])
-                        samples_pred_time_dfs.append(nan_row)
-                        failure_combinations.append(f'{data_set}_{trafo}')
-                        failure_points.append(f'predict_{sn}')
-                        error_types.append(type(e).__name__)
-                        error_messages.append(str(e))
+            # Compute sample-wise evaluation metrics
+            out_sw = eval_wrapper_sample_wise(
+                y_trues=samples_y_test,
+                y_preds=samples_y_pred,
+                abstention_label=abstention_label,
+                others_label=others_label,
+                pos_label=pos_label,
+                verbosity=2,
+            )
 
-                        error_df = get_error_dataframe(
-                            failure_combinations, failure_points, error_types, error_messages
-                        )
-                        error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+            out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+            out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+            out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
 
-                samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
-                samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+            out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+            out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+            out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
 
-                os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
-                for y, i in zip(samples_y_pred, successful_fit_idx):
-                    np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
+            if abstention_label is not None:
+                out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
 
-            else:
-                # Load the predictions
-                try:
-                    y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
-                except FileNotFoundError:
-                    print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
-                    continue
-
-                samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
-                samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-
-                samples_y_pred = []
-                successful_fit_idx = []
-                for i, fn in enumerate(samples_y_pred_filenames):
-                    try:
-                        samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
-                        successful_fit_idx.append(i)
-                    except FileNotFoundError:
-                        print(
-                            f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
-                            f'Cannot include it in evaluation.\n'
-                        )
-                        continue
-
-            if evaluate:
-
-                # Load the labels of the test data
-                y_test = np.load(os.path.join(data_p, 'y_test.npy'))
-
-                # Compute evaluation metrics for samples concatenated to one
-                out = eval_wrapper(
-                    y_true=y_test,
-                    y_pred=y_pred,
-                    abstention_label=abstention_label,
-                    others_label=others_label,
-                    pos_label=pos_label,
-                    verbosity=2
-                )
-
-                out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
-                out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
-                out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
-                if abstention_label is not None:
-                    out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
-
-                # Get the sample-wise test data for which the prediction was successful
-                sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
-                samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
-                samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
-
-                # Compute sample-wise evaluation metrics
-                out_sw = eval_wrapper_sample_wise(
-                    y_trues=samples_y_test,
-                    y_preds=samples_y_pred,
-                    abstention_label=abstention_label,
-                    others_label=others_label,
-                    pos_label=pos_label,
-                    verbosity=2,
-                )
-
-                out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
-                out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
-                out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
-
-                out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
-                out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
-                out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
-
-                if abstention_label is not None:
-                    out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
-
-                os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
-                for cf_df, sn in zip(out_sw[6], sample_names):
-                    cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+            os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+            for cf_df, sn in zip(out_sw[6], sample_names):
+                cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
 def main_dgcytof():
@@ -1891,7 +1892,7 @@ if __name__ == '__main__':
 
     # main_som_parameter_influence_study()
 
-    main_som_parameter_tuning()
+    # main_som_parameter_tuning()
 
     # main_som_n_epochs_calibration()
 
