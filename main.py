@@ -1752,7 +1752,7 @@ def main_num_samples_num_events_experiment():
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'imstat'
+    data_set = 'flowcyt'
     # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
 
     random_sample_order = True
@@ -1786,6 +1786,7 @@ def main_num_samples_num_events_experiment():
     if not random_sample_order:
         if data_set in {'imstat', 'flowcyt'}:
             print(f'No sample order available for {data_set}. Continuing with random order.')
+            quit()
         else:
             fn_str = 'lymphoma_tube1' if data_set in {'lymphoma_tube1', 'lymphoma_tube1_binary'} else 'lymphoma_tube2'
             sample_order_file = os.path.join(base_p, f'sample_order_{fn_str}.txt')
@@ -1867,6 +1868,354 @@ def main_num_samples_num_events_experiment():
     plt.savefig(os.path.join(save_p, 'macro_f1.png'), dpi=300)
 
 
+def main_random_sample_order_trials():
+    import os
+    import random
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.utils import eval_wrapper_sample_wise
+
+    # ### Set flags and important variables here #######################################################################
+    data_set = 'lymphoma_tube1'
+    # 'lymphoma_tube1', 'lymphoma_tube1_binary', 'lymphoma_tube2', 'lymphoma_tube2_binary'
+
+    classifier = 'fcnn'  # 'som', 'fcnn'
+
+    max_n_samples = 21
+
+    n_trials = 100
+
+    ####################################################################################################################
+
+    preprocessing_trafo = 'log10_w_custom_cutoffs'
+
+    # Set the positive label
+    if data_set in {'lymphoma_tube1_binary', 'lymphoma_tube2_binary'}:
+        pos_label = 1
+    else:
+        pos_label = None
+
+    # Set the abstention label
+    abstention_label = -1 if classifier == 'som' else None
+
+    # Set the save_path
+    save_p = os.path.join('./results/random_sample_order_trials', classifier, data_set, preprocessing_trafo)
+    os.makedirs(save_p, exist_ok=True)
+
+    # Set the data path
+    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo)
+
+    # Set the random seeds
+    random.seed(42)
+    np.random.seed(42)
+
+    # Load the sample-wise test data
+    samples_p_test = os.path.join(data_p, 'sample_wise_test')
+    n_samples_test = len([f for f in os.listdir(samples_p_test) if f.startswith('x_')])
+    sample_names_test = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples_test)]
+    samples_x_test = [np.load(os.path.join(samples_p_test, f'x_{sn}.npy')) for sn in sample_names_test]
+    samples_y_test = [np.load(os.path.join(samples_p_test, f'y_{sn}.npy')) for sn in sample_names_test]
+
+    # Get the sample names of the train data
+    samples_p_train = os.path.join(data_p, 'sample_wise_train')
+    n_samples_train = len([f for f in os.listdir(samples_p_train) if f.startswith('x_')])
+    sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
+
+    # Init dfs to track performance, prec, rec, f1, micro, macro, weighted, binary (if available)
+    dummy_df = pd.DataFrame(np.nan, index=list(range(n_trials)), columns=list(range(1, max_n_samples + 1)))
+    n_modes = 3 if pos_label is None else 4
+    res_dfs = [dummy_df.copy() for _ in range(n_modes * 3)]
+    metrics = ['prec', ] * n_modes + ['rec', ] * n_modes + ['f1'] * n_modes
+    modes = ['micro', 'macro', 'weighted'] * 3 if pos_label is None else ['micro', 'macro', 'weighted', 'binary'] * 3
+
+    train_samples_df = dummy_df.copy().astype(str)
+
+    for n in range(n_trials):
+        # Pick random training samples and load them
+        selected_train_samples = random.sample(sample_names_train, max_n_samples)
+        samples_x_train = [np.load(os.path.join(samples_p_train, f'x_{sn}.npy')) for sn in selected_train_samples]
+        samples_y_train = [np.load(os.path.join(samples_p_train, f'y_{sn}.npy')) for sn in selected_train_samples]
+
+        train_samples_df.loc[n, :] = selected_train_samples
+        train_samples_df.to_csv(os.path.join(save_p, 'train_samples.csv'))
+
+        for i in range(1, max_n_samples + 1):
+
+            # Select the samples to train with
+            current_x_trains = samples_x_train[0:i]
+            current_y_trains = samples_y_train[0:i]
+
+            # Concatenate and shuffle rows
+            x_train = np.concatenate(current_x_trains, axis=0)
+            y_train = np.concatenate(current_y_trains, axis=0)
+            shuffle_permutation = np.random.permutation(x_train.shape[0])
+            x_train = x_train[shuffle_permutation, :]
+            y_train = y_train[shuffle_permutation]
+
+            # Instantiate classifier
+            if classifier == 'som':  # Todo: parameters
+                clf = SomClassifier(
+                    som_topology='planar',
+                    som_grid_type='rectangular',
+                    som_dimensions=(25, 25),
+                    neighborhood='gaussian',
+                    gaussian_neighborhood_sigma=0.1,
+                    initialization='pca',
+                    n_epochs=1000,
+                    radius_0=-0.25,
+                    radius_n=0.1,
+                    radius_cooling='linear',
+                    learning_rate_0=0.1,
+                    learning_rate_n=0.05,
+                    learning_rate_decay='exponential',
+                    verbosity=2,
+                )
+            else:
+                clf = SoftmaxClassifier(
+                    layer_sizes=(128, 64, 32),
+                    n_epochs=20,
+                    data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 3},
+                    device=None,  # Tries to use default cuda device, if none available cpu
+                    verbosity=2
+                )
+
+            # ### Fit the classifier
+            clf.fit(X=x_train, y=y_train)
+
+            # ### Predict
+            samples_y_pred = []
+            for x, sn in zip(samples_x_test, sample_names_test):
+                samples_y_pred.append(clf.predict(X=x))
+
+            # ### Evaluate
+            # Compute sample-wise evaluation metrics
+            out_sw = eval_wrapper_sample_wise(
+                y_trues=samples_y_test,
+                y_preds=samples_y_pred,
+                abstention_label=abstention_label,
+                others_label=None,
+                pos_label=pos_label,
+                verbosity=2,
+            )
+
+            # Save results
+            for res_df, metric, mode in zip(res_dfs, metrics, modes):
+
+                if metric == 'prec':
+                    out_df = out_sw[0]
+                elif metric == 'rec':
+                    out_df = out_sw[1]
+                else:  # f1
+                    out_df = out_sw[2]
+
+                res_df.loc[n, i] = out_df.loc['mean', mode]
+
+                res_df.to_csv(os.path.join(save_p, f'res_df_{metric}_{mode}.csv'))
+
+
+def main_local_training():
+    import os
+    import random
+    import numpy as np
+    import pandas as pd
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from validation.utils import eval_wrapper, eval_wrapper_sample_wise, scalability_wrapper, get_downsampling_bool
+
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = [
+        'flowcyt', 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary'
+    ]
+    others_labels = [5, 8, None, None, None, None]
+    pos_labels = [None, None, None, None, 1, 1]
+    num_samples = [5, 10, 10, 10, 10, 10]
+
+    gating_method = 'fcnn'  # 'som', 'fcnn'
+
+    num_events = 20000  # 'all'  # todo: set to sensible value
+
+    ####################################################################################################################
+
+    abstention_label = -1 if gating_method == 'som' else None
+
+    for data_set, others_label, pos_label, n in zip(data_sets, others_labels, pos_labels, num_samples):
+
+        preprocessing_trafo = 'log10_w_custom_cutoffs' if data_set != 'flowcyt' else 'log10_cutoff100'
+
+        # Set random seed anew in each iteration
+        random.seed(42)
+        np.random.seed(42)
+
+        print(f'# ###### Data set: {data_set} ###### #')
+
+        # Define path where results will be saved to
+        save_p = os.path.join(os.getcwd(), f'results/local_training/{gating_method}/{data_set}/{preprocessing_trafo}')
+        os.makedirs(save_p, exist_ok=True)
+
+        # --- Model fitting
+        # Load training data
+        data_p = os.path.join(os.getcwd(), f'data/np_files/{data_set}/{preprocessing_trafo}')
+        data_p_train = os.path.join(data_p, 'sample_wise_train')
+        n_samples_train = len(
+            [fn for fn in os.listdir(data_p_train) if fn.startswith('x_')])
+        sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
+
+        # Sample n sample names from list
+        sample_names_train = random.sample(sample_names_train, k=n)
+
+        with open(os.path.join(save_p, 'train_samples.txt'), 'w') as f:
+            for s in sample_names_train:
+                f.write(s + "\n")
+
+        x_trains = [np.load(os.path.join(data_p_train, f'x_{sn}.npy')) for sn in sample_names_train]
+        y_trains = [np.load(os.path.join(data_p_train, f'y_{sn}.npy')) for sn in sample_names_train]
+
+        # Downsample sample-wise
+        if num_events != 'all':
+            keep_bools = []
+            for y in y_trains:
+
+                ds_keep_bool = get_downsampling_bool(
+                    y=y, target_num_events=num_events, stratified=True
+                )
+                keep_bools.append(ds_keep_bool)
+
+            x_trains = [x[kb, :] for x, kb in zip(x_trains, keep_bools)]
+            y_trains = [y[kb] for y, kb in zip(y_trains, keep_bools)]
+
+        x_train = np.concatenate(x_trains)
+        y_train = np.concatenate(y_trains)
+
+        permutation_indices = np.random.permutation(y_train.shape[0])
+        x_train = x_train[permutation_indices, :]
+        y_train = y_train[permutation_indices]
+
+        if gating_method == 'som':
+            # Instantiate the SOM classifier  # todo: parameters
+            clf = SomClassifier(
+                som_topology='planar',
+                som_grid_type='rectangular',
+                som_dimensions=(25, 25),
+                neighborhood='gaussian',
+                gaussian_neighborhood_sigma=0.1,
+                initialization='pca',
+                n_epochs=1000,
+                radius_0=-0.25,
+                radius_n=0.1,
+                radius_cooling='linear',
+                learning_rate_0=0.1,
+                learning_rate_n=0.05,
+                learning_rate_decay='exponential',
+                verbosity=2,
+            )
+        else:  # fcnn
+            clf = SoftmaxClassifier(
+                layer_sizes=(128, 64, 32),
+                n_epochs=20,
+                data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
+                device=None,  # Tries to use default cuda device, if none available cpu
+                verbosity=2
+            )
+
+        # Fit and track time
+        print('# ### Starting fit ...')
+        def dummy_fit():
+            clf.fit(X=x_train, y=y_train)
+            return clf
+        fit_time_df, clf = scalability_wrapper(function=dummy_fit, track_gpu=True if gating_method == 'fcnn' else False)
+        fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
+        clf.save(filepath=save_p)
+
+        # --- Prediction
+        # Load the test data
+        x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+
+        print('# ### Starting prediction ...')
+        def dummy_predict():
+            return clf.predict(X=x_test)
+        pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
+        pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+        np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+        # Load the sample-wise test data
+        samples_p = os.path.join(data_p, 'sample_wise_test')
+        n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+        sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+        samples_x_test = [np.load(os.path.join(samples_p, f'x_{sn}.npy')) for sn in sample_names]
+
+        print('# ### Starting sample-wise prediction ...')
+        samples_y_pred = []
+        samples_pred_time_dfs = []
+        for x, sn in zip(samples_x_test, sample_names):
+            def dummy_predict_sample():
+                return clf.predict(X=x)
+            pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
+            pred_time_df_sample['sample_name'] = sn
+            samples_y_pred.append(y_pred_sample)
+            samples_pred_time_dfs.append(pred_time_df_sample)
+
+        samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
+        samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
+
+        os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+        for y, sn in zip(samples_y_pred, sample_names):
+            np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
+
+        # --- Evaluation
+        # Load the labels of the test data
+        y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+
+        # Compute evaluation metrics for samples concatenated to one
+        out = eval_wrapper(
+            y_true=y_test,
+            y_pred=y_pred,
+            abstention_label=abstention_label,
+            others_label=others_label,
+            pos_label=pos_label,
+            verbosity=2
+        )
+
+        out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+        out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+        out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+        if gating_method == 'som':
+            out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+        # Load the labels of the sample-wise test data
+        samples_p = os.path.join(data_p, 'sample_wise_test')
+        n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+        sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+        samples_y_test = [np.load(os.path.join(samples_p, f'y_{sn}.npy')) for sn in sample_names]
+
+        # Compute sample-wise evaluation metrics
+        out_sw = eval_wrapper_sample_wise(
+            y_trues=samples_y_test,
+            y_preds=samples_y_pred,
+            abstention_label=abstention_label,
+            others_label=others_label,
+            pos_label=pos_label,
+            verbosity=2,
+        )
+
+        out_sw[0].to_csv(os.path.join(save_p, 'res_df_sw_avg_prec.csv'))
+        out_sw[1].to_csv(os.path.join(save_p, 'res_df_sw_avg_rec.csv'))
+        out_sw[2].to_csv(os.path.join(save_p, 'res_df_sw_avg_f1.csv'))
+
+        out_sw[3].to_csv(os.path.join(save_p, 'res_df_sw_cw_prec.csv'))
+        out_sw[4].to_csv(os.path.join(save_p, 'res_df_sw_cw_rec.csv'))
+        out_sw[5].to_csv(os.path.join(save_p, 'res_df_sw_cw_f1.csv'))
+
+        if gating_method == 'som':
+            out_sw[7].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+
+        os.makedirs(os.path.join(save_p, 'confusion_matrices_sw'), exist_ok=True)
+        for cf_df, sn in zip(out_sw[6], sample_names):
+            cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
+
+
 
 if __name__ == '__main__':
 
@@ -1886,6 +2235,15 @@ if __name__ == '__main__':
 
     # main_fcnn()
 
-    main_num_samples_num_events_experiment()
+    # main_num_samples_num_events_experiment()
+
+    # main_local_training()
 
     print('done')
+
+    # Todo:
+    #  - num epochs calibration
+    #  - som on hpc
+    #  - num samples num events for som
+    #  - random_sample_order_trials
+    #  - local training
