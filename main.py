@@ -1741,8 +1741,7 @@ def main_fcnn():
                 cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
-# Todo:
-def main_num_samples_experiment():
+def main_num_samples_num_events_experiment():
     import os
     import numpy as np
     import pandas as pd
@@ -1753,42 +1752,43 @@ def main_num_samples_experiment():
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'lymphoma_tube1'
+    data_set = 'imstat'
     # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
 
-    preprocessing_trafo = 'log10_channelwisecutoff'
-    # 'arcsinh_cofactor150', 'log10_channelwisecutoff', 'log10_cutoff100'
+    random_sample_order = True
 
-    random_sample_order = False
-
-    classifier = 'softmax'  # 'som', 'softmax'
+    classifier = 'fcnn'  # 'som', 'fcnn'
 
     inference = True
 
+    preprocessing_trafo = 'log10_w_custom_cutoffs'
+
     if data_set == 'flowcyt':
-        n_samples = list(range(1,6)) + list(range(10, 22, 5)) + [22, ]
+        n_samples = list(range(1,6)) + list(range(10, 16, 5)) + [18, ]
     elif data_set == 'imstat':
         n_samples = list(range(1,21)) + list(range(25, 76, 5))
     else:
-        n_samples = list(range(1,21)) + list(range(25, 71, 5)) + [73, ]
+        n_samples = list(range(1,21)) + list(range(25, 56, 5)) + [58, ]
 
     n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
 
     ####################################################################################################################
 
+    if preprocessing_trafo == 'log10_w_custom_cutoffs' and data_set == 'flowcyt':
+        preprocessing_trafo = 'log10_cutoff100'
+
     np.random.seed(42)
 
-    base_p = os.path.join(os.getcwd(), 'results/n_samples_n_events')
+    base_p = os.path.join(os.getcwd(), 'results/num_samples_num_events')
 
     # Load the sample order file
     sample_order_file = None
     if not random_sample_order:
-        if data_set != 'lymphoma_tube1_binary':
+        if data_set in {'imstat', 'flowcyt'}:
             print(f'No sample order available for {data_set}. Continuing with random order.')
         else:
-            sample_order_file = os.path.join(
-                base_p, f'sample_order_{data_set}_{preprocessing_trafo}.txt'
-            )
+            fn_str = 'lymphoma_tube1' if data_set in {'lymphoma_tube1', 'lymphoma_tube1_binary'} else 'lymphoma_tube2'
+            sample_order_file = os.path.join(base_p, f'sample_order_{fn_str}.txt')
 
     # Set the others label
     if data_set == 'imstat':
@@ -1820,42 +1820,23 @@ def main_num_samples_experiment():
     if inference:
         if classifier == 'som':
             # Instantiate the SOM classifier
-            if preprocessing_trafo == 'arcsinh_cofactor150':
-
-                clf = SomClassifier(
-                    som_topology='planar',
-                    som_grid_type='rectangular',
-                    som_dimensions=(25, 25),
-                    neighborhood='gaussian',
-                    gaussian_neighborhood_sigma=0.25,
-                    initialization='pca',
-                    n_epochs=200,
-                    radius_0=-0.25,
-                    radius_n=0.01,
-                    radius_cooling='linear',
-                    learning_rate_0=0.5,
-                    learning_rate_n=0.05,
-                    learning_rate_decay='exponential',
-                    verbosity=2,
-                )
-            else:
-                clf = SomClassifier(
-                    som_topology='planar',
-                    som_grid_type='rectangular',
-                    som_dimensions=(25, 25),
-                    neighborhood='gaussian',
-                    gaussian_neighborhood_sigma=0.1,
-                    initialization='pca',
-                    n_epochs=1000,
-                    radius_0=-0.25,
-                    radius_n=0.1,
-                    radius_cooling='linear',
-                    learning_rate_0=0.1,
-                    learning_rate_n=0.05,
-                    learning_rate_decay='exponential',
-                    verbosity=2,
-                )
-        else:
+            clf = SomClassifier(
+                som_topology='planar',
+                som_grid_type='rectangular',
+                som_dimensions=(25, 25),
+                neighborhood='gaussian',
+                gaussian_neighborhood_sigma=0.1,
+                initialization='pca',
+                n_epochs=1000,
+                radius_0=-0.25,
+                radius_n=0.1,
+                radius_cooling='linear',
+                learning_rate_0=0.1,
+                learning_rate_n=0.05,
+                learning_rate_decay='exponential',
+                verbosity=2,
+            )
+        else:  # FCNN
             clf = SoftmaxClassifier(
                 layer_sizes=(128, 64, 32),
                 n_epochs=20,
@@ -1874,6 +1855,7 @@ def main_num_samples_experiment():
             others_label=others_label,
             pos_label=pos_label,
             sample_order_file=sample_order_file,
+            track_gpu=True if classifier == 'fcnn' else False,
         )
 
     res_df = pd.read_csv(os.path.join(save_p, 'res_df_f1_macro.csv'), index_col=0)
@@ -1903,5 +1885,7 @@ if __name__ == '__main__':
     # main_dgcytof()
 
     # main_fcnn()
+
+    main_num_samples_num_events_experiment()
 
     print('done')

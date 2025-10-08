@@ -513,6 +513,7 @@ def n_samples_experiment_helper(
         others_label: Union[int, None] = None,
         pos_label: Union[int, None] = None,
         sample_order_file: Union[str, None] = None,
+        track_gpu: bool = False,
         seed: Union[int, None] = None,
 ):
 
@@ -618,54 +619,34 @@ def n_samples_experiment_helper(
 
         # ### Fit the classifier
         print('# ### Starting fit ...')
-        st_fit = time.time()
-        clf.fit(X=x_train, y=y_train)
-        et_fit = time.time()
-        fit_time_sek = et_fit - st_fit
-        fit_time_str, h, m, s = get_time_str(seconds=fit_time_sek)
-        print(f'# ### Fit finished, time: {fit_time_sek} s = {fit_time_str}\n')
-
-        fit_time_df = pd.DataFrame(
-            data=[[fit_time_sek, h, m, s]], index=['fit_time'], columns=['total s', 'h', 'm', 's']
-        )
+        def dummy_fit():
+            clf.fit(X=x_train, y=y_train)
+            return clf
+        fit_time_df, clf = scalability_wrapper(function=dummy_fit, track_gpu=track_gpu)
         fit_time_df.to_csv(os.path.join(current_save_p, 'fit_time_df.csv'))
-
         clf.save(filepath=current_save_p)
 
         # ### Predict
         print('# ### Starting prediction ...')
-        st_pred = time.time()
-        y_pred = clf.predict(X=x_test)
-        et_pred = time.time()
-        pred_time_sek = et_pred - st_pred
-        pred_time_str, h, m, s = get_time_str(seconds=pred_time_sek)
-        print(f'# ### Prediction finished, time: {pred_time_sek} s = {pred_time_str}\n')
-
-        pred_time_df = pd.DataFrame(
-            data=[[pred_time_sek, h, m, s]], index=['pred_time'], columns=['total s', 'h', 'm', 's']
-        )
+        def dummy_predict():
+            return clf.predict(X=x_test)
+        pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
         pred_time_df.to_csv(os.path.join(current_save_p, 'pred_time_df.csv'))
-
         np.save(os.path.join(current_save_p, 'y_pred.npy'), y_pred)
 
         print('# ### Starting sample-wise prediction ...')
         samples_y_pred = []
-        samples_pred_times = []
+        samples_pred_time_dfs = []
         for x, sn in zip(samples_x_test, sample_names_test):
-            st = time.time()
-            samples_y_pred.append(clf.predict(X=x))
-            et = time.time()
-            samples_pred_times.append(et - st)
+            def dummy_predict_sample():
+                return clf.predict(X=x)
+            pred_time_df_sample, y_pred_sample = scalability_wrapper(function=dummy_predict_sample)
+            pred_time_df_sample['sample_name'] = sn
+            samples_y_pred.append(y_pred_sample)
+            samples_pred_time_dfs.append(pred_time_df_sample)
 
-        samples_pred_times_df = pd.DataFrame(index=sample_names_test, columns=['pred_time'])
-        samples_pred_times_df['pred_time'] = samples_pred_times
-        m = samples_pred_times_df['pred_time'].mean(axis=0)
-        std = samples_pred_times_df['pred_time'].std(axis=0)
-        samples_pred_times_df.loc['mean'] = m
-        samples_pred_times_df.loc['std'] = std
+        samples_pred_times_df = pd.concat(samples_pred_time_dfs, ignore_index=True)
         samples_pred_times_df.to_csv(os.path.join(current_save_p, 'samples_pred_times_df.csv'))
-
-        print(f'# ### Sample-wise prediction finished, avg time per sample: {m}\n')
 
         os.makedirs(os.path.join(current_save_p, 'samples_y_pred'), exist_ok=True)
         for y, sn in zip(samples_y_pred, sample_names_test):
