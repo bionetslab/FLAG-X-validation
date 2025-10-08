@@ -1430,26 +1430,26 @@ def main_dgcytof():
                 continue
 
         if predict:
-            # Load the test data
-            x_test = np.load(os.path.join(data_p, 'x_test.npy'))
 
-            try:
-                print('# ### Starting prediction ...')
-                def dummy_predict():
-                    return dgcytof_clf.predict(X=x_test)
-                pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
-                pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
-                np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
-
-            except Exception as e:
-                failure_combinations.append(f'{data_set}_{trafo}')
-                failure_points.append('predict_concatenated')
-                error_types.append(type(e).__name__)
-                error_messages.append(str(e))
-
-                error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
-                error_df.to_csv(os.path.join(save_p, 'errors.csv'))
-                continue
+            # # Load the test data
+            # x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+            # try:
+            #     print('# ### Starting prediction ...')
+            #     def dummy_predict():
+            #         return dgcytof_clf.predict(X=x_test)
+            #     pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
+            #     pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
+            #     np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+            #
+            # except Exception as e:
+            #     failure_combinations.append(f'{data_set}_{trafo}')
+            #     failure_points.append('predict_concatenated')
+            #     error_types.append(type(e).__name__)
+            #     error_messages.append(str(e))
+            #
+            #     error_df = get_error_dataframe(failure_combinations, failure_points, error_types, error_messages)
+            #     error_df.to_csv(os.path.join(save_p, 'errors.csv'))
+            #     continue
 
             # Load the sample-wise test data
             sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
@@ -1458,7 +1458,7 @@ def main_dgcytof():
 
             samples_y_pred = []
             samples_pred_time_dfs = []
-            successful_fit_idx = []
+            successful_pred_idx = []
             print('# ### Starting sample-wise prediction ...')
             for i, (x, sn) in enumerate(zip(samples_x_test, sample_names)):
                 try:
@@ -1468,7 +1468,7 @@ def main_dgcytof():
                     pred_time_df_sample['sample_name'] = sn
                     samples_y_pred.append(y_pred_sample)
                     samples_pred_time_dfs.append(pred_time_df_sample)
-                    successful_fit_idx.append(i)
+                    successful_pred_idx.append(i)
 
                 except Exception as e:
                     nan_row = pd.DataFrame([{
@@ -1496,25 +1496,25 @@ def main_dgcytof():
             samples_pred_times_df.to_csv(os.path.join(save_p, 'samples_pred_times_df.csv'))
 
             os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
-            for y, i in zip(samples_y_pred, successful_fit_idx):
+            for y, i in zip(samples_y_pred, successful_pred_idx):
                 np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_sample_{str(i).zfill(2)}_test.npy'), y)
 
         else:
             # Load the predictions
-            try:
-                y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
-            except FileNotFoundError:
-                print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
-                continue
+            # try:
+            #     y_pred = np.load(os.path.join(save_p, 'y_pred.npy'))
+            # except FileNotFoundError:
+            #     print(f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}. Continue.\n')
+            #     continue
 
             samples_y_pred_p = os.path.join(save_p, 'samples_y_pred')
             samples_y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
             samples_y_pred = []
-            successful_fit_idx = []
+            successful_pred_idx = []
             for i, fn in enumerate(samples_y_pred_filenames):
                 try:
                     samples_y_pred.append(np.load(os.path.join(samples_y_pred_p, fn)))
-                    successful_fit_idx.append(i)
+                    successful_pred_idx.append(i)
                 except FileNotFoundError:
                     print(
                         f'# ### Fit was not successful for dataset: {data_set}, trafo: {trafo}, sample: {fn}. '
@@ -1524,26 +1524,26 @@ def main_dgcytof():
 
         if evaluate:
 
-            # Load the labels of the test data
-            y_test = np.load(os.path.join(data_p, 'y_test.npy'))
-
-            # Compute evaluation metrics for samples concatenated to one
-            out = eval_wrapper(
-                y_true=y_test,
-                y_pred=y_pred,
-                abstention_label=-1,  # Dgcytof can predict events to be of 'unknown'/-1 class
-                others_label=others_label,
-                pos_label=pos_label,
-                verbosity=2
-            )
-
-            out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
-            out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
-            out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
-            out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
+            # # Load the labels of the test data
+            # y_test = np.load(os.path.join(data_p, 'y_test.npy'))
+            #
+            # # Compute evaluation metrics for samples concatenated to one
+            # out = eval_wrapper(
+            #     y_true=y_test,
+            #     y_pred=y_pred,
+            #     abstention_label=-1,  # Dgcytof can predict events to be of 'unknown'/-1 class
+            #     others_label=others_label,
+            #     pos_label=pos_label,
+            #     verbosity=2
+            # )
+            #
+            # out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
+            # out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
+            # out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
+            # out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
 
             # Get the sample-wise test data for which the prediction was successful
-            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_fit_idx]
+            sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples) if i in successful_pred_idx]
             samples_y_test_filenames = [f'y_{sn}.npy' for sn in sample_names]
             samples_y_test = [np.load(os.path.join(samples_p, f)) for f in samples_y_test_filenames]
 
