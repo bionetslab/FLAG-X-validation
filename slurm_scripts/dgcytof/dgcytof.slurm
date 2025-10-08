@@ -2,7 +2,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:rtx2080ti:1
 #SBATCH --partition=work
 #SBATCH --time=24:00:00
@@ -24,5 +24,5 @@ export OMP_PROC_BIND=true
 cd $HOME/FLAG-X-validation
 
 echo "[$(date)] Starting DGCyTOF training and inference ..."
-python run_experiments.py -m dgcytof
+srun python run_experiments.py -m dgcytof
 
