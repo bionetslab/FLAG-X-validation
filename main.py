@@ -2216,6 +2216,214 @@ def main_local_training():
             cf_df.to_csv(os.path.join(save_p, 'confusion_matrices_sw', f'cf_mat_{sn}.csv'))
 
 
+def main_probabilistic_predictions():
+    import os
+    import numpy as np
+
+    from flagx.gating import SomClassifier, SoftmaxClassifier
+
+    # ### Set flags and important variables here #######################################################################
+    data_sets = ['lymphoma_tube1_binary', 'lymphoma_tube2_binary']
+    methods = ['som', 'softmax']
+    trafo = 'log10_w_custom_cutoffs'
+    ####################################################################################################################
+
+    for data_set in data_sets:
+        # Load the test data
+        data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, trafo)
+        x_test = np.load(os.path.join(data_p, 'x_test.npy'))
+        # Load the sample-wise test data
+        samples_p = os.path.join(data_p, 'sample_wise_test')
+        n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
+        sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
+        samples_x_test = [np.load(os.path.join(samples_p, f'x_{sn}.npy')) for sn in sample_names]
+
+        for m in methods:
+            print(f'# ### Dataset: {data_set}, method: {m}')
+
+            # Load the previously trained classifier
+            if m == 'som':
+                clf = SomClassifier.load(filepath=os.path.join('./results/local_training', m, data_set, trafo))
+            else:  # 'fcnn'
+                clf = SoftmaxClassifier.load(filepath=os.path.join('./results/local_training', m, data_set, trafo))
+
+            # Predict probabilities and save predictions
+            save_p = os.path.join(os.getcwd(), 'results/probabilistic_predictions', m, data_set, trafo)
+            os.makedirs(save_p, exist_ok=True)
+
+            y_proba = clf.predict_proba(X=x_test)
+            y_pred = clf.predict(X=x_test)
+
+            np.save(os.path.join(save_p, 'y_proba.npy'), y_proba)
+            np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
+
+            samples_y_proba = []
+            samples_y_pred = []
+            for x in samples_x_test:
+                samples_y_proba.append(clf.predict_proba(X=x))
+                samples_y_pred.append(clf.predict(X=x))
+
+            os.makedirs(os.path.join(save_p, 'samples_y_pred'), exist_ok=True)
+            os.makedirs(os.path.join(save_p, 'samples_y_proba'), exist_ok=True)
+
+            for y_proba, y_pred, sn in zip(samples_y_proba, samples_y_pred, sample_names):
+                np.save(os.path.join(save_p, 'samples_y_proba', f'y_proba_{sn}.npy'), y_proba)
+                np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y_pred)
+
+
+def main_time_table_aggregation():
+
+    import os
+    import numpy as np
+    import pandas as pd
+
+
+    # Convert dataset names to corresponding dir names
+    dataset_to_dir = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    method_to_dir = {
+        'GateMeClass': 'gatemeclass_no_abstention',
+        'DGCyTOF': 'dgcytof', 'FCNN': 'fcnn',
+        'SOM-classifier': 'som_classifier',
+    }
+
+    # --- All data results
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
+    methods = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
+    base_path = './results/gating_performance'
+    fit_times = []
+    pred_times_sample_wise_avg = []
+    fit_mem_peaks_cpu = []
+    pred_mem_peaks_cpu_sample_wise_avg = []
+    fit_mem_peaks_gpu = []
+    pred_mem_peaks_gpu_sample_wise_avg = []
+    datasets_df = []
+    methods_df = []
+
+    for dataset in datasets:
+        for method in methods:
+
+            data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            if method == 'GateMeClass':
+                data_trafo = 'arcsinh_cofactor150'
+
+            fit_data_path = os.path.join(
+                base_path, method_to_dir[method], dataset_to_dir[dataset], data_trafo, 'fit_time_df.csv'
+            )
+            pred_data_path = os.path.join(
+                base_path, method_to_dir[method], dataset_to_dir[dataset], data_trafo, 'samples_pred_times_df.csv'
+            )
+
+            try:
+                fit_df = pd.read_csv(fit_data_path, index_col=0)
+                pred_df = pd.read_csv(pred_data_path, index_col=0)
+
+                fit_times.append(fit_df.loc[0, 'wall_time'])
+                pred_times_sample_wise_avg.append(pred_df['wall_time'].mean())
+                fit_mem_peaks_cpu.append(fit_df.loc[0, 'mem_peak_cpu'])
+                pred_mem_peaks_cpu_sample_wise_avg.append(pred_df['mem_peak_cpu'].mean())
+                fit_mem_peaks_gpu.append(fit_df.loc[0, 'mem_peak_gpu'])
+                pred_mem_peaks_gpu_sample_wise_avg.append(pred_df['mem_peak_gpu'].mean())
+
+            except FileNotFoundError:
+                fit_times.append(np.nan)
+                pred_times_sample_wise_avg.append(np.nan)
+                fit_mem_peaks_cpu.append(np.nan)
+                pred_mem_peaks_cpu_sample_wise_avg.append(np.nan)
+                fit_mem_peaks_gpu.append(np.nan)
+                pred_mem_peaks_gpu_sample_wise_avg.append(np.nan)
+
+            datasets_df.append(dataset)
+            methods_df.append(method)
+
+    res_df = pd.DataFrame({
+        'dataset': datasets_df,
+        'method': methods_df,
+        'fit_time': fit_times,
+        'pred_time': pred_times_sample_wise_avg,
+        'fit_mem_peak_cpu': fit_mem_peaks_cpu,
+        'pred_mem_peak_cpu': pred_mem_peaks_cpu_sample_wise_avg,
+        'fit_mem_peak_gpu': fit_mem_peaks_gpu,
+        'pred_mem_peak_gpu': pred_mem_peaks_gpu_sample_wise_avg,
+    })
+
+    print(res_df)
+
+    save_dir = './results/time_table_aggregation'
+    os.makedirs(save_dir, exist_ok=True)
+    res_df.to_csv(os.path.join(save_dir, f'time_table_all_data.csv'))
+
+    # --- Local training results
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
+    methods = ['FCNN', 'SOM-classifier']
+    base_path = './results/local_training'
+    fit_times = []
+    pred_times_sample_wise_avg = []
+    fit_mem_peaks_cpu = []
+    pred_mem_peaks_cpu_sample_wise_avg = []
+    fit_mem_peaks_gpu = []
+    pred_mem_peaks_gpu_sample_wise_avg = []
+    datasets_df = []
+    methods_df = []
+
+    for dataset in datasets:
+        for method in methods:
+
+            data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            if method == 'GateMeClass':
+                data_trafo = 'arcsinh_cofactor150'
+
+            fit_data_path = os.path.join(
+                base_path, method_to_dir[method], dataset_to_dir[dataset], data_trafo, 'fit_time_df.csv'
+            )
+            pred_data_path = os.path.join(
+                base_path, method_to_dir[method], dataset_to_dir[dataset], data_trafo, 'samples_pred_times_df.csv'
+            )
+
+            try:
+                fit_df = pd.read_csv(fit_data_path, index_col=0)
+                pred_df = pd.read_csv(pred_data_path, index_col=0)
+
+                fit_times.append(fit_df.loc[0, 'wall_time'])
+                pred_times_sample_wise_avg.append(pred_df['wall_time'].mean())
+                fit_mem_peaks_cpu.append(fit_df.loc[0, 'mem_peak_cpu'])
+                pred_mem_peaks_cpu_sample_wise_avg.append(pred_df['mem_peak_cpu'].mean())
+                fit_mem_peaks_gpu.append(fit_df.loc[0, 'mem_peak_gpu'])
+                pred_mem_peaks_gpu_sample_wise_avg.append(pred_df['mem_peak_gpu'].mean())
+
+            except FileNotFoundError:
+                fit_times.append(np.nan)
+                pred_times_sample_wise_avg.append(np.nan)
+                fit_mem_peaks_cpu.append(np.nan)
+                pred_mem_peaks_cpu_sample_wise_avg.append(np.nan)
+                fit_mem_peaks_gpu.append(np.nan)
+                pred_mem_peaks_gpu_sample_wise_avg.append(np.nan)
+
+            datasets_df.append(dataset)
+            methods_df.append(method)
+
+    res_df = pd.DataFrame({
+        'dataset': datasets_df,
+        'method': methods_df,
+        'fit_time': fit_times,
+        'pred_time': pred_times_sample_wise_avg,
+        'fit_mem_peak_cpu': fit_mem_peaks_cpu,
+        'pred_mem_peak_cpu': pred_mem_peaks_cpu_sample_wise_avg,
+        'fit_mem_peak_gpu': fit_mem_peaks_gpu,
+        'pred_mem_peak_gpu': pred_mem_peaks_gpu_sample_wise_avg,
+    })
+
+    print(res_df)
+
+    res_df.to_csv(os.path.join(save_dir, f'time_table_local_training.csv'))
+
+
 
 if __name__ == '__main__':
 
@@ -2239,6 +2447,10 @@ if __name__ == '__main__':
 
     # main_local_training()
 
+    # main_probabilistic_predictions()
+
+    # main_time_table_aggregation()
+
     print('done')
 
     # Todo:
@@ -2247,3 +2459,5 @@ if __name__ == '__main__':
     #  - num samples num events for som
     #  - random_sample_order_trials
     #  - local training
+    #  - probabilistic predictions
+    #  - aggregate time tables
