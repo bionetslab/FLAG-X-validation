@@ -206,7 +206,7 @@ def fig1_gating_performance():
     plt.savefig(os.path.join(PLOT_DIR, 'fig1_gating_performance.png'), dpi=fig.dpi)
 
 
-def fig4_num_samples():
+def fig5_num_samples():
 
     import os
     import pandas as pd
@@ -446,8 +446,7 @@ def fig4_num_samples():
     plt.close('all')
 
 
-# Todo: ...
-def main_precision_and_recall_plot_manuscript():
+def fig6_precision_recall():
 
     import os
     import numpy as np
@@ -460,9 +459,7 @@ def main_precision_and_recall_plot_manuscript():
     from validation.plt import annotate_mosaic
 
     # ### Set flags and important variables here #######################################################################
-    data_sets = ['LT1 b', 'LT2 b']
-    trafo = 'log10_channelwisecutoff'  # 'arcsinh_cofactor150', 'log10_channelwisecutoff'
-
+    datasets = ['LT1 b', 'LT2 b']
     methods = ['FCNN', 'SOM-Classifier']
 
     thresholds = [
@@ -471,19 +468,7 @@ def main_precision_and_recall_plot_manuscript():
     ]
 
     generate_plot_df = False
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-
     ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {'LT1 b': 'lymphoma_tube1_binary', 'LT2 b': 'lymphoma_tube2_binary',}
-
-    # Convert method names to corresponding dir names
-    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
 
     if generate_plot_df:
 
@@ -491,26 +476,24 @@ def main_precision_and_recall_plot_manuscript():
 
         long_data = []
 
-        for data_set in data_sets:
+        for dataset in datasets:
 
             # Load the sample-wise test data
-            samples_p = os.path.join(
-                os.getcwd(), 'data/np_files', conversion_mapping_datasets[data_set], trafo, 'sample_wise_test'
+            data_p = os.path.join(
+                './data/np_files', DATASET_TO_DIR[dataset], 'log10_w_custom_cutoffs', 'sample_wise_test'
             )
-            n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
+            n_samples = len([f for f in os.listdir(data_p) if f.startswith('y_')])
             sample_names = [f'sample_{str(i).zfill(2)}_test' for i in range(n_samples)]
-            samples_y_test = [np.load(os.path.join(samples_p, f'y_{sn}.npy')) for sn in sample_names]
+            samples_y_test = [np.load(os.path.join(data_p, f'y_{sn}.npy')) for sn in sample_names]
 
-            for m in methods:
+            for method in methods:
 
                 # Load the probabilistic predictions
                 pred_p = os.path.join(
-                    os.getcwd(),
-                    'results/probabilistic_pred',
-                    conversion_mapping_methods[m],
-                    conversion_mapping_datasets[data_set],
-                    trafo,
-                    'samples_y_proba'
+                    './results/probabilistic_pred',
+                    METHOD_TO_DIR[method],
+                    DATASET_TO_DIR[dataset],
+                    'log10_w_custom_cutoffs/samples_y_proba'
                 )
                 samples_y_proba = [np.load(os.path.join(pred_p, f'y_proba_{sn}.npy')) for sn in sample_names]
 
@@ -523,8 +506,6 @@ def main_precision_and_recall_plot_manuscript():
                     # Get prediction for current threshold
                     samples_y_preds = [(y_prob >= threshold).astype(int) for y_prob in samples_y_proba]
 
-                    print('# ### Calculating evaluation metrics:', data_set, m, threshold)
-
                     res_df_avg_prec, res_df_avg_rec, res_df_avg_f1 = prec_rec_f1_avg_sample_wise(
                         y_trues=samples_y_test,
                         y_preds=samples_y_preds,
@@ -535,8 +516,8 @@ def main_precision_and_recall_plot_manuscript():
                     )
 
                     long_data.append({
-                        'Dataset': data_set,
-                        'Method': m,
+                        'Dataset': dataset,
+                        'Method': method,
                         'Threshold': threshold,
                         'Precision': res_df_avg_prec.loc['mean', 'binary'],
                         'Recall': res_df_avg_rec.loc['mean', 'binary']
@@ -544,12 +525,9 @@ def main_precision_and_recall_plot_manuscript():
 
         plot_df = pd.DataFrame(long_data)
 
-        plot_df.to_csv(os.path.join(os.getcwd(), 'results/probabilistic_pred/plot_df.csv'))
-
+        plot_df.to_csv(os.path.join('./results/probabilistic_pred/plot_df.csv'))
     else:
-
-        plot_df = pd.read_csv(os.path.join(os.getcwd(), 'results/probabilistic_pred/plot_df.csv'), index_col=0)
-
+        plot_df = pd.read_csv('./results/probabilistic_pred/plot_df.csv', index_col=0)
 
     plot_df_long = plot_df.melt(
         id_vars=['Dataset', 'Method', 'Threshold'],
@@ -559,39 +537,40 @@ def main_precision_and_recall_plot_manuscript():
     )
 
     # ### Plotting
-    # Define a palette
-    mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
-    palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
-
     fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
+        LL
         AB
         """,
-        gridspec_kw=None
+        gridspec_kw={'height_ratios': [0.1, 1]},
     )
 
-    for ds, plot_label in zip(data_sets, ['A', 'B']):
+    # Define the palette
+    mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
+    palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
 
-        # Subset to dataset
-        # df_sub = plot_df_long.loc[plot_df_long['Dataset'] == ds].copy()
+    # Define marker and line styles
+    marker_styles = {
+        'Precision': 'o',
+        'Recall': '^'
+    }
+
+    line_styles = {
+        'Precision': (4, 2),
+        'Recall': (1, 0)
+    }
+
+    for dataset, plot_label in zip(datasets, ['A', 'B']):
+
+        # Subset to dataset and exclude extreme values
         df_sub = plot_df_long.loc[
-            (plot_df_long['Dataset'] == ds) &
+            (plot_df_long['Dataset'] == dataset) &
             (plot_df_long['Threshold'] != 0.01) &
             (plot_df_long['Threshold'] != 0.99)
         ].copy()
 
         ax = axd[plot_label]
-
-        marker_styles = {
-            'Precision': 'o',
-            'Recall': '^'
-        }
-
-        line_styles = {
-            'Precision': (4, 2),
-            'Recall': (1, 0)
-        }
 
         sns.lineplot(
             data=df_sub,
@@ -609,13 +588,50 @@ def main_precision_and_recall_plot_manuscript():
             ax=ax,
         )
 
-        ax.set_title(ds)
+        ax.set_title(dataset)
         ax.grid(True, alpha=0.6)
 
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
-        if ds == 'LT2 b':
-            ax.legend(loc='lower center')
+    # Remove legend in subplots and add in separate panel
+    handles, labels = axd['A'].get_legend_handles_labels()
+    for ax in axd.values():
+        if ax.get_legend():
+            ax.get_legend().remove()
+    method_labels = ['FCNN', 'SOM-Classifier']
+    metric_labels = ['Precision', 'Recall']
+    method_handles = [h for h, l in zip(handles, labels) if l in method_labels]
+    metric_handles = [h for h, l in zip(handles, labels) if l in metric_labels]
+    method_legend = axd['L'].legend(
+        handles=method_handles,
+        labels=method_labels,
+        loc='center left',
+        title='Method',
+        fontsize=11,
+        title_fontsize=12,
+        frameon=True,
+    )
+    axd['L'].legend(
+        handles=metric_handles,
+        labels=metric_labels,
+        loc='center right',
+        title='Metric',
+        fontsize=11,
+        title_fontsize=12,
+        frameon=True,
+    )
+    axd['L'].add_artist(method_legend)
+    axd['L'].axis('off')
+
+    # axd['L'].axis('off')
+    # axd['L'].legend(
+    #     handles=handles,
+    #     labels=labels,
+    #     loc='center',
+    #     ncol=2,
+    #     fontsize=12,
+    #     frameon=True,
+    # )
 
     # Adjust font sizes
     ax_label_fontsize = 12
@@ -627,14 +643,13 @@ def main_precision_and_recall_plot_manuscript():
         ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
         ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
 
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(
-        os.path.join(plot_dir, f'recall_precision_manuscript.png'),
-        dpi=fig.dpi
-    )
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
+
+    plt.savefig(os.path.join(PLOT_DIR, 'fig6_precision_recall.png'), dpi=fig.dpi)
     plt.close('all')
 
 
+# Todo: ...
 def main_population_size_plot_supplement():
     import os
     import random
