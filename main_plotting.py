@@ -208,8 +208,6 @@ def fig1_gating_performance():
 
 def fig4_num_samples():
 
-    # Todo: remove legends and place in separate panel above
-
     import os
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -321,10 +319,11 @@ def fig4_num_samples():
     fig = plt.figure(figsize=(8, 5), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
+        LLL
         ABC
         DEF
         """,
-        gridspec_kw=None
+        gridspec_kw={'height_ratios': [0.1, 1, 1]}
     )
 
     plot_labels = list('ABCDEF')
@@ -416,6 +415,21 @@ def fig4_num_samples():
         ax.set_xticks(new_ticks)
         ax.set_xticklabels([str(int(tick)) for tick in new_ticks])
 
+    # Remove legend in subplots and add in separate panel
+    handles, labels = axd['A'].get_legend_handles_labels()
+    for ax in axd.values():
+        if ax.get_legend():
+            ax.get_legend().remove()
+    axd['L'].axis('off')
+    axd['L'].legend(
+        handles=handles,
+        labels=labels,
+        loc='center',
+        ncol=len(labels),
+        fontsize=12,
+        frameon=True,
+    )
+
     # Adjust font sizes
     ax_label_fontsize = 12
     for label in plot_labels:
@@ -426,7 +440,7 @@ def fig4_num_samples():
         ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
         ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
 
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
 
     plt.savefig(os.path.join(PLOT_DIR, 'fig4_num_samples.png'), dpi=fig.dpi)
     plt.close('all')
