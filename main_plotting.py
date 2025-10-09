@@ -2,7 +2,6 @@
 import os
 
 PLOT_DIR = './results/plots'
-os.makedirs(PLOT_DIR, exist_ok=True)
 
 DATASET_TO_DIR = {
     'Imstat': 'imstat',
@@ -649,8 +648,7 @@ def fig6_precision_recall():
     plt.close('all')
 
 
-# Todo: ...
-def main_population_size_plot_supplement():
+def fig1s_population_sizes():
     import os
     import random
     import math
@@ -662,36 +660,10 @@ def main_population_size_plot_supplement():
     from validation.plt import plot_cell_pop_size_pred_vs_gt, annotate_mosaic
 
     random.seed(43)
-    ####################################################################################################################
-    dataset_names = ['Flowcyt', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
 
-    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
+    datasets = ['Flowcyt', 'LT1', 'LT1b', 'LT2', 'LT2b']
 
-    data_trafo = 'log10_channelwisecutoff'
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-
-    base_path_y_true = os.path.join(os.getcwd(), 'data/np_files')
-    base_path_y_pred = os.path.join(os.getcwd(), 'results/pred_eval')
-    ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    # Convert method names to corresponding dir names
-    conversion_mapping_methods = {
-        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
-        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-Classifier': 'som_classifier'
-    }
+    methods = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
 
     # Define mappings from integer to letter labels
     lm_lt1 = {
@@ -737,75 +709,57 @@ def main_population_size_plot_supplement():
         ABCDE
         FGHIJ
         KLMNO
-        P.QRS
-        T.UVW
+        PQRST
+        UVWXY
     '''
 
     fig = plt.figure(figsize=figsize, constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(mosaic_str)
 
-    legend_subplots = list('AFKPT')
-    plot_subplots = list('BCDEGHIJLMNOQRSUVW')
-    legend_reference_subplots = list('EJOSW')
+    legend_subplots = list('AFKPU')
+    plot_subplots = list('BCDEGHIJLMNOQRSZTVWXY')
+    legend_reference_subplots = list('EJOTY')
 
     count = 0
-    for dataset_name in dataset_names:
+    for dataset in datasets:
 
-        dataset_dir = conversion_mapping_datasets[dataset_name]
+        for method in methods:
 
-        # Set data trafo to be used
-        is_flowcyt = (dataset_dir == 'flowcyt')
-        base_trafo = 'log10_cutoff100' if is_flowcyt and data_trafo == 'log10_channelwisecutoff' else 'log10_channelwisecutoff'
+            trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            if method == 'GateMeClass':
+                trafo = 'arcsinh_cofactor150'
 
-        # Load the sample-wise data (ground truth and prediction)
-        y_true_path = os.path.join(base_path_y_true, dataset_dir, base_trafo, 'sample_wise_test')
+            # Load the sample-wise data (ground truth and prediction, skip missing files)
+            y_true_path = os.path.join('./data/np_files', DATASET_TO_DIR[dataset], trafo, 'sample_wise_test')
+            n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
+            y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
 
-        n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
-        y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-        y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
-
-        # Define color mapping
-
-        cell_type_labels = np.unique(np.concatenate(y_trues)).tolist()
-        label_mapping = dataset_name_to_label_mapping[dataset_name]
-        color_mapping = {
-            str(int_label): global_color_mapping[label_mapping[str(int_label)]]
-            for int_label in cell_type_labels
-        }
-
-        for method in method_names:
-
-            method_dir = conversion_mapping_methods[method]
-
-            # No results for gatemeclass and LT2, LT2 b -> continue
-            if method_dir == 'gatemeclass_no_abstention' and dataset_name in {'LT2', 'LT2 b'}:
-                continue
-
-            # Always show results for arcsinh for gatemeclass
-            if method_dir == 'gatemeclass_no_abstention' and base_trafo in {'log10_channelwisecutoff', 'log10_cutoff100'}:
-                data_trafo_load = 'arcsinh_cofactor150'
-            else:
-                data_trafo_load = base_trafo
-
-
-            y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir, data_trafo_load, 'samples_y_pred')
+            y_pred_path = os.path.join(
+                './results/pred_eval', METHOD_TO_DIR[method], DATASET_TO_DIR[dataset], trafo, 'samples_y_pred'
+            )
             y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
 
-            # Load the predictions, skip missing files
+            y_trues = []
             y_preds = []
-            y_trues_plot = []
-            for yt, f in zip(y_trues, y_pred_filenames):
+            for yt_fn, yp_fn in zip(y_true_filenames, y_pred_filenames):
                 try:
-                    yp = np.load(os.path.join(y_pred_path, f)).astype(int)
-                    y_preds.append(yp)
-                    y_trues_plot.append(yt)
+                    y_trues.append(np.load(os.path.join(y_true_path, yt_fn)).astype(int))
+                    y_preds.append(np.load(os.path.join(y_pred_path, yp_fn)).astype(int))
                 except FileNotFoundError:
-                    print(f'# ### No y_pred found for: {method}, {dataset_name}, {data_trafo_load}, {f}')
+                    print(f'# No y_pred found for: {method}, {dataset}, {trafo}, {yp_fn}')
+
+            # Define color mapping
+            cell_type_labels = np.unique(np.concatenate(y_trues)).tolist()
+            label_mapping = dataset_name_to_label_mapping[dataset]
+            color_mapping = {
+                str(int_label): global_color_mapping[label_mapping[str(int_label)]]
+                for int_label in cell_type_labels
+            }
 
             ax = axd[plot_subplots[count]]
 
             plot_cell_pop_size_pred_vs_gt(
-                y_trues=y_trues_plot,
+                y_trues=y_trues,
                 y_preds=y_preds,
                 percentage=True,
                 palette=color_mapping,
@@ -842,7 +796,7 @@ def main_population_size_plot_supplement():
 
     # Build legends
     for legend_subplot_key, legend_reference_key, dataset_name in zip(
-            legend_subplots, legend_reference_subplots, dataset_names
+            legend_subplots, legend_reference_subplots, datasets
     ):
 
         # Get labels and handles from reference subplot, convert to letter labels, reorder
@@ -866,7 +820,7 @@ def main_population_size_plot_supplement():
         axd[legend_subplot_key].set_title(f'Dataset: {dataset_name}')
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=14)
-    plt.savefig('./results/plots/population_sizes_supplement.png', dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig1s_population_sizes'), dpi=fig.dpi)
     plt.close('all')
 
 
@@ -1722,7 +1676,7 @@ def main_n_samples_ordered_plot_supplement():
     plt.close('all')
 
 
-def main_dataset_size_plot_supplement():
+def fig7s_dataset_size():
 
     import os
     import numpy as np
@@ -1732,28 +1686,17 @@ def main_dataset_size_plot_supplement():
 
 
     ####################################################################################################################
-    dataset_names = ['Flowcyt', 'Imstat', 'LT1', 'LT2']
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2']
 
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
 
     y_trains = []
     y_tests = []
-    for ds in dataset_names:
+    for dataset in datasets:
 
         # Load the sample-wise data
-        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds], 'arcsinh_cofactor150')
+        trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+        base_path = os.path.join('./data/np_files', DATASET_TO_DIR[dataset], trafo)
 
         y_train_dir = os.path.join(base_path, 'sample_wise_train')
         num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
@@ -1776,13 +1719,13 @@ def main_dataset_size_plot_supplement():
         """
     )
 
-    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH']):
+    for dataset, ytr, yte, labels in zip(datasets, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH']):
 
         plot_sample_sizes(
-            ys=ytr, title=f'{ds} Train', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[0]]
+            ys=ytr, title=f'{dataset} Train', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[0]]
         )
         plot_sample_sizes(
-            ys=yte, title=f'{ds} Test', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[1]]
+            ys=yte, title=f'{dataset} Test', abline_mean=True, abline_std=True, print_total=True, ax=axd[labels[1]]
         )
 
         axd[labels[0]].legend(loc='lower right')
@@ -1790,10 +1733,10 @@ def main_dataset_size_plot_supplement():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
-    plt.savefig('./results/plots/dataset_sizes_supplement.png', dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig7s_dataset_size.png'), dpi=fig.dpi)
 
 
-def main_dataset_balance_plot_supplement():
+def fig8s_class_balance():
 
     import os
     import random
@@ -1804,23 +1747,9 @@ def main_dataset_balance_plot_supplement():
     from itertools import chain
     from validation.plt import plot_class_balance, annotate_mosaic
 
-    random.seed(24)
-    ####################################################################################################################
-    dataset_names = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
+    random.seed(42)
 
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-    ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b']
 
     # Define mappings from integer to letter labels
     lm_imstat = {
@@ -1858,7 +1787,7 @@ def main_dataset_balance_plot_supplement():
     }
 
     label_mappings = {
-        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1b': lm_lt1b, 'LT2': lm_lt2, 'LT2b': lm_lt2b, 'Flowcyt': lm_flowcyt
     }
 
     label_display_order = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'X', 'O']
@@ -1873,10 +1802,10 @@ def main_dataset_balance_plot_supplement():
 
     y_trains = []
     y_tests = []
-    for ds in dataset_names:
+    for dataset in datasets:
         # Load the sample-wise data
-        base_path = os.path.join(os.getcwd(), 'data/np_files', conversion_mapping_datasets[ds],
-                                 'arcsinh_cofactor150')
+        trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+        base_path = os.path.join('./data/np_files', DATASET_TO_DIR[dataset], trafo)
 
         y_train_dir = os.path.join(base_path, 'sample_wise_train')
         num_y_trains = len([f for f in os.listdir(y_train_dir) if f.startswith('y_')])
@@ -1900,37 +1829,32 @@ def main_dataset_balance_plot_supplement():
         """
     )
 
-    for ds, ytr, yte, labels in zip(dataset_names, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL']):
+    for dataset, ytr, yte, labels in zip(datasets, y_trains, y_tests, ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL']):
 
         # Remap to letter labels
-        label_map = label_mappings[ds]
+        label_map = label_mappings[dataset]
 
         ytr_remapped = [np.array([label_map[str(l)] for l in arr]) for arr in ytr]
         yte_remapped = [np.array([label_map[str(l)] for l in arr]) for arr in yte]
 
         plot_class_balance(
             ys=ytr_remapped,
-            title=f'{ds} Train',
+            title=f'{dataset} Train',
             palette=global_color_mapping,
             label_order=label_display_order,
             ax=axd[labels[0]]
         )
         plot_class_balance(
             ys=yte_remapped,
-            title=f'{ds} Test',
+            title=f'{dataset} Test',
             palette=global_color_mapping,
             label_order=label_display_order,
             ax=axd[labels[1]]
         )
 
-    # ### Manually adjust axis labels
-    # for key in ['F', 'G', 'H', 'J', 'K', 'L']:
-    #     ax = axd[key]
-    #     ax.set_ylabel(None)
-
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
-    plt.savefig('./results/plots/dataset_balances_supplement.png', dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig8s_class_balance.png'), dpi=fig.dpi)
 
 
 def main_pipeline_workflow():
@@ -3441,7 +3365,15 @@ def main_minority_count_figure():
 
 
 
+if __name__ == '__main__':
 
+    os.makedirs(PLOT_DIR, exist_ok=True)
+
+    # fig7s_dataset_size()
+
+    fig8s_class_balance()
+
+    print('done')
 
 
 
