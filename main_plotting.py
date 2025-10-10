@@ -972,7 +972,6 @@ def fig2s_gating_performance_class_wise():
     plt.close('all')
 
 
-# Todo ...
 def fig6s_gating_performance_local():
 
     import os
@@ -984,32 +983,13 @@ def fig6s_gating_performance_local():
     from validation.plt import plot_performance_score_box_plot, plot_performance_score_box_plot_cw, annotate_mosaic
 
     ####################################################################################################################
-    dataset_names = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
 
-    method_names = ['FCNN', 'SOM-Classifier']
+    methods = ['FCNN', 'SOM-Classifier']
 
     performance_score = 'f1'  # f1, prec, rec
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    # Convert method names to corresponding dir names
-    conversion_mapping_methods = {
-        'FCNN': 'softmax',
-        'SOM-Classifier': 'som'
-    }
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
 
@@ -1055,36 +1035,37 @@ def fig6s_gating_performance_local():
     label_display_order = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'X', 'O']
 
     # Define a palette
-    methods = ['dummy0', 'dummy1'] + method_names
-    palette = dict(zip(methods, sns.color_palette("Set2", len(methods))))
+    methods = ['dummy0', 'dummy1'] + methods
+    palette = dict(zip(methods, sns.color_palette('Set2', len(methods))))
 
     # Initialize the mosaic
     fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
-        AAAB
-        CCDD
-        EEFF
-        GGHH
+        AAAL
+        BBCC
+        DDEE
+        FFGG
         """,
         # gridspec_kw={'height_ratios': [1/4, 1/4, 1/2]}
     )
 
-    # ### Plot the performance scores
+    # --- Plot performance scores
     # Load the results dataframes
-    base_path = os.path.join(os.getcwd(), 'results/local_training')
+    base_path = './results/local_training'
 
     res_dfs = []
-    for ds in dataset_names:
+    for dataset in datasets:
         res_dfs_sub = []
-        for m in method_names:
+        for method in methods:
 
-            ds_dir = conversion_mapping_datasets[ds]
-            method_dir = conversion_mapping_methods[m]
-            data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
-
+            data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
             res_df_path = os.path.join(
-                base_path, method_dir, ds_dir, data_trafo, f'res_df_sw_avg_{performance_score}.csv'
+                base_path,
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
+                data_trafo,
+                f'res_df_sw_avg_{performance_score}.csv'
             )
 
             try:
@@ -1092,15 +1073,15 @@ def fig6s_gating_performance_local():
                 res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
             except FileNotFoundError:
                 res_df = pd.DataFrame()
-                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+                print(f"# ### No results found for '{dataset}', '{method}', '{data_trafo}'")
 
             res_dfs_sub.append(res_df)
         res_dfs.append(res_dfs_sub)
 
     plot_performance_score_box_plot(
         sample_wise_res_dfs=res_dfs,
-        method_names=method_names,
-        dataset_names=dataset_names,
+        method_names=methods,
+        dataset_names=datasets,
         score_mode=performance_score_mode,
         y_label=conversion_mapping_y_label[performance_score] + ' Score',
         title='All Datasets | Macro',
@@ -1112,38 +1093,41 @@ def fig6s_gating_performance_local():
         ax=axd['A'],
     )
 
+    # --- Plot class-wise performance scores
     res_dfs = []
-    for dataset_name in dataset_names:
+    for dataset in datasets:
         res_dfs_sub = []
-        for method in method_names:
+        for method in methods:
 
-            ds = conversion_mapping_datasets[dataset_name]
-            m = conversion_mapping_methods[method]
-
-            data_trafo = 'log10_channelwisecutoff' if dataset_name != 'Flowcyt' else 'log10_cutoff100'
-
-            res_df_path = os.path.join(base_path, m, ds, data_trafo, f'res_df_sw_cw_{performance_score}.csv')
+            data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            res_df_path = os.path.join(
+                base_path,
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
+                data_trafo,
+                f'res_df_sw_cw_{performance_score}.csv'
+            )
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
                 res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
 
                 # Change the column names to letter labels
-                label_mapping = label_mappings[dataset_name]
+                label_mapping = label_mappings[dataset]
                 res_df = res_df.rename(columns=label_mapping)
 
             except FileNotFoundError:
                 res_df = pd.DataFrame()
-                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+                print(f"# ### No results found for '{dataset}', '{method}', '{data_trafo}'")
 
             res_dfs_sub.append(res_df)
         res_dfs.append(res_dfs_sub)
 
-    for rdf, dsn, label in zip(res_dfs, dataset_names, ['C', 'D', 'E', 'F', 'G', 'H']):
+    for rdf, dsn, label in zip(res_dfs, datasets, ['B', 'C', 'D', 'E', 'F', 'G']):
 
         plot_performance_score_box_plot_cw(
             sample_wise_res_dfs=rdf,
-            method_names=method_names,
+            method_names=methods,
             y_label=conversion_mapping_y_label[performance_score] + ' Score',
             title=dsn + ' | Class-wise',
             palette=palette,
@@ -1155,23 +1139,21 @@ def fig6s_gating_performance_local():
             ax=axd[label],
         )
 
-    # Extract legend handles and labels from axd['A']
+    # Plot the legend separately
     handles, labels = axd['A'].get_legend_handles_labels()
     filtered = [(h, l) for h, l in zip(handles, labels) if isinstance(h, Patch)]
     handles, labels = zip(*filtered) if filtered else ([], [])
-
-    # Plot the legend separately in panel 'B'
-    axd['B'].axis('off')
-    axd['B'].legend(handles, labels, loc='center', frameon=False, ncol=1)
+    axd['L'].axis('off')
+    axd['L'].legend(handles, labels, loc='center', frameon=False, ncol=1)
 
     for key, ax in axd.items():
-        if key != 'B':
+        if key != 'L':
             ax.set_xlabel(None)
             ax.get_legend().remove()
 
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L'])
 
-    plt.savefig('./results/plots/performance_local_supplement.png', dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig6s_gating_performance_local.png'), dpi=fig.dpi)
 
 
 def fig3s_num_samples_num_events():
