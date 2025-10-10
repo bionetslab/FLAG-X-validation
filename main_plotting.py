@@ -620,6 +620,8 @@ def fig6_precision_recall():
     axd['L'].add_artist(method_legend)
     axd['L'].axis('off')
 
+    # Todo: debug legend creation; if works and looks nice: adopt for other plots, if not use simple colmajor format
+
     # axd['L'].axis('off')
     # axd['L'].legend(
     #     handles=handles,
@@ -831,7 +833,6 @@ def fig2s_gating_performance_class_wise():
 
     from validation.plt import plot_performance_score_box_plot_cw, annotate_mosaic
 
-
     ####################################################################################################################
     datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
 
@@ -891,6 +892,7 @@ def fig2s_gating_performance_class_wise():
         AB
         CD
         EF
+        LL
         """
     )
 
@@ -950,7 +952,21 @@ def fig2s_gating_performance_class_wise():
         legend = axd[label].get_legend()
         legend.set_title(None)
 
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
+    # Remove legend in subplots and add in separate panel
+    handles, labels = axd['B'].get_legend_handles_labels()
+    for ax in axd.values():
+        if ax.get_legend():
+            ax.get_legend().remove()
+    axd['L'].axis('off')
+    axd['L'].legend(
+        handles=handles,
+        labels=labels,
+        loc='center',
+        ncol=3,
+        frameon=True,
+    )
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
 
     plt.savefig(os.path.join(PLOT_DIR, 'fig2s_gating_performance_class_wise.png'), dpi=fig.dpi)
     plt.close('all')
@@ -1158,7 +1174,7 @@ def main_performance_plot_local_supplement():
     plt.savefig('./results/plots/performance_local_supplement.png', dpi=fig.dpi)
 
 
-def fig2s_num_samples_num_events():
+def fig3s_num_samples_num_events():
     import os
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -1397,11 +1413,12 @@ def fig2s_num_samples_num_events():
     plt.close('all')
 
 
-def main_n_samples_ordered_plot_supplement():
+def fig4s_sample_order():
     import os
     import pandas as pd
     import matplotlib.pyplot as plt
     import seaborn as sns
+    import matplotlib.patheffects as pe
 
     from matplotlib.lines import Line2D
 
@@ -1411,34 +1428,24 @@ def main_n_samples_ordered_plot_supplement():
     performance_score = 'f1'  # f1, prec, rec
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
 
-    dataset_names = ['LT1', 'LT1 b']
+    datasets = ['LT1', 'LT2', 'LT1b', 'LT2b']
     max_n_samples = 20
     max_n_trails = 30
 
-    method_names = ['FCNN', 'SOM-Classifier']
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-    os.makedirs(plot_dir, exist_ok=True)
+    methods = ['FCNN', 'SOM-Classifier']
 
     ####################################################################################################################
 
-    # Directory mappings
-    conversion_mapping_datasets = {'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary'}
-
-    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
-
+    # Load the results for ordered samples
     data_ordered = []
-    for ds in dataset_names:
-        ds_dir = conversion_mapping_datasets[ds]
-
-        for method in method_names:
-            method_dir = conversion_mapping_methods[method]
+    for dataset in datasets:
+        for method in methods:
 
             file_path_ordered = os.path.join(
                 './results/n_samples_n_events',
-                method_dir,
-                ds_dir,
-                'log10_channelwisecutoff',
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
+                'log10_w_custom_cutoffs',
                 'ordered',
                 f'res_df_{performance_score}_{performance_score_mode}.csv'
             )
@@ -1450,38 +1457,33 @@ def main_n_samples_ordered_plot_supplement():
                 score = df_ordered.loc['all', str(i)]
 
                 data_ordered.append({
-                    'dataset': ds,
+                    'dataset': dataset,
                     'method': method,
                     'order': 'ordered',
                     'n_samples': i,
                     'score': score
                 })
 
+    # Load the results for randomly ordered samples
     data_random = []
-    for ds in dataset_names:
-        ds_dir = conversion_mapping_datasets[ds]
-
-        for method in method_names:
-            method_dir = conversion_mapping_methods[method]
+    for dataset in datasets:
+        for method in methods:
 
             file_path_random = os.path.join(
                 './results/random_sample_order_trials',
-                method_dir,
-                ds_dir,
-                'log10_channelwisecutoff',
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
+                'log10_w_custom_cutoffs',
                 f'res_df_{performance_score}_{performance_score_mode}.csv'
             )
 
-            try:
-                df_random = pd.read_csv(file_path_random, index_col=0)
-            except FileNotFoundError:
-                continue
+            df_random = pd.read_csv(file_path_random, index_col=0)
 
             for n in df_random.index[: max_n_trails]:
                 for i in df_random.columns[: max_n_samples]:
                     score = df_random.loc[n, i]
                     data_random.append({
-                        'dataset': ds,
+                        'dataset': dataset,
                         'method': method,
                         'order': 'random',
                         'trial_no': n,
@@ -1490,27 +1492,24 @@ def main_n_samples_ordered_plot_supplement():
                     })
 
     # Load the results for all samples
-    dict_all_data = dict()
-    for ds in dataset_names:
-        ds_dir = conversion_mapping_datasets[ds]
-        for method in method_names:
-            method_dir = conversion_mapping_methods[method]
+    full_dataset_performances = dict()
+    for dataset in datasets:
+        for method in methods:
             file_path = os.path.join(
                 './results/pred_eval',
-                method_dir + '_classifier',
-                ds_dir,
-                'log10_channelwisecutoff',
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
+                'log10_w_custom_cutoffs',
                 f'res_df_sw_avg_{performance_score}.csv'
             )
 
             df = pd.read_csv(file_path, index_col=0)
             score = df.loc['mean', performance_score_mode]
 
-            if ds in dict_all_data:
-                dict_all_data[ds][method] = score
+            if dataset in full_dataset_performances:
+                full_dataset_performances[dataset][method] = score
             else:
-                dict_all_data[ds] = {method: score}
-
+                full_dataset_performances[dataset] = {method: score}
 
     # Create DataFrames
     df_ordered = pd.DataFrame(data_ordered)
@@ -1519,25 +1518,25 @@ def main_n_samples_ordered_plot_supplement():
     df_random = pd.DataFrame(data_random)
     df_random['n_samples'] = df_random['n_samples'].astype(int)
 
-    # ### Plot performance comparison for methods
+    # --- Plot performance comparison for methods
     # Define a palette
     mn = ['dummy0', 'dummy1', 'FCNN', 'SOM-Classifier']
     palette = dict(zip(mn, sns.color_palette('Set2', len(mn))))
 
-    fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
+    fig = plt.figure(figsize=(8, 7), constrained_layout=True, dpi=300)
+    mosaic = '''
         AB
-        """,
-        gridspec_kw=None
-    )
+        CD
+        LL
+    '''
+    axd = fig.subplot_mosaic(mosaic, gridspec_kw={'height_ratios': [1, 1, 0.1]})
 
-    for ds, plot_label in zip(dataset_names, ['A', 'B']):
+    for dataset, plot_label in zip(datasets, list('ABCD')):
 
         ax = axd[plot_label]
 
-        df_random_sub = df_random.loc[(df_random['dataset'] == ds)].copy()
-
+        # Plot the average performance across random order trials
+        df_random_sub = df_random.loc[(df_random['dataset'] == dataset)].copy()
         sns.lineplot(
             data=df_random_sub,
             x='n_samples',
@@ -1553,9 +1552,8 @@ def main_n_samples_ordered_plot_supplement():
             ax=ax,
         )
 
-
-        df_ordered_sub = df_ordered.loc[(df_ordered['dataset'] == ds)].copy()
-
+        # Plot the performance for ordered samples
+        df_ordered_sub = df_ordered.loc[(df_ordered['dataset'] == dataset)].copy()
         sns.lineplot(
             data=df_ordered_sub,
             x='n_samples',
@@ -1568,7 +1566,7 @@ def main_n_samples_ordered_plot_supplement():
         )
 
         # Set title and axis labels
-        ax.set_title(ds)
+        ax.set_title(dataset)
         ax.set_xlabel('Number of Training Samples')
         ax.set_ylabel(f'{performance_score_mode.capitalize()} {performance_score.capitalize()} Score')
 
@@ -1580,10 +1578,10 @@ def main_n_samples_ordered_plot_supplement():
         ax.set_xticks(new_ticks)
         ax.set_xticklabels([str(int(tick)) for tick in new_ticks])
 
-        # Plot the all samples scores
-        for method in method_names:
+        # Plot the performance with the full dataset
+        for method in methods:
 
-            score = dict_all_data[ds][method]
+            score = full_dataset_performances[dataset][method]
             color = palette.get(method, 'grey')
 
             ax.axhline(
@@ -1592,54 +1590,57 @@ def main_n_samples_ordered_plot_supplement():
                 linewidth=1,
                 color=color,
                 alpha=0.8,
-                # label=f'{method_name} (all samples)',
             )
 
-            # x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
-            # y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
-            # y_pos = score + y_offset  # just above the line
+            x_pos = ax.get_xlim()[1] * 0.98
+            y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+            y_pos = score - y_offset
+            va = 'top'
 
             # Draw text
-            # ax.text(
-            #     x=x_pos,
-            #     y=y_pos,
-            #     s=f'{score:.3f}',
-            #     color=color,
-            #     va='bottom',
-            #     ha='right',
-            #     fontsize=8,
-            #     alpha=1.0,
-            #       clip_on=True
-            # )
+            ax.text(
+                x=x_pos,
+                y=y_pos,
+                s=f'{score:.3f}',
+                color=color,
+                va=va,
+                ha='right',
+                fontsize=8,
+                alpha=0.95,
+                clip_on=False,
+                path_effects=[pe.withStroke(linewidth=1.0, foreground='white')]
+            )
 
-        # Define all legend components
-        method_handles = [
-            Line2D([0], [0], color=palette[method], lw=2, label=method)
-            for method in method_names
-        ]
+    # Define all legend components
+    method_handles = [
+        Line2D([0], [0], color=palette[method], lw=2, label=method)
+        for method in methods
+    ]
 
-        order_handles = [
-            Line2D([0], [0], marker='o', color='grey', linestyle='None', label='Random'),
-            Line2D([0], [0], marker='^', color='grey', linestyle='None', label='Ordered')
-        ]
+    order_handles = [
+        Line2D([0], [0], marker='o', color='grey', linestyle='None', label='Random'),
+        Line2D([0], [0], marker='^', color='grey', linestyle='None', label='Ordered')
+    ]
 
-        all_samples_handle = [
-            Line2D([0], [0], linestyle='--', color='grey', linewidth=1, label='All Samples')
-        ]
+    all_samples_handle = [
+        Line2D([0], [0], linestyle='--', color='grey', linewidth=1, label='All Samples')
+    ]
 
-        # Combine all handles
-        all_handles = method_handles + order_handles + all_samples_handle
+    # Combine all handles
+    all_handles = method_handles + order_handles + all_samples_handle
 
-        legend_loc = 'center right' if ds == 'LT1' else 'lower right'
-
-        # Create single unified legend
-        ax.legend(handles=all_handles, title='Method & Order', loc=legend_loc)
+    # Create single unified legend
+    ncol = 3
+    axd['L'].legend(
+        handles=_to_column_major(handles=all_handles, ncol=ncol),
+        loc='center',
+        ncol=ncol,
+        fontsize=12,
+        frameon=True
+    )
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(
-        os.path.join(plot_dir, f'n_samples_random_vs_ordered_supplement.png'),
-        dpi=300
-    )
+    plt.savefig(os.path.join(PLOT_DIR, 'fig4s_sample_order.png'), dpi=fig.dpi)
     plt.close('all')
 
 
@@ -3330,6 +3331,20 @@ def main_minority_count_figure():
 
         fig.savefig(os.path.join(plot_dir, f'minority_count_{mc_mode}.png'), dpi=fig.dpi)
 
+
+
+def _to_column_major(handles, ncol):
+    """Reorder handles from row-major to column-major layout."""
+    import numpy as np
+    n = len(handles)
+    nrow = int(np.ceil(n / ncol))
+    # pad handles so we can reshape cleanly
+    padded = handles + [None] * (nrow * ncol - n)
+    arr = np.array(padded).reshape(nrow, ncol)
+    # flatten column-major (Fortran order)
+    reordered = arr.T.flatten()
+    # drop padding
+    return [h for h in reordered if h is not None]
 
 
 if __name__ == '__main__':
