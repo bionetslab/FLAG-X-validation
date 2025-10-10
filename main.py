@@ -1086,11 +1086,6 @@ def main_gatemeclass():
         marker_names_flowcyt,
     ]
 
-    data_sets = ['flowcyt', ]  # todo
-    others_labels = [5, ]  # todo
-    pos_labels = [None, ]  # todo
-    marker_names_list = [marker_names_flowcyt, ]  # todo
-
     preprocessing_trafo = 'arcsinh_cofactor150'  # 'log10_w_custom_cutoffs', 'arcsinh_cofactor150'
 
     ####################################################################################################################
