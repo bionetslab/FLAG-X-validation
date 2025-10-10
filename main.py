@@ -1749,12 +1749,12 @@ def main_num_samples_num_events_experiment():
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'flowcyt'
+    data_set = 'lymphoma_tube2_binary'
     # 'imstat', 'lymphoma_tube1', 'lymphoma_tube2', 'lymphoma_tube1_binary', 'lymphoma_tube2_binary', 'flowcyt'
 
     random_sample_order = True
 
-    classifier = 'fcnn'  # 'som', 'fcnn'
+    classifier = 'som'  # 'som', 'fcnn'
 
     inference = True
 
@@ -1776,13 +1776,13 @@ def main_num_samples_num_events_experiment():
 
     np.random.seed(42)
 
-    base_p = os.path.join('./results/num_samples_num_events')
+    base_p = './results/num_samples_num_events'
 
     # Load the sample order file
     sample_order_file = None
     if not random_sample_order:
         if data_set in {'imstat', 'flowcyt'}:
-            print(f'No sample order available for {data_set}. Continuing with random order.')
+            print(f'No sample order available for {data_set}.')
             quit()
         else:
             fn_str = 'lymphoma_tube1' if data_set in {'lymphoma_tube1', 'lymphoma_tube1_binary'} else 'lymphoma_tube2'
@@ -1880,7 +1880,7 @@ def main_random_sample_order_trials():
 
     classifier = 'fcnn'  # 'som', 'fcnn'
 
-    max_n_samples = 21
+    max_n_samples = 20
 
     n_trials = 100
 
@@ -2442,6 +2442,8 @@ if __name__ == '__main__':
 
     # main_num_samples_num_events_experiment()
 
+    # main_random_sample_order_trials()
+
     # main_local_training()
 
     # main_probabilistic_predictions()
@@ -2451,9 +2453,9 @@ if __name__ == '__main__':
     print('done')
 
     # Todo:
-    #  - som on hpc
-    #  - num samples num events for som
-    #  - random_sample_order_trials
+    #  - som on hpc -> started
+    #  - num samples num events for som -> started random cases
+    #  - random_sample_order_trials -> started for fcnn
     #  - local training
     #  - probabilistic predictions
     #  - aggregate time tables
