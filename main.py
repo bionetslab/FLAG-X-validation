@@ -766,11 +766,11 @@ def main_som_n_epochs_calibration():
     val_frac = 0.34
 
     # Gridsearch for n_epochs
-    n_epochs = list(range(10, 101, 10)) + list(range(200, 1001, 100)) + list(range(1500, 6001, 500))
+    n_epochs = list(range(10, 101, 10)) + list(range(200, 2001, 100)) + list(range(2500, 6001, 500))
     ####################################################################################################################
 
     # ### Load the train data
-    data_p = os.path.join(os.getcwd(), f'data/np_files/imstat/{trafo}')
+    data_p = f'./data/np_files/imstat/{trafo}'
 
     x = np.load(os.path.join(data_p, 'x_train.npy')).astype(np.float32)
     y = np.load(os.path.join(data_p, 'y_train.npy')).astype(np.int32)
@@ -792,16 +792,15 @@ def main_som_n_epochs_calibration():
     val_fold = [-1] * x_train.shape[0] + [0] * x_val.shape[0]
     cv = PredefinedSplit(test_fold=val_fold)
 
-    # ### Load the previously optimized parameters and define a parameter grid with them
-    som_clf_param_tuning = SomClassifier.load(
-        filepath=os.path.join(os.getcwd(), f'results/parameter_tuning/{trafo}/full_grid')
-    )
+    # Load the previously optimized parameters and define a parameter grid with them
+    som_clf_param_tuning = SomClassifier.load(filepath=f'./results/som_parameter_tuning/{trafo}/full_grid')
     best_params = som_clf_param_tuning.grid_search_.best_params_
-
-    print('# ### Best parameters:', best_params)
+    print('# --- Best parameters:')
+    for key, value in best_params.items():
+        print(f'# {key}: {value}')
 
     # Define dir for saving the results
-    save_p = os.path.join(os.getcwd(), f'results/som_n_epochs_calibration/{trafo}')
+    save_p = f'./results/som_n_epochs_calibration/{trafo}'
     os.makedirs(save_p, exist_ok=True)
 
     # ### Inference
@@ -895,7 +894,7 @@ def main_som_classifier():
             continue
 
         # Define path where results will be saved to
-        save_p = os.path.join(os.getcwd(), f'./results/gating_performance/som_classifier/{data_set}/{trafo}')
+        save_p = os.path.join(os.getcwd(), f'./results/gating_performance/som/{data_set}/{trafo}')
         os.makedirs(save_p, exist_ok=True)
 
         if fit:
@@ -904,25 +903,20 @@ def main_som_classifier():
             x_train = np.load(os.path.join(data_p, 'x_train.npy'))
             y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
-            x_train = x_train[0:100000, :]
-            y_train = y_train[0:100000]
-
-
             # Instantiate the SOM classifier
-            # Todo: load/change params
             som_clf = SomClassifier(
                 som_topology='planar',
                 som_grid_type='rectangular',
-                som_dimensions=(10, 10),
+                som_dimensions=(25, 25),
                 neighborhood='gaussian',
                 gaussian_neighborhood_sigma=0.1,
                 initialization='pca',
-                n_epochs=10,
-                radius_0=-0.25,
+                n_epochs=1000,
+                radius_0=-0.5,
                 radius_n=0.1,
-                radius_cooling='linear',
+                radius_cooling='exponential',
                 learning_rate_0=0.1,
-                learning_rate_n=0.05,
+                learning_rate_n=0.001,
                 learning_rate_decay='exponential',
                 verbosity=2,
             )
@@ -933,9 +927,7 @@ def main_som_classifier():
                 som_clf.fit(X=x_train, y=y_train)
                 return som_clf
             fit_time_df, som_clf = scalability_wrapper(function=dummy_fit, function_params=None, track_gpu=False)
-
             fit_time_df.to_csv(os.path.join(save_p, 'fit_time_df.csv'))
-
             som_clf.save(filepath=save_p)
 
         else:
@@ -1784,7 +1776,7 @@ def main_num_samples_num_events_experiment():
 
     np.random.seed(42)
 
-    base_p = os.path.join(os.getcwd(), 'results/num_samples_num_events')
+    base_p = os.path.join('./results/num_samples_num_events')
 
     # Load the sample order file
     sample_order_file = None
@@ -1821,7 +1813,7 @@ def main_num_samples_num_events_experiment():
     os.makedirs(save_p, exist_ok=True)
 
     # Set the data path
-    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo)
+    data_p = os.path.join('./data/np_files', data_set, preprocessing_trafo)
 
     if inference:
         if classifier == 'som':
@@ -1834,11 +1826,11 @@ def main_num_samples_num_events_experiment():
                 gaussian_neighborhood_sigma=0.1,
                 initialization='pca',
                 n_epochs=1000,
-                radius_0=-0.25,
+                radius_0=-0.5,
                 radius_n=0.1,
-                radius_cooling='linear',
+                radius_cooling='exponential',
                 learning_rate_0=0.1,
-                learning_rate_n=0.05,
+                learning_rate_n=0.001,
                 learning_rate_decay='exponential',
                 verbosity=2,
             )
@@ -1910,7 +1902,7 @@ def main_random_sample_order_trials():
     os.makedirs(save_p, exist_ok=True)
 
     # Set the data path
-    data_p = os.path.join(os.getcwd(), 'data/np_files', data_set, preprocessing_trafo)
+    data_p = os.path.join('./data/np_files', data_set, preprocessing_trafo)
 
     # Set the random seeds
     random.seed(42)
@@ -1960,7 +1952,7 @@ def main_random_sample_order_trials():
             y_train = y_train[shuffle_permutation]
 
             # Instantiate classifier
-            if classifier == 'som':  # Todo: parameters
+            if classifier == 'som':
                 clf = SomClassifier(
                     som_topology='planar',
                     som_grid_type='rectangular',
@@ -1969,11 +1961,11 @@ def main_random_sample_order_trials():
                     gaussian_neighborhood_sigma=0.1,
                     initialization='pca',
                     n_epochs=1000,
-                    radius_0=-0.25,
+                    radius_0=-0.5,
                     radius_n=0.1,
-                    radius_cooling='linear',
+                    radius_cooling='exponential',
                     learning_rate_0=0.1,
-                    learning_rate_n=0.05,
+                    learning_rate_n=0.001,
                     learning_rate_decay='exponential',
                     verbosity=2,
                 )
@@ -2099,7 +2091,7 @@ def main_local_training():
         y_train = y_train[permutation_indices]
 
         if gating_method == 'som':
-            # Instantiate the SOM classifier  # todo: parameters
+            # Instantiate the SOM classifier
             clf = SomClassifier(
                 som_topology='planar',
                 som_grid_type='rectangular',
@@ -2108,11 +2100,11 @@ def main_local_training():
                 gaussian_neighborhood_sigma=0.1,
                 initialization='pca',
                 n_epochs=1000,
-                radius_0=-0.25,
+                radius_0=-0.5,
                 radius_n=0.1,
-                radius_cooling='linear',
+                radius_cooling='exponential',
                 learning_rate_0=0.1,
-                learning_rate_n=0.05,
+                learning_rate_n=0.001,
                 learning_rate_decay='exponential',
                 verbosity=2,
             )
@@ -2295,7 +2287,7 @@ def main_time_table_aggregation():
     method_to_dir = {
         'GateMeClass': 'gatemeclass_no_abstention',
         'DGCyTOF': 'dgcytof', 'FCNN': 'fcnn',
-        'SOM-classifier': 'som_classifier',
+        'SOM-classifier': 'som',
     }
 
     # --- All data results
@@ -2459,7 +2451,6 @@ if __name__ == '__main__':
     print('done')
 
     # Todo:
-    #  - num epochs calibration
     #  - som on hpc
     #  - num samples num events for som
     #  - random_sample_order_trials
