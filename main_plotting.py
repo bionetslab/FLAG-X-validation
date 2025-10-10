@@ -973,7 +973,7 @@ def fig2s_gating_performance_class_wise():
 
 
 # Todo ...
-def main_performance_plot_local_supplement():
+def fig6s_gating_performance_local():
 
     import os
     import pandas as pd
@@ -2351,566 +2351,7 @@ def main_pipeline_output_downsampling():
             )
 
 
-def main_plot_minority_count():
-
-    import os
-    import numpy as np
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    from validation.utils.val_utils import get_downsampling_bool, _get_expanding_iterator_list
-    from validation.plt import annotate_mosaic
-
-    # ### Set flags and important variables here #######################################################################
-    datasets = ['Flowcyt', 'LT1', 'LT2', 'Imstat', 'LT1 b', 'LT2 b']
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    dataset_to_datasetdir = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    dataset_to_n_samples = {
-        'Flowcyt': list(range(1,6)) + list(range(10, 22, 5)) + [22, ],
-        'Imstat': list(range(1,21)) + list(range(25, 76, 5)),
-        'LT1': list(range(1,21)) + list(range(25, 71, 5)) + [73, ],
-        'LT2': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
-        'LT1 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
-        'LT2 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
-    }
-
-    # Define mappings from integer to letter labels
-    lm_imstat = {
-        '1': 'B',  # B cell
-        '2': 'Th',  # T helper
-        '3': 'NK',  # NK cell
-        '4': 'M16',  # (CD16+)',  # atypical CD16+ Monocytes
-        '5': 'M',  # Other Monocytes
-        '6': 'G',  # Granulocytes
-        '7': 'X',  # Sorted out
-        '8': 'O'  # Unclassified
-    }
-
-    lm_lt1 = {
-        '1': 'B',  # B cells
-        '9': 'dyB',  # Dying B
-        '7': 'X',  # Erythroid (CD45-)
-        '10': 'O'  # Others
-    }
-    lm_lt2 = lm_lt1
-
-    lm_lt1b = {
-        '1': 'B',
-        '0': 'O'
-    }
-    lm_lt2b = lm_lt1b
-
-    lm_flowcyt = {
-        '0': 'T',  # T lymphocyte
-        '1': 'B',  # B lymphocyte
-        '2': 'M',  # Monocyte
-        '3': 'Ma',  # Mast cell
-        '4': 'HSPC',  # Hematopoietic stem and progenitor cell
-        '5': 'O'  # Others
-    }
-
-    label_mappings = {
-        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
-    }
-
-    dataset_to_minority_class = {
-        'Flowcyt': 3,
-        'Imstat': 4,
-        'LT1': 9,
-        'LT2': 9,
-        'LT1 b': 1,
-        'LT2 b': 1,
-    }
-
-    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
-
-    n_events_plot = [100, 1000, 5000, 10000, 20000, 50000, 'all']
-
-    generate_plot_dfs = False
-
-    ####################################################################################################################
-
-    if generate_plot_dfs:
-        res_dfs = []
-        res_dfs_wide = []
-        for dataset in datasets:
-
-            # Set random seed
-            np.random.seed(42)
-
-            # Set data path
-            trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
-            data_p = os.path.join(
-                os.getcwd(), 'data/np_files', dataset_to_datasetdir[dataset], trafo, 'sample_wise_train'
-            )
-
-            # Get number of samples for which to compute population size information
-            n_samples = dataset_to_n_samples[dataset]
-
-            # Generate iter list (same as for n samples experiment)
-            iter_list = _get_expanding_iterator_list(n=len(n_events), m=len(n_samples))
-
-            n_samples_list = []
-            n_events_list = []
-            minority_count_list = []
-            for i, j in iter_list:
-
-                # Load the label vectors of the train samples
-                sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples[j])]
-                y_trains = [np.load(os.path.join(data_p, f'y_{sn}.npy')) for sn in sample_names_train]
-
-                # Downsample
-                if n_events[i] != 'all':
-                    keep_bools = []
-                    for y in y_trains:
-                        ds_keep_bool = get_downsampling_bool(
-                            y=y, target_num_events=n_events[i], stratified=True
-                        )
-                        keep_bools.append(ds_keep_bool)
-
-                    y_trains = [y[kb] for y, kb in zip(y_trains, keep_bools)]
-
-                # Concatenate and shuffle rows
-                y_train = np.concatenate(y_trains, axis=0)
-
-                # Shuffle row-wise (just for consistency with n samples experiment)
-                shuffle_permutation = np.random.permutation(y_train.shape[0])
-                y_train = y_train[shuffle_permutation]
-
-                # Get count for minority class
-                minority_class_count = (y_train == dataset_to_minority_class[dataset]).sum()
-
-                minority_count_list.append(minority_class_count)
-                n_samples_list.append(n_samples[j])
-                n_events_list.append(n_events[i])
-
-            res_df = pd.DataFrame(
-                {
-                    'n_samples': n_samples_list,
-                    'n_events': n_events_list,
-                    'minority_count': minority_count_list,
-                    'dataset': [dataset] * len(minority_count_list)
-                }
-            )
-
-            res_dfs.append(res_df)
-
-            res_df_wide = res_df.pivot(index='n_events', columns='n_samples', values='minority_count')
-
-            print(f'# ### Minority class count {dataset}:\n{res_df_wide}')
-
-            res_dfs_wide.append(res_df_wide)
-
-            # res_df_wide.to_csv(os.path.join(plot_dir, f'minority_class_{dataset.replace(' ', '')}.csv'))
-
-        res_df_concat = pd.concat(res_dfs, axis=0, ignore_index=True)
-        res_df_concat.to_csv(os.path.join(plot_dir, f'minority_class.csv'))
-
-    else:
-
-        # paths = [os.path.join(plot_dir, f'minority_class_{dataset.replace(' ', '')}.csv') for dataset in datasets]
-        # res_dfs_wide = [pd.read_csv(path, index_col=0) for path in paths]
-
-        # Load df
-        res_df_concat = pd.read_csv(os.path.join(plot_dir, f'minority_class.csv'), index_col=0)
-        n_events_col = [int(n) if n != 'all' else n for n in res_df_concat['n_events']]
-        res_df_concat['n_events'] = n_events_col
-
-    # Subset the dataframe w.r.t. n_events, n_samples
-    keep_bool_n_events = res_df_concat['n_events'].isin(n_events_plot)
-    keep_bool_n_samples = (
-            (res_df_concat['n_samples'] % 5 == 0) |
-            (res_df_concat['n_samples'] == 1) |
-            (res_df_concat['n_samples'] >= 70) |
-            ((res_df_concat['n_samples'] == 22) & (res_df_concat['dataset'] == 'Flowcyt'))
-    )
-    keep_bool = np.logical_and(keep_bool_n_events, keep_bool_n_samples)
-    res_df_concat = res_df_concat[keep_bool]
-
-    # ### Load the performance df
-    method_names = ['FCNN', 'SOM-Classifier']
-
-    dataset_to_max_n = {'Imstat': 75, 'LT1': 73, 'LT2': 73, 'LT1 b': 73, 'LT2 b': 73, 'Flowcyt': 22}
-
-    # Directory mappings
-    method_to_dir = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
-
-    all_records = []
-
-    for dataset in datasets:
-
-        max_n = dataset_to_max_n[dataset]
-        ds_dir = dataset_to_datasetdir[dataset]
-        data_trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
-
-        for method in method_names:
-            for n in n_events:
-                for i in range(1, max_n + 1):
-
-                    method_dir = method_to_dir[method]
-
-                    if i == max_n and n == 'all':  # Load previously computed scores for (all samples, all events)
-                        file_path = os.path.join(
-                            './results/pred_eval',
-                            method_dir + '_classifier',
-                            ds_dir,
-                            data_trafo,
-                            'res_df_sw_avg_f1.csv'
-                        )
-                    else:
-                        file_path = os.path.join(
-                            './results/n_samples_n_events',
-                            method_dir,
-                            ds_dir,
-                            data_trafo,
-                            'random',
-                            'detailed_res',
-                            f'nevents_{n}_nsamples_{i}',
-                            'res_df_sw_avg_f1.csv'
-                        )
-
-                    try:
-                        df = pd.read_csv(file_path, index_col=0)
-                        df = df.drop(index=['mean', 'std'], errors='ignore')
-                        for val in df['macro']:
-                            all_records.append({
-                                'dataset': dataset,
-                                'method': method,
-                                'n_events': n,
-                                'n_samples': i,
-                                'score': val
-                            })
-
-                    except FileNotFoundError as e:
-                        # print(f"# Missing: {file_path}")
-                        continue
-
-    # Create DataFrame
-    res_df_performance = pd.DataFrame(all_records)
-    res_df_performance['n_samples'] = res_df_performance['n_samples'].astype(int)
-
-    # Subset the dataframe w.r.t. n_events, n_samples
-    keep_bool_n_events_perf = res_df_performance['n_events'].isin(n_events_plot)
-    keep_bool_n_samples_perf = (
-            (res_df_performance['n_samples'] % 5 == 0) |
-            (res_df_performance['n_samples'] == 1) |
-            (res_df_performance['n_samples'] >= 70) |
-            ((res_df_performance['n_samples'] == 22) & (res_df_performance['dataset'] == 'Flowcyt'))
-    )
-    keep_bool_perf = np.logical_and(keep_bool_n_events_perf, keep_bool_n_samples_perf)
-    res_df_performance = res_df_performance[keep_bool_perf]
-
-    res_df_performance = (
-        res_df_performance
-        .groupby(['dataset', 'method', 'n_events', 'n_samples'], as_index=False)
-        .agg({'score': 'mean'})
-    )
-
-    # Merge with minority counts dataframe
-    res_df_performance_som = res_df_performance[res_df_performance['method'] == 'SOM-Classifier']
-    res_df_performance_fcnn = res_df_performance[res_df_performance['method'] == 'FCNN']
-
-    res_df_performance_som_joint = pd.merge(
-        res_df_concat, res_df_performance_som, on=['n_events', 'n_samples', 'dataset']
-    )
-    res_df_performance_fcnn_joint = pd.merge(
-        res_df_concat, res_df_performance_fcnn, on=['n_events', 'n_samples', 'dataset']
-    )
-
-    res_df = pd.concat([res_df_performance_som_joint, res_df_performance_fcnn_joint], axis=0).reset_index(drop=True)
-
-
-    # ### Plot 1: Per dataset lineplot: x=n_samples, y=n_minority_events
-    fig = plt.figure(figsize=(8, 8), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        ABC
-        DEF
-        """
-    )
-
-    for dataset, key in zip(datasets, list('ABCDEF')):
-
-        ax = axd[key]
-
-        # Subset the dataframe
-        keep_bool_dataset = (res_df_concat['dataset'] == dataset)
-        res_df_concat_sub = res_df_concat[keep_bool_dataset]
-
-        sns.lineplot(
-            data=res_df_concat_sub,
-            x='n_samples',
-            y='minority_count',
-            hue='n_events',
-            errorbar=None,
-            marker='o',
-            markersize=3,
-            palette='magma',
-            ax=ax,
-        )
-
-        # Set title
-        label_mapping = label_mappings[dataset]
-        minority_class = dataset_to_minority_class[dataset]
-        minority_class_label = label_mapping[str(minority_class)]
-        ax.set_title(f'{dataset} | {minority_class_label} Count')
-
-    fig.savefig(os.path.join(plot_dir, 'minority_count_per_dataset.png'), dpi=fig.dpi)
-    plt.close(fig)
-
-
-    # ### Plot 2: Per dataset lineplot: x=n_minority_events, y=macro_f1
-    res_df['minority_count_plus_one'] = res_df['minority_count'] + 1
-
-    print(res_df)
-
-    fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
-    layout_str = '''
-                ABC
-                DEF
-                GHI
-                JKL
-            '''
-    axd = fig.subplot_mosaic(layout_str)
-
-    plot_labels = [c for c in layout_str if c.isalpha()]
-
-    count = 0
-    for method in method_names:
-        for dataset in datasets:
-
-            # Subset df to dataset and method
-
-            plot_df = res_df[(res_df['method'] == method) & (res_df['dataset'] == dataset)]
-
-            ax = axd[plot_labels[count]]
-
-            sns.lineplot(
-                plot_df,
-                x='minority_count_plus_one',
-                y='score',
-                hue='n_events',
-                errorbar=None,  # 'sd',
-                # err_style='bars',
-                marker='o',
-                markersize=3,
-                palette='magma',
-                legend=True,
-                ax=ax,
-            )
-
-            ax.set_title(f'{dataset} | {method}')
-            ax.set_xlabel('Minority Count + 1')
-            ax.set_ylabel('Macro F1 Score')
-
-            handles, labels = ax.get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))
-            ax.legend(
-                by_label.values(),
-                by_label.keys(),
-                fontsize=6,
-                title=None,
-                loc='lower right',
-                handlelength=1.5,
-            )
-
-            ax.set_xscale('log', base=10)
-
-            from matplotlib.ticker import LogLocator
-            ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=range(1, 10), numticks=100))
-
-            count += 1
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(
-        os.path.join(plot_dir, f'minority_count_vs_f1_score.png'),
-        dpi=fig.dpi
-    )
-    plt.close('all')
-
-    # ### Plot 3: Per dataset lineplot: x=n_minority_events, y=macro_f1
-
-    log10 = True
-    interm_ticks = False
-
-    tick_fs = 8
-    ax_fs = 8
-
-    fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
-    layout_str = '''
-                    ABC
-                    DEF
-                    GHI
-                    JKL
-                '''
-    axd = fig.subplot_mosaic(layout_str)
-
-    plot_labels = [c for c in layout_str if c.isalpha()]
-
-    count = 0
-    for method in method_names:
-        for dataset in datasets:
-            # Subset df to dataset and method
-
-            plot_df = res_df[(res_df['method'] == method) & (res_df['dataset'] == dataset)].copy()
-
-            if log10:
-                plot_df['minority_count_raw'] = plot_df['minority_count'].copy()
-                plot_df['minority_count'] = np.log10(plot_df['minority_count'] + 1)
-
-            mc = plot_df['minority_count'].to_numpy()
-            plot_df['minority_count_scaled'] = - (mc - mc.min()) / (mc.max() - mc.min())
-            sc = plot_df['score'].to_numpy()
-            plot_df['score_scaled'] = (sc - sc.min()) / (sc.max() - sc.min())
-
-            ax = axd[plot_labels[count]]
-
-            sns.lineplot(
-                plot_df,
-                x='n_samples',
-                y='minority_count_scaled',
-                hue='n_events',
-                errorbar=None,  # 'sd',
-                # err_style='bars',
-                marker='o',
-                markersize=3,
-                palette='magma',
-                legend=True,
-                ax=ax,
-            )
-
-            sns.lineplot(
-                plot_df,
-                x='n_samples',
-                y='score_scaled',
-                hue='n_events',
-                errorbar=None,  # 'sd',
-                # err_style='bars',
-                marker='o',
-                markersize=3,
-                palette='magma',
-                legend=True,
-                ax=ax,
-            )
-
-            ax.set_title(f'{dataset} | {method}')
-            ax.set_xlabel('No. of Training Samples', fontsize=ax_fs)
-            ax.set_ylabel('Minority Count | Macro F1', fontsize=ax_fs)
-
-            handles, labels = ax.get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))  # Remove duplicates while preserving order
-            ax.legend(
-                by_label.values(),
-                by_label.keys(),
-                fontsize=6,
-                title=None,
-                loc='center right',
-                handlelength=1.5,  # shrink marker size a bit
-            )
-
-            # Set min and max number of samples as x ticks
-            x_min, x_max = plot_df['n_samples'].min(), plot_df['n_samples'].max()
-            current_ticks = ax.get_xticks()
-            current_ticks = [tick for tick in current_ticks if x_min <= tick <= x_max]
-            new_ticks = [x_min] + current_ticks + [x_max]
-            ax.set_xticks(new_ticks)
-            ax.set_xticklabels([str(int(tick)) for tick in new_ticks], fontsize=tick_fs)
-
-            # Set x ticks
-            y_ticks_pos_label = np.round(np.linspace(sc.min(), sc.max(), 4), 2)
-            y_ticks_pos_position = ((y_ticks_pos_label - sc.min()) / (sc.max() - sc.min())).tolist()
-
-            if not log10:
-                # Linear case (unchanged logic)
-                y_ticks_neg_label = np.linspace(mc.min(), mc.max(), 4, dtype=int)
-                y_ticks_neg_position = (-(y_ticks_neg_label - mc.min()) / (mc.max() - mc.min())).tolist()
-
-                zero_label = f'{y_ticks_neg_label[0]} | {y_ticks_pos_label[0]}'
-                y_ticks_labels = (
-                        [str(l) for l in y_ticks_neg_label[1:]] + [zero_label] + [str(l) for l in y_ticks_pos_label[1:]]
-                )
-                y_ticks_positions = y_ticks_neg_position[1:] + [0.0] + y_ticks_pos_position[1:]
-
-            else:
-                # ---------- LOG case for the negative side ----------
-                minority_raw = plot_df['minority_count_raw'].to_numpy()
-                min_raw = int(np.nanmin(minority_raw))
-                max_raw = int(np.nanmax(minority_raw))
-
-                log_ticks_raw = []
-                decade_exponents = []
-
-                if max_raw >= 10:
-                    # Build candidate ticks
-                    max_decade = int(np.floor(np.log10(max_raw)))
-                    if interm_ticks:
-                        # Intermediate ticks (10,20,...,90, 100,200,...), but we'll filter by min_raw next
-                        for d in range(1, max_decade + 1):  # start at 10^1
-                            base = 10 ** d
-                            for m_ in range(1, 10):
-                                v = m_ * base
-                                if v <= max_raw:
-                                    log_ticks_raw.append(v)
-                        decade_exponents = list(range(1, max_decade + 1))
-                    else:
-                        decade_exponents = list(range(1, max_decade + 1))
-                        log_ticks_raw = [10 ** d for d in decade_exponents]
-
-                    # *** KEY: keep only ticks that are within the plotted data range ***
-                    # (values below min_raw map above the 0 line after min-max scaling)
-                    log_ticks_raw = [v for v in log_ticks_raw if v >= min_raw]
-
-                # Positions in transformed space (log10(x+1)), then min-max scale and flip negative
-                log_ticks_vals = np.log10(np.array(log_ticks_raw, dtype=float) + 1.0) if len(
-                    log_ticks_raw) else np.array([])
-
-                denom = (mc.max() - mc.min()) if (mc.max() > mc.min()) else 1.0
-                y_ticks_neg_position = (-(log_ticks_vals - mc.min()) / denom).tolist() if len(log_ticks_vals) else []
-
-                # Labels: 10^d only for decade ticks that survived filtering
-                decade_raw_values = {10 ** d for d in decade_exponents}
-                y_ticks_neg_labels = [
-                    (r"$10^{%d}$" % int(np.log10(v)) if v in decade_raw_values else "")
-                    for v in log_ticks_raw
-                ]
-
-                # Combine ticks
-                zero_label = f'{min_raw} | {y_ticks_pos_label[0]}'
-                y_ticks_labels = y_ticks_neg_labels + [zero_label] + [str(l) for l in y_ticks_pos_label[1:]]
-                y_ticks_positions = y_ticks_neg_position + [0.0] + y_ticks_pos_position[1:]
-
-            # Apply to the axis
-            ax.set_yticks(y_ticks_positions, labels=y_ticks_labels, fontsize=tick_fs)
-
-            ax.axhline(y=-0.001, color='green', linewidth=1.0)
-            ax.axhline(y=0.001, color='blue', linewidth=1.0)
-
-            ax.grid()
-
-            count += 1
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(
-        os.path.join(plot_dir, f'minority_count_and_f1_score.png'),
-        dpi=fig.dpi
-    )
-    plt.close('all')
-
-
-def main_minority_count_figure():
+def fig5s_minority_count():
     import os
     import numpy as np
     import pandas as pd
@@ -2925,29 +2366,18 @@ def main_minority_count_figure():
     from validation.plt import annotate_mosaic
 
     # ### Set flags and important variables here #######################################################################
-    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1 b', 'LT2 b']
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b']
     method_names = ['FCNN', 'SOM-Classifier']
 
-    plot_dir = os.path.join(os.getcwd(), 'results/minority_count')
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    dataset_to_datasetdir = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
     dataset_to_n_samples = {
-        'Flowcyt': list(range(1, 6)) + list(range(10, 22, 5)) + [22, ],
-        'Imstat': list(range(1, 21)) + list(range(25, 76, 5)),
-        'LT1': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
-        'LT2': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
-        'LT1 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
-        'LT2 b': list(range(1, 21)) + list(range(25, 71, 5)) + [73, ],
+        'Flowcyt': list(range(1,6)) + list(range(10, 16, 5)) + [18, ],
+        'Imstat': list(range(1,21)) + list(range(25, 76, 5)),
+        'LT1': list(range(1,21)) + list(range(25, 56, 5)) + [58, ],
+        'LT2': list(range(1,21)) + list(range(25, 56, 5)) + [58, ],
+        'LT1b': list(range(1,21)) + list(range(25, 56, 5)) + [58, ],
+        'LT2b': list(range(1,21)) + list(range(25, 56, 5)) + [58, ],
     }
-    n_events = [5000, 10000, 20000, 50000, 'all']  # [100, 1000, 5000, 10000, 20000, 50000, 'all']
+    n_events = [5000, 10000, 20000, 50000, 'all']
 
     plot_num_events = False
 
@@ -2967,9 +2397,7 @@ def main_minority_count_figure():
 
             # Set data path
             trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
-            data_p = os.path.join(
-                os.getcwd(), 'data/np_files', dataset_to_datasetdir[dataset], trafo, 'sample_wise_train'
-            )
+            data_p = os.path.join('./data/np_files', DATASET_TO_DIR[dataset], trafo, 'sample_wise_train')
 
             # Get number of samples for which to compute population size information
             n_samples = dataset_to_n_samples[dataset]
@@ -3006,12 +2434,13 @@ def main_minority_count_figure():
                 shuffle_permutation = np.random.permutation(y_train.shape[0])
                 y_train = y_train[shuffle_permutation]
 
-                # Get the median minority class size across samples
+                # Get the minority class size for each sample
                 minority_counts = []
                 for labels in y_trains:
                     unique, counts = np.unique(labels, return_counts=True)
                     minority_counts.append(counts.min())
 
+                # Compute median, total, mean, and min across samples
                 median_minority_count = np.median(minority_counts)
                 total_minority_count = sum(minority_counts)
                 mean_minority_count = sum(minority_counts) / len(minority_counts)
@@ -3047,41 +2476,35 @@ def main_minority_count_figure():
             print(f'# ### Minority class count {dataset}:\n{res_df_minority_count_dataset_wide}')
 
             res_df_minority_count_dataset_wide.to_csv(
-                os.path.join(plot_dir, f'minority_count_{dataset.replace(' ', '')}.csv')
+                os.path.join(PLOT_DIR, f'minority_count_{dataset.replace(' ', '')}.csv')
             )
 
         res_df_minority_count = pd.concat(res_dfs_minority_count, axis=0, ignore_index=True)
-        res_df_minority_count.to_csv(os.path.join(plot_dir, f'minority_count.csv'))
+        # res_df_minority_count.to_csv(os.path.join(PLOT_DIR, 'minority_count.csv'))
 
         # ### Generate the performance dataframe
-        dataset_to_max_n = {'Imstat': 75, 'LT1': 73, 'LT2': 73, 'LT1 b': 73, 'LT2 b': 73, 'Flowcyt': 22}
-        method_to_dir = {'FCNN': 'softmax', 'SOM-Classifier': 'som'}
         all_records = []
         for dataset in datasets:
-
-            max_n = dataset_to_max_n[dataset]
-            ds_dir = dataset_to_datasetdir[dataset]
-            data_trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
-
             for method in method_names:
                 for n in n_events:
+                    max_n = DATASET_TO_NUM_SAMPLES[dataset]
                     for i in range(1, max_n + 1):
 
-                        method_dir = method_to_dir[method]
+                        data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
 
                         if i == max_n and n == 'all':  # Load previously computed scores for (all samples, all events)
                             file_path = os.path.join(
                                 './results/pred_eval',
-                                method_dir + '_classifier',
-                                ds_dir,
+                                METHOD_TO_DIR[method],
+                                DATASET_TO_DIR[dataset],
                                 data_trafo,
                                 'res_df_sw_avg_f1.csv'
                             )
                         else:
                             file_path = os.path.join(
                                 './results/n_samples_n_events',
-                                method_dir,
-                                ds_dir,
+                                METHOD_TO_DIR[method],
+                                DATASET_TO_DIR[dataset],
                                 data_trafo,
                                 'random',
                                 'detailed_res',
@@ -3113,35 +2536,29 @@ def main_minority_count_figure():
             .groupby(['dataset', 'method', 'n_events', 'n_samples'], as_index=False)
             .agg({'score': 'mean'})
         )
-
-        res_df_performance.to_csv(os.path.join(plot_dir, f'performance.csv'))
+        # res_df_performance.to_csv(os.path.join(PLOT_DIR, f'performance.csv'))
 
         # Merge dataframes
         res_df = pd.merge(res_df_performance, res_df_minority_count, on=['n_samples', 'n_events', 'dataset'])
-
-        res_df.to_csv(os.path.join(plot_dir, 'res_df.csv'))
+        res_df.to_csv(os.path.join(PLOT_DIR, 'res_df_minority_count.csv'))
 
     else:
-        res_df = pd.read_csv(os.path.join(plot_dir, 'res_df.csv'), index_col=0)
+        res_df = pd.read_csv(os.path.join(PLOT_DIR, 'res_df_minority_count.csv'), index_col=0)
         n_events_col = [int(n) if n != 'all' else n for n in res_df['n_events']]
         res_df['n_events'] = n_events_col
 
 
     # Load performance scores for all samples
     all_records = []
-    for ds in datasets:
-
-        ds_dir = dataset_to_datasetdir[ds]
-        data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
-
+    for dataset in datasets:
         for method in method_names:
 
-            method_dir = 'som' if method == 'SOM-Classifier' else 'softmax'
+            data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
 
             file_path = os.path.join(
                 './results/pred_eval',
-                method_dir + '_classifier',
-                ds_dir,
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
                 data_trafo,
                 f'res_df_sw_avg_f1.csv'
             )
@@ -3149,7 +2566,7 @@ def main_minority_count_figure():
             df = pd.read_csv(file_path, index_col=0)
 
             all_records.append({
-                'dataset': ds,
+                'dataset': dataset,
                 'method': method,
                 'score': df.loc['mean', 'macro']
             })
@@ -3157,18 +2574,25 @@ def main_minority_count_figure():
     # Create DataFrame
     res_df_all_data_performance = pd.DataFrame(all_records)
 
-    # Subset dataframe to values to be plotted
-    keep_bool_n_events = res_df['n_events'].isin(n_events)
-    keep_bool_n_samples = (
-            (res_df['n_samples'] % 5 == 0) |
-            (res_df['n_samples'] == 1) |
-            (res_df['n_samples'] >= 70) |
-            ((res_df['n_samples'] == 22) & (res_df['dataset'] == 'Flowcyt'))
+    # Subset to numbers of samples to be plotted
+    imstat_full = (
+            (res_df['n_samples'] == DATASET_TO_NUM_SAMPLES['Imstat']) &
+            (res_df['dataset'] == 'Imstat')
     )
-    keep_bool = np.logical_and(keep_bool_n_events, keep_bool_n_samples)
-    res_df = res_df[keep_bool].copy()
-
-    print(res_df)
+    lt_full = (
+            (res_df['n_samples'] == DATASET_TO_NUM_SAMPLES['LT1']) &
+            (res_df['dataset'].isin(['LT1', 'LT2', 'LT1b', 'LT2b']))
+    )
+    flowcyt_full = (
+            (res_df['n_samples'] == DATASET_TO_NUM_SAMPLES['Flowcyt']) &
+            (res_df['dataset'] == 'Flowcyt')
+    )
+    keep_bool = (
+            (res_df['n_samples'] == 1) |
+            (res_df['n_samples'] % 5 == 0) |
+            imstat_full | lt_full | flowcyt_full
+    )
+    plot_df = res_df[keep_bool].copy()
 
     # palette = sns.color_palette('crest', as_cmap=True)
     palette = sns.color_palette('RdBu', as_cmap=True)
@@ -3199,15 +2623,15 @@ def main_minority_count_figure():
         for subplot_key, (dataset, method) in zip(list('ABCDEFGHIJKL'), dataset_method_tuples):
 
             # Subset the dataframe
-            keep_bool_dataset = (res_df['dataset'] == dataset)
-            keep_bool_method = (res_df['method'] == method)
+            keep_bool_dataset = (plot_df['dataset'] == dataset)
+            keep_bool_method = (plot_df['method'] == method)
             keep_bool = keep_bool_dataset & keep_bool_method
-            res_df_plot = res_df[keep_bool].copy()
+            plot_df_sub = plot_df[keep_bool].copy()
 
             ax = axd[subplot_key]
 
             sns.scatterplot(
-                res_df_plot,
+                plot_df_sub,
                 x=f'{mc_mode}_minority_count',
                 y='score',
                 hue='n_samples',
@@ -3267,8 +2691,8 @@ def main_minority_count_figure():
         )
         cbar.set_ticks([])
         cbar.set_ticks([0, 1])
-        cbar.set_ticklabels(['1 sample', 'all\nsamples'])
-        cbar.set_label('Number of samples', fontsize=10, labelpad=5)
+        cbar.set_ticklabels(['1 Sample', 'All\nSamples'])
+        cbar.set_label('Number of Samples', fontsize=10, labelpad=5)
         cbar.ax.xaxis.set_label_position('top')
         cbar.ax.xaxis.label.set_horizontalalignment('center')
 
@@ -3329,8 +2753,7 @@ def main_minority_count_figure():
 
         annotate_mosaic(fig, axd, fontsize=None, excluded=['X', 'Y', 'Z'])
 
-        fig.savefig(os.path.join(plot_dir, f'minority_count_{mc_mode}.png'), dpi=fig.dpi)
-
+        fig.savefig(os.path.join(PLOT_DIR, f'fig5s_minority_count_{mc_mode}.png'), dpi=fig.dpi)
 
 
 def _to_column_major(handles, ncol):
