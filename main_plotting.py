@@ -14,7 +14,8 @@ METHOD_TO_DIR = {
     'GateMeClass': 'gatemeclass_no_abstention',
     'DGCyTOF': 'dgcytof',
     'FCNN': 'fcnn',
-    'SOM-Classifier': 'som_classifier'
+    'SOM-Classifier': 'som',
+    'SOM-Clf.': 'som'
 }
 
 DATASET_TO_NUM_SAMPLES = {
@@ -220,11 +221,11 @@ def fig5_num_samples():
     performance_score = 'f1'  # f1, prec, rec
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
 
-    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
-
     dataset_names = ['Flowcyt', 'LT1', 'LT2', 'Imstat', 'LT1b', 'LT2b']
 
     method_names = ['FCNN', 'SOM-Classifier']
+
+    n_events = ['all', ]
 
     plot_all_samples_score = True
 
@@ -232,9 +233,6 @@ def fig5_num_samples():
 
     all_records = []
     for dataset in dataset_names:
-
-        # max_n = dsn_to_maxn[ds]
-        # ds_dir = conversion_mapping_datasets[ds]
 
         num_samples = DATASET_TO_NUM_SAMPLES[dataset]
         dataset_dir = DATASET_TO_DIR[dataset]
@@ -318,18 +316,18 @@ def fig5_num_samples():
     fig = plt.figure(figsize=(8, 5), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
-        LLL
         ABC
         DEF
+        LLL
         """,
-        gridspec_kw={'height_ratios': [0.1, 1, 1]}
+        gridspec_kw={'height_ratios': [1, 1, 0.1]}
     )
 
     plot_labels = list('ABCDEF')
 
     for dataset, plot_label in zip(dataset_names, plot_labels):
 
-        # Subset to the dataset and all events (no per sample downsampling)
+        # Subset to the dataset
         plot_df_sub = plot_df.loc[
             (plot_df['dataset'] == dataset)
             & (plot_df['n_events'] == 'all')
@@ -458,7 +456,7 @@ def fig6_precision_recall():
     from validation.plt import annotate_mosaic
 
     # ### Set flags and important variables here #######################################################################
-    datasets = ['LT1 b', 'LT2 b']
+    datasets = ['LT1b', 'LT2b']
     methods = ['FCNN', 'SOM-Classifier']
 
     thresholds = [
@@ -523,8 +521,8 @@ def fig6_precision_recall():
                     })
 
         plot_df = pd.DataFrame(long_data)
+        plot_df.to_csv('./results/probabilistic_pred/plot_df.csv')
 
-        plot_df.to_csv(os.path.join('./results/probabilistic_pred/plot_df.csv'))
     else:
         plot_df = pd.read_csv('./results/probabilistic_pred/plot_df.csv', index_col=0)
 
@@ -539,10 +537,10 @@ def fig6_precision_recall():
     fig = plt.figure(figsize=(8, 3), constrained_layout=True, dpi=300)
     axd = fig.subplot_mosaic(
         """
-        LL
         AB
+        LL
         """,
-        gridspec_kw={'height_ratios': [0.1, 1]},
+        gridspec_kw={'height_ratios': [1, 0.1]},
     )
 
     # Define the palette
@@ -824,7 +822,7 @@ def fig1s_population_sizes():
     plt.close('all')
 
 
-def main_performance_score_plot_supplement():
+def fig2s_gating_performance_class_wise():
 
     import os
     import pandas as pd
@@ -835,34 +833,13 @@ def main_performance_score_plot_supplement():
 
 
     ####################################################################################################################
-    dataset_names = ['Flowcyt', 'Imstat', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
 
-    method_names = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
-
-    data_trafo = 'log10_channelwisecutoff'  # log10_channelwisecutoff, arcsinh_cofactor150, log10_cutoff100
+    methods = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-Classifier']
 
     performance_score = 'f1'  # f1, prec, rec
 
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
     ####################################################################################################################
-
-    # Create dir to save plots into
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # Convert dataset names to corresponding dir names
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    # Convert method names to corresponding dir names
-    conversion_mapping_methods = {
-        'GateMeClass': 'gatemeclass_no_abstention', 'GMC wa': 'gatemeclass_w_abstention',
-        'DGCyTOF': 'dgcytof', 'FCNN': 'softmax_classifier',
-        'SOM-Classifier': 'som_classifier'
-    }
 
     conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
 
@@ -918,52 +895,49 @@ def main_performance_score_plot_supplement():
     )
 
     # Define a palette
-    palette = dict(zip(method_names, sns.color_palette("Set2", len(method_names))))
+    palette = dict(zip(methods, sns.color_palette('Set2', len(methods))))
 
     # ### Plot the performance scores
-    # Load the results dataframes
-    base_path = os.path.join(os.getcwd(), 'results/pred_eval')
 
     res_dfs = []
-    for dataset_name in dataset_names:
+    for dataset in datasets:
         res_dfs_sub = []
-        for method in method_names:
+        for method in methods:
 
-            ds = conversion_mapping_datasets[dataset_name]
-            m = conversion_mapping_methods[method]
+            trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            if method == 'GateMeClass':
+                trafo = 'arcsinh_cutoff150'
 
-            # Always show results for arcsinh for gatemeclass
-            if m == 'gatemeclass_no_abstention' and data_trafo == 'log10_channelwisecutoff':
-                data_trafo_load = 'arcsinh_cofactor150'
-            elif ds == 'flowcyt' and data_trafo == 'log10_channelwisecutoff':
-                data_trafo_load = 'log10_cutoff100'
-            else:
-                data_trafo_load = data_trafo
-
-            res_df_path = os.path.join(base_path, m, ds, data_trafo_load, f'res_df_sw_cw_{performance_score}.csv')
+            res_df_path = os.path.join(
+                './results/gating_performance',
+                METHOD_TO_DIR[method],
+                DATASET_TO_DIR[dataset],
+                trafo,
+                f'res_df_sw_cw_{performance_score}.csv'
+            )
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
                 res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
 
                 # Change the column names to letter labels
-                label_mapping = label_mappings[dataset_name]
+                label_mapping = label_mappings[dataset]
                 res_df = res_df.rename(columns=label_mapping)
 
             except FileNotFoundError:
                 res_df = pd.DataFrame()
-                print(f"# ### No results found for dataset: '{ds}', method: '{m}', data trafo: '{data_trafo}'")
+                print(f"# ### No results found for '{dataset}', '{method}', '{trafo}'")
 
             res_dfs_sub.append(res_df)
         res_dfs.append(res_dfs_sub)
 
-    for rdf, dsn, label in zip(res_dfs, dataset_names, ['A', 'B', 'C', 'D', 'E', 'F']):
+    for res_df, dataset, label in zip(res_dfs, datasets, ['A', 'B', 'C', 'D', 'E', 'F']):
 
         plot_performance_score_box_plot_cw(
-            sample_wise_res_dfs=rdf,
-            method_names=method_names,
+            sample_wise_res_dfs=res_df,
+            method_names=methods,
             y_label=conversion_mapping_y_label[performance_score] + ' Score',
-            title=dsn,
+            title=dataset,
             palette=palette,
             label_order=label_display_order,
             sns_boxplot_kwargs=None,
@@ -976,23 +950,13 @@ def main_performance_score_plot_supplement():
         legend = axd[label].get_legend()
         legend.set_title(None)
 
-    '''# ### Manually adjust axis labels
-    ax_label_fontsize = 12
-
-    for key in ['A', 'B']:
-        ax = axd[key]
-        ax.set_xlabel(None, fontsize=ax_label_fontsize)
-        ax.set_ylabel(ax.get_ylabel(), fontsize=ax_label_fontsize)
-
-        ax.tick_params(axis='x', labelsize=ax_label_fontsize)
-        ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)'''
-
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
-    plt.savefig(f'./results/plots/performance_supplement.png', dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig2s_gating_performance_class_wise.png'), dpi=fig.dpi)
     plt.close('all')
 
 
+# Todo ...
 def main_performance_plot_local_supplement():
 
     import os
@@ -1004,7 +968,7 @@ def main_performance_plot_local_supplement():
     from validation.plt import plot_performance_score_box_plot, plot_performance_score_box_plot_cw, annotate_mosaic
 
     ####################################################################################################################
-    dataset_names = ['Flowcyt', 'Imstat', 'LT1', 'LT1 b', 'LT2', 'LT2 b']
+    dataset_names = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
 
     method_names = ['FCNN', 'SOM-Classifier']
 
@@ -1194,12 +1158,12 @@ def main_performance_plot_local_supplement():
     plt.savefig('./results/plots/performance_local_supplement.png', dpi=fig.dpi)
 
 
-def main_n_samples_plot_supplement():
+def fig2s_num_samples_num_events():
     import os
-    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
     import seaborn as sns
+    import matplotlib.patheffects as pe
 
     from matplotlib.lines import Line2D
     from validation.plt import annotate_mosaic
@@ -1208,63 +1172,48 @@ def main_n_samples_plot_supplement():
     performance_score = 'f1'  # f1, prec, rec
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
 
-    n_events = [100, 1000, 5000, 10000, 20000, 50000, 'all']
-
-    dataset_names = ['Imstat', 'LT1', 'LT2', 'LT1 b', 'LT2 b', 'Flowcyt']
+    dataset_names = ['Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b', 'Flowcyt']
 
     method_names = ['FCNN', 'SOM-Clf.']
 
-    n_events_plot = [5000, 10000, 20000, 50000, 'all']
-
-    dataset_to_max_n = {'Imstat': 75, 'LT1 b': 73, 'LT2 b': 73, 'LT1': 73, 'LT2': 73, 'Flowcyt': 22}
+    n_events = [5000, 10000, 20000, 50000, 'all']
 
     plot_all_samples_score = True
-
-    plot_dir = os.path.join(os.getcwd(), 'results/plots')
-    os.makedirs(plot_dir, exist_ok=True)
-
     ####################################################################################################################
 
-    # Directory mappings
-    conversion_mapping_datasets = {
-        'Imstat': 'imstat',
-        'LT1': 'lymphoma_tube1', 'LT1 b': 'lymphoma_tube1_binary',
-        'LT2': 'lymphoma_tube2', 'LT2 b': 'lymphoma_tube2_binary',
-        'Flowcyt': 'flowcyt'
-    }
-
-    conversion_mapping_methods = {'FCNN': 'softmax', 'SOM-Clf.': 'som'}
-
+    # --- Load data
     all_records = []
+    for dataset in dataset_names:
 
-    for ds in dataset_names:
-        max_n = dataset_to_max_n[ds]
-        ds_dir = conversion_mapping_datasets[ds]
-        data_trafo = 'log10_channelwisecutoff' if ds != 'Flowcyt' else 'log10_cutoff100'
+        num_samples = DATASET_TO_NUM_SAMPLES[dataset]
+        dataset_dir = DATASET_TO_DIR[dataset]
 
         for method in method_names:
             for n in n_events:
-                for i in range(1, max_n + 1):
+                for i in range(1, num_samples + 1):
 
-                    method_dir = conversion_mapping_methods[method]
+                    method_dir = METHOD_TO_DIR[method]
+                    data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+                    if method == 'GateMeClass':
+                        data_trafo = 'arcsinh_cofactor150'
 
-                    if i == max_n and n == 'all':    # Load previously computed scores for (all samples, all events)
+                    if i < num_samples:
                         file_path = os.path.join(
-                            './results/pred_eval',
-                            method_dir + '_classifier',
-                            ds_dir,
-                            data_trafo,
-                            f'res_df_sw_avg_{performance_score}.csv'
-                        )
-                    else:
-                        file_path = os.path.join(
-                            './results/n_samples_n_events',
+                            './results/num_samples_num_events',
                             method_dir,
-                            ds_dir,
+                            dataset_dir,
                             data_trafo,
                             'random',
                             'detailed_res',
                             f'nevents_{n}_nsamples_{i}',
+                            f'res_df_sw_avg_{performance_score}.csv'
+                        )
+                    else:  # Load previously computed scores for all samples and all events
+                        file_path = os.path.join(
+                            './results/gating_performance',
+                            method_dir,
+                            dataset_dir,
+                            data_trafo,
                             f'res_df_sw_avg_{performance_score}.csv'
                         )
 
@@ -1273,8 +1222,9 @@ def main_n_samples_plot_supplement():
                         df = df.drop(index=['mean', 'std'], errors='ignore')
                         for val in df[performance_score_mode]:
                             all_records.append({
-                                'dataset': ds,
+                                'dataset': dataset,
                                 'method': method,
+                                'order': 'random',
                                 'n_events': n,
                                 'n_samples': i,
                                 'score': val
@@ -1285,23 +1235,30 @@ def main_n_samples_plot_supplement():
                         continue
 
     # Create DataFrame
-    df_all = pd.DataFrame(all_records)
-    df_all['n_samples'] = df_all['n_samples'].astype(int)
+    res_df = pd.DataFrame(all_records)
+    res_df['n_samples'] = res_df['n_samples'].astype(int)
 
-    # Subset dataframe
-    keep_bool_n_events = df_all['n_events'].isin(n_events_plot)
-    keep_bool_n_samples = (
-            (df_all['n_samples'] % 5 == 0) |
-            (df_all['n_samples'] == 1) |
-            (df_all['n_samples'] >= 70) |
-            ((df_all['n_samples'] == 22) & (df_all['dataset'] == 'Flowcyt'))
+    # Subset to numbers of samples to be plotted
+    imstat_full = (
+            (res_df['n_samples'] == DATASET_TO_NUM_SAMPLES['Imstat']) &
+            (res_df['dataset'] == 'Imstat')
     )
-    keep_bool = np.logical_and(keep_bool_n_events, keep_bool_n_samples)
-    df_all = df_all[keep_bool]
+    lt_full = (
+            (res_df['n_samples'] == DATASET_TO_NUM_SAMPLES['LT1']) &
+            (res_df['dataset'].isin(['LT1', 'LT2', 'LT1b', 'LT2b']))
+    )
+    flowcyt_full = (
+            (res_df['n_samples'] == DATASET_TO_NUM_SAMPLES['Flowcyt']) &
+            (res_df['dataset'] == 'Flowcyt')
+    )
+    keep_bool = (
+            (res_df['n_samples'] == 1) |
+            (res_df['n_samples'] % 5 == 0) |
+            imstat_full | lt_full | flowcyt_full
+    )
+    plot_df = res_df[keep_bool].copy()
 
-    print(df_all)
-
-    # ### Plot performance comparison for random vs ordered and num events
+    # --- Plot performance comparison for random vs ordered and num events
     plot_combinations = [
         ('Flowcyt', 'SOM-Clf.'), ('LT1', 'SOM-Clf.'), ('LT2', 'SOM-Clf.'),
         ('Imstat', 'SOM-Clf.'), ('LT1 b', 'SOM-Clf.'), ('LT2 b', 'SOM-Clf.'),
@@ -1315,8 +1272,9 @@ def main_n_samples_plot_supplement():
             DEF
             GHI
             JKL
+            ZZZ
         '''
-    axd = fig.subplot_mosaic(layout_str)
+    axd = fig.subplot_mosaic(layout_str, gridspec_kw={'height_ratios': [1, 1, 1, 1, 0.1]})
 
     plot_labels = [c for c in layout_str if c.isalpha()]
 
@@ -1324,10 +1282,10 @@ def main_n_samples_plot_supplement():
         dataset = comb[0]
         method = comb[1]
 
-        df_sub = df_all.loc[
-            (df_all['dataset'] == dataset) &
-            (df_all['method'] == method)
-        ].copy()
+        df_sub = plot_df.loc[
+            (plot_df['dataset'] == dataset)
+            & (plot_df['method'] == method)
+            ].copy()
 
         ax = axd[plot_label]
 
@@ -1349,9 +1307,9 @@ def main_n_samples_plot_supplement():
         if plot_all_samples_score:
             # Get the score for all samples
             df_all_data_score = df_sub[
-                (df_sub['n_samples'] == dataset_to_max_n[dataset]) &
+                (df_sub['n_samples'] == DATASET_TO_NUM_SAMPLES[dataset]) &
                 (df_sub['n_events'] == 'all')
-            ]
+                ]
 
             score = df_all_data_score['score'].mean()
 
@@ -1368,12 +1326,8 @@ def main_n_samples_plot_supplement():
 
             x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
             y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
-            y_pos = score + y_offset  # just above the line
-            va = 'bottom'
-
-            if y_pos > ax.get_ylim()[1]:  # would be clipped at the top
-                y_pos = score - y_offset
-                va = 'top'
+            y_pos = score - y_offset
+            va = 'top'
 
             # Draw text
             ax.text(
@@ -1385,19 +1339,19 @@ def main_n_samples_plot_supplement():
                 ha='right',
                 fontsize=8,
                 alpha=0.95,
-                clip_on=False
+                clip_on=False,
+                path_effects=[pe.withStroke(linewidth=1.0, foreground='white')]
             )
 
             # Define dummy legend entry for all sample performance
             all_samples_legend = Line2D([], [], linestyle='--', color='grey', linewidth=1, label='All Samples')
             handles, labels = ax.get_legend_handles_labels()
-            if 'All Samples' not in labels:
-                handles.append(all_samples_legend)
-                labels.append('All Samples')
-            ax.legend(handles=handles, labels=labels, title='Method')
+            handles.append(all_samples_legend)
+            labels.append('All Samples')
+            ax.legend(handles=handles, labels=labels)
 
         else:
-            ax.legend(title='Method')
+            ax.legend()
 
         ax.set_title(f'{dataset} | {method}')
         ax.set_xlabel('No. of Training Samples')
@@ -1412,6 +1366,21 @@ def main_n_samples_plot_supplement():
         ax.set_xticks(new_ticks)
         ax.set_xticklabels([str(int(tick)) for tick in new_ticks])
 
+    # Remove legend in subplots and add in separate panel
+    handles, labels = axd['A'].get_legend_handles_labels()
+    for ax in axd.values():
+        if ax.get_legend():
+            ax.get_legend().remove()
+    axd['Z'].axis('off')
+    axd['Z'].legend(
+        handles=handles,
+        labels=labels,
+        loc='center',
+        ncol=3,
+        fontsize=12,
+        frameon=True,
+    )
+
     # Adjust font sizes
     ax_label_fontsize = 12
     for key in plot_labels:
@@ -1422,11 +1391,9 @@ def main_n_samples_plot_supplement():
         ax.tick_params(axis='x', labelsize=ax_label_fontsize - 2)
         ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
 
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(
-        os.path.join(plot_dir, f'n_samples_supplement.png'),
-        dpi=fig.dpi
-    )
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['Z', ])
+
+    plt.savefig(os.path.join(PLOT_DIR, 'fig2s_num_samples_num_events.png'), dpi=fig.dpi)
     plt.close('all')
 
 
@@ -3371,7 +3338,7 @@ if __name__ == '__main__':
 
     # fig7s_dataset_size()
 
-    fig8s_class_balance()
+    # fig8s_class_balance()
 
     print('done')
 
