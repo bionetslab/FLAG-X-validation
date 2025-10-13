@@ -11,7 +11,7 @@ DATASET_TO_DIR = {
 }
 
 METHOD_TO_DIR = {
-    'GateMeClass': 'gatemeclass_no_abstention',
+    'GateMeClass': 'gatemeclass',
     'DGCyTOF': 'dgcytof',
     'FCNN': 'fcnn',
     'SOM-Classifier': 'som',
@@ -194,7 +194,7 @@ def fig1_gating_performance():
         ordered = sorted(zip(handles, labels), key=lambda x: label_order.index(x[1]))
         handles, labels = zip(*ordered)
 
-        axd[key].legend(handles, labels, ncol=2, markerscale=1.5, loc='lower right')
+        axd[key].legend(handles, labels, ncol=2, markerscale=1.5, loc='lower right', fontsize=8)
 
     ax_e = axd['E']
     ax_e.set_xlabel(None)
@@ -320,7 +320,7 @@ def fig5_num_samples():
         DEF
         LLL
         """,
-        gridspec_kw={'height_ratios': [1, 1, 0.1]}
+        gridspec_kw={'height_ratios': [1, 1, 0.2]}
     )
 
     plot_labels = list('ABCDEF')
@@ -439,7 +439,7 @@ def fig5_num_samples():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig4_num_samples.png'), dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig4_num_samples.png'), dpi=fig.dpi, bbox_inches='tight')
     plt.close('all')
 
 
@@ -693,7 +693,7 @@ def fig1s_population_sizes():
 
     # Build global colormap
     dataset_name_to_label_mapping = {
-        'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+        'LT1': lm_lt1, 'LT1b': lm_lt1b, 'LT2': lm_lt2, 'LT2b': lm_lt2b, 'Flowcyt': lm_flowcyt
     }
     all_letter_labels = set(chain.from_iterable(m.values() for m in dataset_name_to_label_mapping.values()))
     all_letter_labels = list(sorted(all_letter_labels))
@@ -717,7 +717,7 @@ def fig1s_population_sizes():
     axd = fig.subplot_mosaic(mosaic_str)
 
     legend_subplots = list('AFKPU')
-    plot_subplots = list('BCDEGHIJLMNOQRSZTVWXY')
+    plot_subplots = list('BCDEGHIJLMNOQRSTVWXY')
     legend_reference_subplots = list('EJOTY')
 
     count = 0
@@ -735,7 +735,7 @@ def fig1s_population_sizes():
             y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
 
             y_pred_path = os.path.join(
-                './results/pred_eval', METHOD_TO_DIR[method], DATASET_TO_DIR[dataset], trafo, 'samples_y_pred'
+                './results/gating_performance', METHOD_TO_DIR[method], DATASET_TO_DIR[dataset], trafo, 'samples_y_pred'
             )
             y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
 
@@ -743,8 +743,10 @@ def fig1s_population_sizes():
             y_preds = []
             for yt_fn, yp_fn in zip(y_true_filenames, y_pred_filenames):
                 try:
-                    y_trues.append(np.load(os.path.join(y_true_path, yt_fn)).astype(int))
-                    y_preds.append(np.load(os.path.join(y_pred_path, yp_fn)).astype(int))
+                    y_true = np.load(os.path.join(y_true_path, yt_fn)).astype(int)
+                    y_pred = np.load(os.path.join(y_pred_path, yp_fn)).astype(int)
+                    y_trues.append(y_true)
+                    y_preds.append(y_pred)
                 except FileNotFoundError:
                     print(f'# No y_pred found for: {method}, {dataset}, {trafo}, {yp_fn}')
 
@@ -880,7 +882,7 @@ def fig2s_gating_performance_class_wise():
     }
 
     label_mappings = {
-        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1b': lm_lt1b, 'LT2': lm_lt2, 'LT2b': lm_lt2b, 'Flowcyt': lm_flowcyt
     }
 
     label_display_order = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'X', 'O']
@@ -893,7 +895,8 @@ def fig2s_gating_performance_class_wise():
         CD
         EF
         LL
-        """
+        """,
+        gridspec_kw={'height_ratios': [1, 1, 1, 0.2]},
     )
 
     # Define a palette
@@ -908,7 +911,7 @@ def fig2s_gating_performance_class_wise():
 
             trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
             if method == 'GateMeClass':
-                trafo = 'arcsinh_cutoff150'
+                trafo = 'arcsinh_cofactor150'
 
             res_df_path = os.path.join(
                 './results/gating_performance',
@@ -962,8 +965,11 @@ def fig2s_gating_performance_class_wise():
         handles=handles,
         labels=labels,
         loc='center',
-        ncol=3,
+        ncol=4,
         frameon=True,
+        fontsize=11,
+        # title='Gating Method'
+        # handlelength=2, handleheight=1.5
     )
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
@@ -974,6 +980,7 @@ def fig2s_gating_performance_class_wise():
 
 def fig3s_num_samples_num_events():
     import os
+    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -981,6 +988,8 @@ def fig3s_num_samples_num_events():
 
     from matplotlib.lines import Line2D
     from validation.plt import annotate_mosaic
+
+    np.random.seed(42)
 
     # Configuration ####################################################################################################
     performance_score = 'f1'  # f1, prec, rec
@@ -1011,7 +1020,15 @@ def fig3s_num_samples_num_events():
                     if method == 'GateMeClass':
                         data_trafo = 'arcsinh_cofactor150'
 
-                    if i < num_samples:
+                    if i == num_samples and n == 'all':
+                        file_path = os.path.join(
+                            './results/gating_performance',
+                            method_dir,
+                            dataset_dir,
+                            data_trafo,
+                            f'res_df_sw_avg_{performance_score}.csv'
+                        )
+                    else:
                         file_path = os.path.join(
                             './results/num_samples_num_events',
                             method_dir,
@@ -1020,14 +1037,6 @@ def fig3s_num_samples_num_events():
                             'random',
                             'detailed_res',
                             f'nevents_{n}_nsamples_{i}',
-                            f'res_df_sw_avg_{performance_score}.csv'
-                        )
-                    else:  # Load previously computed scores for all samples and all events
-                        file_path = os.path.join(
-                            './results/gating_performance',
-                            method_dir,
-                            dataset_dir,
-                            data_trafo,
                             f'res_df_sw_avg_{performance_score}.csv'
                         )
 
@@ -1075,24 +1084,25 @@ def fig3s_num_samples_num_events():
     # --- Plot performance comparison for random vs ordered and num events
     plot_combinations = [
         ('Flowcyt', 'SOM-Clf.'), ('LT1', 'SOM-Clf.'), ('LT2', 'SOM-Clf.'),
-        ('Imstat', 'SOM-Clf.'), ('LT1 b', 'SOM-Clf.'), ('LT2 b', 'SOM-Clf.'),
+        ('Imstat', 'SOM-Clf.'), ('LT1b', 'SOM-Clf.'), ('LT2b', 'SOM-Clf.'),
         ('Flowcyt', 'FCNN'), ('LT1', 'FCNN'), ('LT2', 'FCNN'),
-        ('Imstat', 'FCNN'), ('LT1 b', 'FCNN'), ('LT2 b', 'FCNN'),
+        ('Imstat', 'FCNN'), ('LT1b', 'FCNN'), ('LT2b', 'FCNN'),
     ]
 
     fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
     layout_str = '''
             ABC
             DEF
+            ZZZ
             GHI
             JKL
-            ZZZ
         '''
-    axd = fig.subplot_mosaic(layout_str, gridspec_kw={'height_ratios': [1, 1, 1, 1, 0.1]})
+    axd = fig.subplot_mosaic(layout_str, gridspec_kw={'height_ratios': [1, 1, 0.2, 1, 1]})
 
-    plot_labels = [c for c in layout_str if c.isalpha()]
+    plot_labels = list('ABCDEFGHIJKL')
 
     for comb, plot_label in zip(plot_combinations, plot_labels):
+
         dataset = comb[0]
         method = comb[1]
 
@@ -1127,7 +1137,7 @@ def fig3s_num_samples_num_events():
 
             score = df_all_data_score['score'].mean()
 
-            color = 'grey'
+            color = 'dimgray'
 
             ax.axhline(
                 y=score,
@@ -1139,7 +1149,7 @@ def fig3s_num_samples_num_events():
             )
 
             x_pos = ax.get_xlim()[1] * 0.98  # slightly inside right edge
-            y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.01
+            y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.02
             y_pos = score - y_offset
             va = 'top'
 
@@ -1158,11 +1168,104 @@ def fig3s_num_samples_num_events():
             )
 
             # Define dummy legend entry for all sample performance
-            all_samples_legend = Line2D([], [], linestyle='--', color='grey', linewidth=1, label='All Samples')
+            all_samples_legend = Line2D([], [], linestyle='--', color=color, linewidth=1, label='All Samples')
             handles, labels = ax.get_legend_handles_labels()
             handles.append(all_samples_legend)
             labels.append('All Samples')
             ax.legend(handles=handles, labels=labels)
+
+            bootstrap_ci = True
+            if bootstrap_ci:
+                n_boot = 10000
+                scores = df_all_data_score['score'].to_numpy()
+                boot_means = np.random.choice(scores, size=(n_boot, len(scores)), replace=True).mean(axis=1)
+                ci_lower, ci_upper = np.percentile(boot_means, [5, 95])# [2.5, 97.5])
+                # std_scores = scores.std()
+                # ci_lower = scores.mean() - std_scores
+                # ci_upper = scores.mean() + std_scores
+
+                ax.axhspan(
+                    ci_lower,
+                    ci_upper,
+                    xmin=0, xmax=1,  # spans full width of axes (0% to 100%)
+                    facecolor=color,
+                    alpha=0.2,
+                    zorder=0
+                )
+
+                ax.axhline(
+                    y=ci_lower,
+                    linestyle='-',
+                    linewidth=1,
+                    color=color,
+                    alpha=0.3,
+                    zorder=0
+                )
+
+                ax.axhline(
+                    y=ci_upper,
+                    linestyle='-',
+                    linewidth=1,
+                    color=color,
+                    alpha=0.3,
+                    zorder=0
+                )
+
+                n_samples = sorted(list(set(df_sub['n_samples'])))
+                n_samples.remove(1)
+                n_events = list(set(df_sub['n_events']))
+                n_events.remove('all')
+                n_events = sorted(n_events) + ['all', ]
+
+                first_valid = None
+                for ns in n_samples:
+                    for ne in n_events:
+                        ns_ne_scores = df_sub.loc[
+                            (df_sub['n_samples'] == ns) & (df_sub['n_events'] == ne),
+                            'score'
+                        ]
+
+                        ns_ne_score = ns_ne_scores.mean()
+
+                        is_valid = (ns_ne_score >= ci_lower) # & (ns_ne_std <= ci_upper)
+
+                        if is_valid and first_valid is None:
+                            first_valid = (ns, ne, ns_ne_score)
+                            break
+                    if first_valid is not None:
+                        break
+
+                ns_val, ne_val, score_val = first_valid
+
+                # Plot a red "X" at the data point
+                ax.scatter(
+                    ns_val,
+                    score_val,
+                    facecolors='none',
+                    edgecolors='red',
+                    marker='o',
+                    linewidths=1.5,
+                    s=50,
+                    zorder=5
+                )
+
+                ax.annotate(
+                    f'No. Samples: {ns_val},\nNo. Events: {ne_val}',
+                    xy=(ns_val, score_val),
+                    xytext=(0.4, 0.15),
+                    textcoords='axes fraction',
+                    xycoords='data',
+                    ha='left', va='center',
+                    color='black',
+                    fontsize=8,
+                    bbox=dict(facecolor='white', alpha=0.6, edgecolor='lightgrey'),
+                    arrowprops=dict(
+                        arrowstyle='-',
+                        color='red',
+                        lw=0.5,
+                        shrinkB=3,
+                    )
+                )
 
         else:
             ax.legend()
@@ -1190,7 +1293,7 @@ def fig3s_num_samples_num_events():
         handles=handles,
         labels=labels,
         loc='center',
-        ncol=3,
+        ncol=5,
         fontsize=12,
         frameon=True,
     )
@@ -1452,6 +1555,7 @@ def fig5s_minority_count():
     import matplotlib.patheffects as pe
 
     from matplotlib.ticker import LogLocator
+    from scipy.stats import spearmanr
 
     from validation.utils.val_utils import get_downsampling_bool, _get_expanding_iterator_list
     from validation.plt import annotate_mosaic
@@ -1487,7 +1591,7 @@ def fig5s_minority_count():
             np.random.seed(42)
 
             # Set data path
-            trafo = 'log10_channelwisecutoff' if dataset != 'Flowcyt' else 'log10_cutoff100'
+            trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
             data_p = os.path.join('./data/np_files', DATASET_TO_DIR[dataset], trafo, 'sample_wise_train')
 
             # Get number of samples for which to compute population size information
@@ -1566,9 +1670,9 @@ def fig5s_minority_count():
 
             print(f'# ### Minority class count {dataset}:\n{res_df_minority_count_dataset_wide}')
 
-            res_df_minority_count_dataset_wide.to_csv(
-                os.path.join(PLOT_DIR, f'minority_count_{dataset.replace(' ', '')}.csv')
-            )
+            # res_df_minority_count_dataset_wide.to_csv(
+            #     os.path.join(PLOT_DIR, f'minority_count_{dataset.replace(' ', '')}.csv')
+            # )
 
         res_df_minority_count = pd.concat(res_dfs_minority_count, axis=0, ignore_index=True)
         # res_df_minority_count.to_csv(os.path.join(PLOT_DIR, 'minority_count.csv'))
@@ -1585,7 +1689,7 @@ def fig5s_minority_count():
 
                         if i == max_n and n == 'all':  # Load previously computed scores for (all samples, all events)
                             file_path = os.path.join(
-                                './results/pred_eval',
+                                './results/gating_performance',
                                 METHOD_TO_DIR[method],
                                 DATASET_TO_DIR[dataset],
                                 data_trafo,
@@ -1593,7 +1697,7 @@ def fig5s_minority_count():
                             )
                         else:
                             file_path = os.path.join(
-                                './results/n_samples_n_events',
+                                './results/num_samples_num_events',
                                 METHOD_TO_DIR[method],
                                 DATASET_TO_DIR[dataset],
                                 data_trafo,
@@ -1647,7 +1751,7 @@ def fig5s_minority_count():
             data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
 
             file_path = os.path.join(
-                './results/pred_eval',
+                './results/gating_performance',
                 METHOD_TO_DIR[method],
                 DATASET_TO_DIR[dataset],
                 data_trafo,
@@ -1769,6 +1873,17 @@ def fig5s_minority_count():
                 path_effects=[pe.withStroke(linewidth=1.0, foreground='white')]
             )
 
+            # Print spearman correlation
+            rho, p = spearmanr(plot_df_sub[f'{mc_mode}_minority_count'].to_numpy(), plot_df_sub['score'].to_numpy())
+            print(f'# rho={rho:.4f}, p={p:.4f}')
+            ax.text(
+                0.95, 0.05, fr'$r_S = {np.round(rho, 4)}$',
+                transform=ax.transAxes,
+                ha='right', va='bottom',
+                fontsize=10,
+                bbox=dict(facecolor='white', alpha=0.6, edgecolor='none')
+            )
+
             ax.set_title(f'{dataset} | {method}')
 
         # Add colorbar
@@ -1813,9 +1928,9 @@ def fig5s_minority_count():
         # Add table
         table_data = [
             ['Dataset', 'All Samples'],
-            ['Flowcyt', 22],
-            ['Imstat', 75],
-            ['LT1, LT2', 73]
+            ['Flowcyt', DATASET_TO_NUM_SAMPLES['Flowcyt']],
+            ['Imstat', DATASET_TO_NUM_SAMPLES['Imstat']],
+            ['LT1, LT2', DATASET_TO_NUM_SAMPLES['LT1']],
         ]
 
         ax = axd['Y']
@@ -1904,7 +2019,7 @@ def fig6s_gating_performance_local():
     }
 
     label_mappings = {
-        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1 b': lm_lt1b, 'LT2': lm_lt2, 'LT2 b': lm_lt2b, 'Flowcyt': lm_flowcyt
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1b': lm_lt1b, 'LT2': lm_lt2, 'LT2b': lm_lt2b, 'Flowcyt': lm_flowcyt
     }
 
     label_display_order = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'X', 'O']
@@ -2240,7 +2355,7 @@ if __name__ == '__main__':
 
     # fig2s_gating_performance_class_wise()
 
-    # fig3s_num_samples_num_events()
+    fig3s_num_samples_num_events()
 
     # fig4s_sample_order()
 
