@@ -471,9 +471,11 @@ def plot_cell_pop_size_pred_vs_gt(
     ax = sns.scatterplot(**scatter_kwargs)
 
     # Diagonal reference line (ideal match)
-    max_val_x = plot_df[x_col].max()
-    max_val_y = plot_df[y_col].max()
-    ax.plot([0, max_val_x], [0, max_val_y], linestyle='--', color='grey', linewidth=1.0, zorder=0)
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    ax.plot([0, 100], [0, 100], linestyle='--', color='grey', linewidth=1.0, zorder=0)
+    ax.set_xlim(xlim[0], xlim[1])
+    ax.set_ylim(ylim[0], ylim[1])
 
     # Labels & formatting
     x_label = 'Population Size'
