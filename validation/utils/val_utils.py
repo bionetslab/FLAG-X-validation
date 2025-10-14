@@ -476,15 +476,29 @@ def eval_wrapper_sample_wise(
     return out
 
 
-def get_time_str(seconds: float) -> Tuple[str, int, int, float]:
+def get_time_str(seconds: float) -> str:
+
+    if pd.isna(seconds):
+        return 'NaN'
 
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = seconds % 60
 
-    time_str = f'{h}h {m}m {s}s'
+    time_str = f'{h} h {m} m {s:.4f} s'
 
-    return time_str, h, m, s
+    return time_str
+
+
+def get_gb_mb_str(mem_mb: float) -> str:
+    if pd.isna(mem_mb):
+        return 'NaN'
+    if mem_mb < 1024:
+        return f'{mem_mb:.1f} MB'
+    gb = int(mem_mb // 1024)
+    mb = mem_mb % 1024
+    return f'{gb} GB {mb:.1f} MB'
+
 
 def get_error_dataframe(
         failure_combinations: List[str],
