@@ -206,6 +206,300 @@ def fig1_gating_performance():
     plt.savefig(os.path.join(PLOT_DIR, 'fig1_gating_performance.png'), dpi=fig.dpi)
 
 
+def fig3_iterative_refinement():
+
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    from matplotlib.patches import Polygon
+    from shapely.geometry import Point, Polygon as ShapelyPolygon
+    from flagx.io import FlowDataManager
+    from validation.plt import annotate_mosaic
+
+
+    fdm = FlowDataManager(
+        data_file_names=['annotated_train_data.fcs', ],  # ['annotated_train_data_downsampled_100000_events.fcs', ],
+        data_file_path='./results/pipeline_workflow/Imstat/output'
+    )
+    fdm.load_data_files_to_anndata()
+    adata = fdm.anndata_list_[0]
+
+    print(adata)
+    print(adata.var_names)
+
+    fig = plt.figure(figsize=(8, 8), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        '''
+        AB
+        CD
+        ''',
+        # gridspec_kw={'height_ratios': [1, 1]}
+    )
+
+    # --- Panel A: Ground truth gating in UMAP
+    ax = axd['A']
+
+    population = adata[:, 'population'].X.flatten()
+    margin = 2**20 * 0.05
+    min_val = margin
+    max_val = 2**20 - margin
+
+    original_min = 1
+    original_max = 8
+    original_range = original_max - original_min
+    original_population = ((population - min_val) / (max_val - min_val) * original_range + original_min).astype(int)
+
+    mask_nk_cells = (original_population == 3)
+
+    x_umap = adata[:, 'umap_1'].X.flatten()
+    y_umap = adata[:, 'umap_2'].X.flatten()
+
+    ax.scatter(
+        x=x_umap[mask_nk_cells],
+        y=y_umap[mask_nk_cells],
+        c='#4B9B69',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=2,
+        label='Ground Truth NK Cells'
+    )
+
+    ax.scatter(
+        x=x_umap[~mask_nk_cells],
+        y=y_umap[~mask_nk_cells],
+        c='lightgrey',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=1,
+        label='Others'
+    )
+
+    start_positions = [(750000, 650000), (660000, 330000), (960000, 420000)]
+    end_positions = [(660000, 550000), (600000, 450000), (830000, 420000)]
+
+    for start_position, end_position in zip(start_positions, end_positions):
+        ax.annotate(
+            '',  # no text
+            xy=end_position,
+            xytext=start_position,
+            arrowprops=dict(
+                arrowstyle='-|>,head_length=1,head_width=0.5',
+                color='crimson',
+                lw=4
+            )
+        )
+
+    find_arrow_pos = False
+    if find_arrow_pos:
+
+        xticks = np.arange(0, 1000000 + 1, 100000)
+        yticks = np.arange(0, 1000000 + 1, 100000)
+
+        ax.set_xticks(xticks)
+        ax.set_yticks(yticks)
+
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontsize(6)
+
+        ax.grid(True, which='major', linestyle='-', color='black', alpha=0.9)
+
+    else:
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    ax.set_xlabel('UMAP 1')
+    ax.set_ylabel('UMAP 2')
+
+    ax.legend(markerscale=5)
+
+    # --- Panel B: Ground truth gating in trained SOM
+    ax = axd['B']
+
+    x_som = adata[:, 'som_1'].X.flatten()
+    y_som = adata[:, 'som_2'].X.flatten()
+
+    ax.scatter(
+        x=x_som[mask_nk_cells],
+        y=y_som[mask_nk_cells],
+        c='#4B9B69',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=2,
+        label='Ground Truth NK Cells'
+    )
+
+    ax.scatter(
+        x=x_som[~mask_nk_cells],
+        y=y_som[~mask_nk_cells],
+        c='lightgrey',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=1,
+        label='Others'
+    )
+
+    start_positions = [(750000, 880000), (930000, 550000), (750000, 150000)]
+    end_positions = [(860000, 810000), (810000, 630000), (610000, 150000)]
+
+    for start_position, end_position in zip(start_positions, end_positions):
+        ax.annotate(
+            '',
+            xy=end_position,
+            xytext=start_position,
+            arrowprops=dict(
+                arrowstyle='-|>,head_length=1,head_width=0.5',
+                color='crimson',
+                lw=4
+            )
+        )
+
+    # Plot gate
+    poly_points = np.array([
+        [470000, 275000],
+        [430000, 275000],
+        [430000, 390000],
+        [390000, 390000],
+        [390000, 450000],
+        [450000, 510000],
+        [575000, 510000],
+        [660000, 415000],
+        [620000, 375000],
+        [620000, 320000],
+        [470000, 320000],
+    ])
+    poly = Polygon(
+        poly_points,
+        closed=True,
+        facecolor='none',
+        edgecolor='crimson',
+        linewidth=1
+    )
+    ax.add_patch(poly)
+
+    find_arrow_pos = False
+    if find_arrow_pos:
+
+        xticks = np.arange(0, 1000000 + 1, 50000)
+        yticks = np.arange(0, 1000000 + 1, 50000)
+
+        ax.set_xticks(xticks)
+        ax.set_yticks(yticks)
+
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontsize(3)
+
+        ax.grid(True, which='major', linestyle='-', color='black', alpha=0.9)
+
+    else:
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    ax.set_xlabel('SOM Grid 1')
+    ax.set_ylabel('SOM Grid 2')
+
+    ax.legend(markerscale=5, loc='upper left')
+
+    # --- Panel C: Gating to core NK population in SOM
+    ax = axd['C']
+
+    points = adata[:, ['som_1', 'som_2']].X
+
+    shapely_poly = ShapelyPolygon(poly_points)
+    mask_core_nk_population = np.array([
+        shapely_poly.contains(Point(p)) or shapely_poly.touches(Point(p)) for p in points
+    ])
+
+    ax.scatter(
+        x=x_som[mask_core_nk_population],
+        y=y_som[mask_core_nk_population],
+        c='#B94B4B',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=2,
+        label='Core NK Cells'
+    )
+
+    ax.scatter(
+        x=x_som[~mask_core_nk_population],
+        y=y_som[~mask_core_nk_population],
+        c='lightgrey',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=1,
+        label='Others'
+    )
+
+    # Plot gate
+    poly = Polygon(
+        poly_points,
+        closed=True,
+        facecolor='none',
+        edgecolor='crimson',
+        linewidth=1
+    )
+    ax.add_patch(poly)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    ax.set_xlabel('SOM Grid 1')
+    ax.set_ylabel('SOM Grid 2')
+
+    ax.legend(markerscale=5, loc='lower left')
+
+    # --- Panel D: Core NK population in UMAP
+    ax = axd['D']
+
+    ax.scatter(
+        x=x_umap[mask_core_nk_population],
+        y=y_umap[mask_core_nk_population],
+        c='#B94B4B',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=2,
+        label='Core NK Cells'
+    )
+
+    ax.scatter(
+        x=x_umap[~mask_core_nk_population],
+        y=y_umap[~mask_core_nk_population],
+        c='lightgrey',
+        s=2,
+        linewidths=0.1,
+        edgecolors='darkgrey',
+        alpha=0.9,
+        zorder=1,
+        label='Others'
+    )
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    ax.set_xlabel('UMAP 1')
+    ax.set_ylabel('UMAP 2')
+
+    ax.legend(markerscale=5, loc='lower left')
+
+
+    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=None)
+
+    fig.savefig(os.path.join(PLOT_DIR, 'fig3_iterative_refinement.png'), dpi=fig.dpi)
+
+
 def fig5_num_samples():
 
     import os
@@ -2332,301 +2626,6 @@ def _to_column_major(handles, ncol):
     reordered = arr.T.flatten()
     # drop padding
     return [h for h in reordered if h is not None]
-
-
-def fig3_iterative_refinement():
-
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    from matplotlib.patches import Polygon
-    from shapely.geometry import Point, Polygon as ShapelyPolygon
-    from flagx.io import FlowDataManager
-    from validation.plt import annotate_mosaic
-
-
-    fdm = FlowDataManager(
-        data_file_names=['annotated_train_data.fcs', ],  # ['annotated_train_data_downsampled_100000_events.fcs', ],
-        data_file_path='./results/pipeline_workflow/Imstat/output'
-    )
-    fdm.load_data_files_to_anndata()
-    adata = fdm.anndata_list_[0]
-
-    print(adata)
-    print(adata.var_names)
-
-    fig = plt.figure(figsize=(8, 8), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        '''
-        AB
-        CD
-        ''',
-        # gridspec_kw={'height_ratios': [1, 1]}
-    )
-
-    # --- Panel A: Ground truth gating in UMAP
-    ax = axd['A']
-
-    population = adata[:, 'population'].X.flatten()
-    margin = 2**20 * 0.05
-    min_val = margin
-    max_val = 2**20 - margin
-
-    original_min = 1
-    original_max = 8
-    original_range = original_max - original_min
-    original_population = ((population - min_val) / (max_val - min_val) * original_range + original_min).astype(int)
-
-    mask_nk_cells = (original_population == 3)
-
-    x_umap = adata[:, 'umap_1'].X.flatten()
-    y_umap = adata[:, 'umap_2'].X.flatten()
-
-    ax.scatter(
-        x=x_umap[mask_nk_cells],
-        y=y_umap[mask_nk_cells],
-        c='#4B9B69',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=2,
-        label='Ground Truth NK Cells'
-    )
-
-    ax.scatter(
-        x=x_umap[~mask_nk_cells],
-        y=y_umap[~mask_nk_cells],
-        c='lightgrey',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=1,
-        label='Others'
-    )
-
-    start_positions = [(750000, 650000), (660000, 330000), (960000, 420000)]
-    end_positions = [(660000, 550000), (600000, 450000), (830000, 420000)]
-
-    for start_position, end_position in zip(start_positions, end_positions):
-        ax.annotate(
-            '',  # no text
-            xy=end_position,
-            xytext=start_position,
-            arrowprops=dict(
-                arrowstyle='-|>,head_length=1,head_width=0.5',
-                color='crimson',
-                lw=4
-            )
-        )
-
-    find_arrow_pos = False
-    if find_arrow_pos:
-
-        xticks = np.arange(0, 1000000 + 1, 100000)
-        yticks = np.arange(0, 1000000 + 1, 100000)
-
-        ax.set_xticks(xticks)
-        ax.set_yticks(yticks)
-
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontsize(6)
-
-        ax.grid(True, which='major', linestyle='-', color='black', alpha=0.9)
-
-    else:
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-    ax.set_xlabel('UMAP 1')
-    ax.set_ylabel('UMAP 2')
-
-    ax.legend(markerscale=5)
-
-    # --- Panel B: Ground truth gating in trained SOM
-    ax = axd['B']
-
-    x_som = adata[:, 'som_1'].X.flatten()
-    y_som = adata[:, 'som_2'].X.flatten()
-
-    ax.scatter(
-        x=x_som[mask_nk_cells],
-        y=y_som[mask_nk_cells],
-        c='#4B9B69',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=2,
-        label='Ground Truth NK Cells'
-    )
-
-    ax.scatter(
-        x=x_som[~mask_nk_cells],
-        y=y_som[~mask_nk_cells],
-        c='lightgrey',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=1,
-        label='Others'
-    )
-
-    start_positions = [(750000, 880000), (930000, 550000), (750000, 150000)]
-    end_positions = [(860000, 810000), (810000, 630000), (610000, 150000)]
-
-    for start_position, end_position in zip(start_positions, end_positions):
-        ax.annotate(
-            '',
-            xy=end_position,
-            xytext=start_position,
-            arrowprops=dict(
-                arrowstyle='-|>,head_length=1,head_width=0.5',
-                color='crimson',
-                lw=4
-            )
-        )
-
-    # Plot gate
-    poly_points = np.array([
-        [470000, 275000],
-        [430000, 275000],
-        [430000, 390000],
-        [390000, 390000],
-        [390000, 450000],
-        [450000, 510000],
-        [575000, 510000],
-        [660000, 415000],
-        [620000, 375000],
-        [620000, 320000],
-        [470000, 320000],
-    ])
-    poly = Polygon(
-        poly_points,
-        closed=True,
-        facecolor='none',
-        edgecolor='crimson',
-        linewidth=1
-    )
-    ax.add_patch(poly)
-
-    find_arrow_pos = False
-    if find_arrow_pos:
-
-        xticks = np.arange(0, 1000000 + 1, 50000)
-        yticks = np.arange(0, 1000000 + 1, 50000)
-
-        ax.set_xticks(xticks)
-        ax.set_yticks(yticks)
-
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontsize(3)
-
-        ax.grid(True, which='major', linestyle='-', color='black', alpha=0.9)
-
-    else:
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-    ax.set_xlabel('SOM Grid 1')
-    ax.set_ylabel('SOM Grid 2')
-
-    ax.legend(markerscale=5, loc='upper left')
-
-    # --- Panel C: Gating to core NK population in SOM
-    ax = axd['C']
-
-    points = adata[:, ['som_1', 'som_2']].X
-
-    shapely_poly = ShapelyPolygon(poly_points)
-    mask_core_nk_population = np.array([
-        shapely_poly.contains(Point(p)) or shapely_poly.touches(Point(p)) for p in points
-    ])
-
-    ax.scatter(
-        x=x_som[mask_core_nk_population],
-        y=y_som[mask_core_nk_population],
-        c='#B94B4B',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=2,
-        label='Core NK Cells'
-    )
-
-    ax.scatter(
-        x=x_som[~mask_core_nk_population],
-        y=y_som[~mask_core_nk_population],
-        c='lightgrey',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=1,
-        label='Others'
-    )
-
-    # Plot gate
-    poly = Polygon(
-        poly_points,
-        closed=True,
-        facecolor='none',
-        edgecolor='crimson',
-        linewidth=1
-    )
-    ax.add_patch(poly)
-
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    ax.set_xlabel('SOM Grid 1')
-    ax.set_ylabel('SOM Grid 2')
-
-    ax.legend(markerscale=5, loc='lower left')
-
-    # --- Panel D: Core NK population in UMAP
-    ax = axd['D']
-
-    ax.scatter(
-        x=x_umap[mask_core_nk_population],
-        y=y_umap[mask_core_nk_population],
-        c='#B94B4B',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=2,
-        label='Core NK Cells'
-    )
-
-    ax.scatter(
-        x=x_umap[~mask_core_nk_population],
-        y=y_umap[~mask_core_nk_population],
-        c='lightgrey',
-        s=2,
-        linewidths=0.1,
-        edgecolors='darkgrey',
-        alpha=0.9,
-        zorder=1,
-        label='Others'
-    )
-
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    ax.set_xlabel('UMAP 1')
-    ax.set_ylabel('UMAP 2')
-
-    ax.legend(markerscale=5, loc='lower left')
-
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=None)
-
-    fig.savefig(os.path.join(PLOT_DIR, 'fig3_iterative_refinement.png'), dpi=fig.dpi)
-
 
 
 if __name__ == '__main__':
