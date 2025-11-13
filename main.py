@@ -1121,7 +1121,7 @@ def main_gatemeclass():
             continue
 
         # Define path where results will be saved to
-        abstention_str = '_w_abstention' if allow_abstention else '_no_abstention'
+        abstention_str = '_w_abstention' if allow_abstention else ''
         save_p = f'./results/gating_performance/gatemeclass{abstention_str}/{data_set}/{trafo}'
         os.makedirs(save_p, exist_ok=True)
 
@@ -1870,10 +1870,10 @@ def main_random_sample_order_trials():
     from validation.utils import eval_wrapper_sample_wise
 
     # ### Set flags and important variables here #######################################################################
-    data_set = 'lymphoma_tube1'
+    data_set = 'lymphoma_tube2_binary'
     # 'lymphoma_tube1', 'lymphoma_tube1_binary', 'lymphoma_tube2', 'lymphoma_tube2_binary'
 
-    classifier = 'fcnn'  # 'som', 'fcnn'
+    classifier = 'som'  # 'som', 'fcnn'
 
     max_n_samples = 20
 
@@ -2014,7 +2014,7 @@ def main_local_training():
     import pandas as pd
 
     from flagx.gating import SomClassifier, SoftmaxClassifier
-    from validation.utils import eval_wrapper, eval_wrapper_sample_wise, scalability_wrapper, get_downsampling_bool
+    from validation.utils import eval_wrapper_sample_wise, scalability_wrapper, get_downsampling_bool
 
 
     # ### Set flags and important variables here #######################################################################
@@ -2023,17 +2023,22 @@ def main_local_training():
     ]
     others_labels = [5, 8, None, None, None, None]
     pos_labels = [None, None, None, None, 1, 1]
-    num_samples = [5, 10, 10, 10, 10, 10]
 
-    gating_method = 'fcnn'  # 'som', 'fcnn'
+    gating_method = 'som'  # 'som', 'fcnn'
+    som_dims = (25, 25)
 
-    num_events = 20000  # 'all'  # todo: set to sensible value
+    if gating_method == 'som':
+        num_samples = [5, 5, 5, 5, 5, 5]
+        num_events = [20000, 5000, 5000, 5000, 5000, 5000]
+    else:
+        num_samples = [5, 10, 15, 15, 5, 5]
+        num_events = [50000, 20000, 'all', 'all', 5000, 5000]
 
     ####################################################################################################################
 
     abstention_label = -1 if gating_method == 'som' else None
 
-    for data_set, others_label, pos_label, n in zip(data_sets, others_labels, pos_labels, num_samples):
+    for data_set, others_label, pos_label, ns, ne in zip(data_sets, others_labels, pos_labels, num_samples, num_events):
 
         preprocessing_trafo = 'log10_w_custom_cutoffs' if data_set != 'flowcyt' else 'log10_cutoff100'
 
@@ -2044,7 +2049,8 @@ def main_local_training():
         print(f'# ###### Data set: {data_set} ###### #')
 
         # Define path where results will be saved to
-        save_p = os.path.join(os.getcwd(), f'results/local_training/{gating_method}/{data_set}/{preprocessing_trafo}')
+        dim_str = '_' + str(som_dims[0]) if som_dims[0] != 25 and gating_method == 'som' else ''
+        save_p = (f'./results/local_training/{gating_method + dim_str}/{data_set}/{preprocessing_trafo}')
         os.makedirs(save_p, exist_ok=True)
 
         # --- Model fitting
@@ -2056,7 +2062,7 @@ def main_local_training():
         sample_names_train = [f'sample_{str(i).zfill(2)}_train' for i in range(n_samples_train)]
 
         # Sample n sample names from list
-        sample_names_train = random.sample(sample_names_train, k=n)
+        sample_names_train = random.sample(sample_names_train, k=ns)
 
         with open(os.path.join(save_p, 'train_samples.txt'), 'w') as f:
             for s in sample_names_train:
@@ -2066,12 +2072,12 @@ def main_local_training():
         y_trains = [np.load(os.path.join(data_p_train, f'y_{sn}.npy')) for sn in sample_names_train]
 
         # Downsample sample-wise
-        if num_events != 'all':
+        if ne != 'all':
             keep_bools = []
             for y in y_trains:
 
                 ds_keep_bool = get_downsampling_bool(
-                    y=y, target_num_events=num_events, stratified=True
+                    y=y, target_num_events=ne, stratified=True
                 )
                 keep_bools.append(ds_keep_bool)
 
@@ -2090,7 +2096,7 @@ def main_local_training():
             clf = SomClassifier(
                 som_topology='planar',
                 som_grid_type='rectangular',
-                som_dimensions=(25, 25),
+                som_dimensions=som_dims,
                 neighborhood='gaussian',
                 gaussian_neighborhood_sigma=0.1,
                 initialization='pca',
@@ -2122,16 +2128,6 @@ def main_local_training():
         clf.save(filepath=save_p)
 
         # --- Prediction
-        # Load the test data
-        x_test = np.load(os.path.join(data_p, 'x_test.npy'))
-
-        print('# ### Starting prediction ...')
-        def dummy_predict():
-            return clf.predict(X=x_test)
-        pred_time_df, y_pred = scalability_wrapper(function=dummy_predict)
-        pred_time_df.to_csv(os.path.join(save_p, 'pred_time_df.csv'))
-        np.save(os.path.join(save_p, 'y_pred.npy'), y_pred)
-
         # Load the sample-wise test data
         samples_p = os.path.join(data_p, 'sample_wise_test')
         n_samples = len([f for f in os.listdir(samples_p) if f.startswith('x_')])
@@ -2157,25 +2153,6 @@ def main_local_training():
             np.save(os.path.join(save_p, 'samples_y_pred', f'y_pred_{sn}.npy'), y)
 
         # --- Evaluation
-        # Load the labels of the test data
-        y_test = np.load(os.path.join(data_p, 'y_test.npy'))
-
-        # Compute evaluation metrics for samples concatenated to one
-        out = eval_wrapper(
-            y_true=y_test,
-            y_pred=y_pred,
-            abstention_label=abstention_label,
-            others_label=others_label,
-            pos_label=pos_label,
-            verbosity=2
-        )
-
-        out[0].to_csv(os.path.join(save_p, 'res_df_avg.csv'))
-        out[1].to_csv(os.path.join(save_p, 'res_df_cw.csv'))
-        out[2].to_csv(os.path.join(save_p, 'cf_mat.csv'))
-        if gating_method == 'som':
-            out[3].to_csv(os.path.join(save_p, 'abst_counts.csv'))
-
         # Load the labels of the sample-wise test data
         samples_p = os.path.join(data_p, 'sample_wise_test')
         n_samples = len([f for f in os.listdir(samples_p) if f.startswith('y_')])
@@ -2216,7 +2193,7 @@ def main_probabilistic_predictions():
 
     # ### Set flags and important variables here #######################################################################
     data_sets = ['lymphoma_tube1_binary', 'lymphoma_tube2_binary']
-    methods = ['som', 'softmax']
+    methods = ['som_20', 'fcnn']
     trafo = 'log10_w_custom_cutoffs'
     ####################################################################################################################
 
@@ -2234,10 +2211,10 @@ def main_probabilistic_predictions():
             print(f'# ### Dataset: {data_set}, method: {m}')
 
             # Load the previously trained classifier
-            if m == 'som':
-                clf = SomClassifier.load(filepath=os.path.join('./results/local_training', m, data_set, trafo))
+            if m == 'som_20':
+                clf = SomClassifier.load(filepath=os.path.join('results/local_training', m, data_set, trafo))
             else:  # 'fcnn'
-                clf = SoftmaxClassifier.load(filepath=os.path.join('./results/local_training', m, data_set, trafo))
+                clf = SoftmaxClassifier.load(filepath=os.path.join('results/local_training', m, data_set, trafo))
 
             # Predict probabilities and save predictions
             save_p = os.path.join(os.getcwd(), 'results/probabilistic_predictions', m, data_set, trafo)
@@ -2269,6 +2246,8 @@ def main_time_table_aggregation():
     import numpy as np
     import pandas as pd
 
+    from validation.utils import get_time_str, get_gb_mb_str
+
 
     # Convert dataset names to corresponding dir names
     dataset_to_dir = {
@@ -2280,19 +2259,22 @@ def main_time_table_aggregation():
 
     # Convert method names to corresponding dir names
     method_to_dir = {
-        'GateMeClass': 'gatemeclass_no_abstention',
+        'GateMeClass': 'gatemeclass',
         'DGCyTOF': 'dgcytof', 'FCNN': 'fcnn',
         'SOM-classifier': 'som',
     }
 
     # --- All data results
-    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
+    print('# --- All data --- #')
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b']
     methods = ['GateMeClass', 'DGCyTOF', 'FCNN', 'SOM-classifier']
     base_path = './results/gating_performance'
     fit_times = []
     pred_times_sample_wise_avg = []
+    pred_times_sample_wise_std = []
     fit_mem_peaks_cpu = []
     pred_mem_peaks_cpu_sample_wise_avg = []
+    pred_mem_peaks_cpu_sample_wise_std = []
     fit_mem_peaks_gpu = []
     pred_mem_peaks_gpu_sample_wise_avg = []
     datasets_df = []
@@ -2318,8 +2300,10 @@ def main_time_table_aggregation():
 
                 fit_times.append(fit_df.loc[0, 'wall_time'])
                 pred_times_sample_wise_avg.append(pred_df['wall_time'].mean())
+                pred_times_sample_wise_std.append(pred_df['wall_time'].std())
                 fit_mem_peaks_cpu.append(fit_df.loc[0, 'mem_peak_cpu'])
                 pred_mem_peaks_cpu_sample_wise_avg.append(pred_df['mem_peak_cpu'].mean())
+                pred_mem_peaks_cpu_sample_wise_std.append(pred_df['mem_peak_cpu'].std())
                 fit_mem_peaks_gpu.append(fit_df.loc[0, 'mem_peak_gpu'])
                 pred_mem_peaks_gpu_sample_wise_avg.append(pred_df['mem_peak_gpu'].mean())
 
@@ -2338,27 +2322,44 @@ def main_time_table_aggregation():
         'dataset': datasets_df,
         'method': methods_df,
         'fit_time': fit_times,
-        'pred_time': pred_times_sample_wise_avg,
+        'pred_time_mean': pred_times_sample_wise_avg,
+        'pred_time_std': pred_times_sample_wise_std,
         'fit_mem_peak_cpu': fit_mem_peaks_cpu,
-        'pred_mem_peak_cpu': pred_mem_peaks_cpu_sample_wise_avg,
+        'pred_mem_peak_cpu_mean': pred_mem_peaks_cpu_sample_wise_avg,
+        'pred_mem_peak_cpu_std': pred_mem_peaks_cpu_sample_wise_std,
         'fit_mem_peak_gpu': fit_mem_peaks_gpu,
         'pred_mem_peak_gpu': pred_mem_peaks_gpu_sample_wise_avg,
     })
 
-    print(res_df)
+    res_df_hr = res_df.copy()
+    res_df_hr['fit_time'] = res_df_hr['fit_time'].apply(get_time_str)
+    res_df_hr['pred_time_mean'] = res_df_hr['pred_time_mean'].apply(get_time_str)
+    res_df_hr['pred_time_std'] = res_df_hr['pred_time_std'].apply(get_time_str)
+    res_df_hr['fit_mem_peak_cpu'] = res_df_hr['fit_mem_peak_cpu'].apply(get_gb_mb_str)
+    res_df_hr['pred_mem_peak_cpu_mean'] = res_df_hr['pred_mem_peak_cpu_mean'].apply(get_gb_mb_str)
+    res_df_hr['pred_mem_peak_cpu_std'] = res_df_hr['pred_mem_peak_cpu_std'].apply(get_gb_mb_str)
+    res_df_hr['fit_mem_peak_gpu'] = res_df_hr['fit_mem_peak_gpu'].apply(get_gb_mb_str)
+
+    # print(res_df)
+    print(res_df_hr[['dataset', 'method', 'pred_mem_peak_cpu_mean', 'pred_mem_peak_cpu_std']])
 
     save_dir = './results/time_table_aggregation'
     os.makedirs(save_dir, exist_ok=True)
-    res_df.to_csv(os.path.join(save_dir, f'time_table_all_data.csv'))
+    res_df.to_csv(os.path.join(save_dir, f'time_table_all_data_exact.csv'))
+    res_df_hr.to_csv(os.path.join(save_dir, f'time_table_all_data_exact_human_readable.csv'))
+
+    print('\n# --- Local training --- #')
 
     # --- Local training results
-    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b']
     methods = ['FCNN', 'SOM-classifier']
-    base_path = './results/local_training'
+    base_path = 'results/local_training'
     fit_times = []
     pred_times_sample_wise_avg = []
+    pred_times_sample_wise_std = []
     fit_mem_peaks_cpu = []
     pred_mem_peaks_cpu_sample_wise_avg = []
+    pred_mem_peaks_cpu_sample_wise_std = []
     fit_mem_peaks_gpu = []
     pred_mem_peaks_gpu_sample_wise_avg = []
     datasets_df = []
@@ -2368,15 +2369,15 @@ def main_time_table_aggregation():
         for method in methods:
 
             data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
-            if method == 'GateMeClass':
-                data_trafo = 'arcsinh_cofactor150'
 
-            fit_data_path = os.path.join(
-                base_path, method_to_dir[method], dataset_to_dir[dataset], data_trafo, 'fit_time_df.csv'
+            res_path = os.path.join(
+                base_path,
+                method_to_dir[method] + ('_20' if method == 'SOM-classifier' else ''),
+                dataset_to_dir[dataset],
+                data_trafo,
             )
-            pred_data_path = os.path.join(
-                base_path, method_to_dir[method], dataset_to_dir[dataset], data_trafo, 'samples_pred_times_df.csv'
-            )
+            fit_data_path = os.path.join(res_path,  'fit_time_df.csv')
+            pred_data_path = os.path.join(res_path, 'samples_pred_times_df.csv')
 
             try:
                 fit_df = pd.read_csv(fit_data_path, index_col=0)
@@ -2384,8 +2385,10 @@ def main_time_table_aggregation():
 
                 fit_times.append(fit_df.loc[0, 'wall_time'])
                 pred_times_sample_wise_avg.append(pred_df['wall_time'].mean())
+                pred_times_sample_wise_std.append(pred_df['wall_time'].std())
                 fit_mem_peaks_cpu.append(fit_df.loc[0, 'mem_peak_cpu'])
                 pred_mem_peaks_cpu_sample_wise_avg.append(pred_df['mem_peak_cpu'].mean())
+                pred_mem_peaks_cpu_sample_wise_std.append(pred_df['mem_peak_cpu'].std())
                 fit_mem_peaks_gpu.append(fit_df.loc[0, 'mem_peak_gpu'])
                 pred_mem_peaks_gpu_sample_wise_avg.append(pred_df['mem_peak_gpu'].mean())
 
@@ -2404,17 +2407,510 @@ def main_time_table_aggregation():
         'dataset': datasets_df,
         'method': methods_df,
         'fit_time': fit_times,
-        'pred_time': pred_times_sample_wise_avg,
+        'pred_time_mean': pred_times_sample_wise_avg,
+        'pred_time_std': pred_times_sample_wise_std,
         'fit_mem_peak_cpu': fit_mem_peaks_cpu,
-        'pred_mem_peak_cpu': pred_mem_peaks_cpu_sample_wise_avg,
+        'pred_mem_peak_cpu_mean': pred_mem_peaks_cpu_sample_wise_avg,
+        'pred_mem_peak_cpu_std': pred_mem_peaks_cpu_sample_wise_std,
         'fit_mem_peak_gpu': fit_mem_peaks_gpu,
         'pred_mem_peak_gpu': pred_mem_peaks_gpu_sample_wise_avg,
     })
 
-    print(res_df)
+    res_df_hr = res_df.copy()
+    res_df_hr['fit_time'] = res_df_hr['fit_time'].apply(get_time_str)
+    res_df_hr['pred_time_mean'] = res_df_hr['pred_time_mean'].apply(get_time_str)
+    res_df_hr['pred_time_std'] = res_df_hr['pred_time_std'].apply(get_time_str)
+    res_df_hr['fit_mem_peak_cpu'] = res_df_hr['fit_mem_peak_cpu'].apply(get_gb_mb_str)
+    res_df_hr['pred_mem_peak_cpu_mean'] = res_df_hr['pred_mem_peak_cpu_mean'].apply(get_gb_mb_str)
+    res_df_hr['pred_mem_peak_cpu_std'] = res_df_hr['pred_mem_peak_cpu_std'].apply(get_gb_mb_str)
+    res_df_hr['fit_mem_peak_gpu'] = res_df_hr['fit_mem_peak_gpu'].apply(get_gb_mb_str)
 
-    res_df.to_csv(os.path.join(save_dir, f'time_table_local_training.csv'))
+    # print(res_df)
+    # print(res_df_hr[['dataset', 'method', 'pred_time_mean', 'pred_time_std', 'pred_mem_peak_cpu_mean', 'pred_mem_peak_cpu_std']])
 
+    res_df.to_csv(os.path.join(save_dir, f'time_table_local_training_exact.csv'))
+    res_df_hr.to_csv(os.path.join(save_dir, f'time_table_local_training_exact_human_readable.csv'))
+
+
+def main_pipeline_workflow():
+    import os
+    import random
+    import readfcs
+    import matplotlib.pyplot as plt
+    import matplotlib
+
+    matplotlib.use('Agg')
+    random.seed(42)
+
+    from seaborn import scatterplot
+    from flagx import GatingPipeline
+
+    train = True
+
+    # ###### Initial training ###### #
+    # ### Set parameters
+    dataset = 'LT1'  # Imstat, LT1, LT2
+
+    if dataset == 'Imstat':
+        channels = ['FS INT', 'SS INT', '16-FITC', '56-PE', '3-ECD', '4-PC7', '19-APC', '14-APC700', '8-PB', '45-CO']
+        label_key = 'population'
+        cutoff_dict = {
+            'FS INT': 100000, 'SS INT': 20000, '16-FITC': 250, '56-PE': 450, '3-ECD': 700,
+            '4-PC7': 1200,
+            '19-APC': 1700,
+            '14-APC700': 900,
+            '8-PB': 450, '45-CO': 500
+        }
+        relabel_data_kwargs = None
+        train_data_fns = [
+            '20150312-1 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019511 001.fcs',
+            'ER_000000_H1_150305_ED.fcs',
+            '20150320-1 IOTest Test 16-56-3-4-19-14-8-45 00019651 001.fcs',
+            '20150317-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019558 001.fcs',
+            '20150318-3 VersaLyse VersaLyseFix 16-56-3-4-19-14-8-45 00019593 001.fcs',
+            'ER_000050_H1_150311_ED.fcs',
+            '20150312-2 IOTest Test 16-56-3-4-19-14-8-45 00019495 001.fcs',
+            '20150312-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019496 001.fcs',
+            '20150320-1 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019654 001.fcs',
+            'ER_000018_H1_150306_ED.fcs',
+            '20150320-3 IOTest Test 16-56-3-4-19-14-8-45 00019661 001.fcs',
+            '20150319-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019617 001.fcs',
+            '20150320-2 VersaLyse VersaLyse 16-56-3-4-19-14-8-45 00019658 001.fcs',
+            'ER_000025_H1_150309_ED.fcs',
+            '20150318-3 IOTest Test 16-56-3-4-19-14-8-45 00019588 001.fcs',
+            '20150318-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019572 001.fcs',
+            '20150317-2 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019557 001.fcs',
+            'ER_000006_H1_150305_ED.fcs',
+            '20150312-1 IOTest Test 16-56-3-4-19-14-8-45 00019508 001.fcs',
+            '20150319-3 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019637 001.fcs',
+        ]
+        test_data_fns = [
+            'ER_000057_H1_150311_ED.fcs',
+            '20150318-2 Quick Quick 16-56-3-4-19-14-8-45 00019581 001.fcs',
+            '20150318-1 VersaLyseFix VersaLyseFix 16-56-3-4-19-14-8-45 00019574 001.fcs',
+            '20150320-2 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019657 001.fcs',
+            '20150318-1 IOTest Test 16-56-3-4-19-14-8-45 00019571 001.fcs',
+            'ER_000001_H1_150305_ED.fcs',
+            '20150320-3 Quick Quick 16-56-3-4-19-14-8-45 00019660 001.fcs',
+            '20150312-2 VersaLyse VersaLyse 16-56-3-4-19-14-8-45 00019500 001.fcs',
+            '20150318-3 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019592 001.fcs',
+            '20150319-3 IOTest Test 16-56-3-4-19-14-8-45 00019619 001.fcs',
+        ]
+
+    elif dataset == 'LT1':
+        channels = [
+            'FS', 'SS', 'kappavCD8_FITC', 'lambdavCD7_PE', 'CD23_ECD', 'CD79bvCD4_PC5.5', 'CD5_PC7',
+            'CD38_APC', 'CD19_APC_A700', 'CD20vCD3_APC_A750', 'FMC7vCD2_PB', 'CD45_KrOr'
+        ]
+        label_key = 'population'
+        cutoff_dict = {
+            'FS': 100000, 'SS': 20000, 'kappavCD8_FITC': 500, 'lambdavCD7_PE': 400, 'CD23_ECD': 500,
+            'CD79bvCD4_PC5.5': 1200, 'CD5_PC7': 300, 'CD38_APC': 700,
+            'CD19_APC_A700': 150,
+            'CD20vCD3_APC_A750': 500, 'FMC7vCD2_PB': 500, 'CD45_KrOr': 1000
+        }
+        relabel_data_kwargs = {'old_to_new_label_mapping': {1: 1, 9: 1, 7: 0, 10: 0}, 'new_label_key': 'binary_labels'}
+        train_data_fns = [
+            '5680_NB_T1_d13_N100k.fcs',
+            '2400_CLL_T1_d13_N100k.fcs',
+            '3280_DLBCL_T1_d13_N73k.fcs',
+            '1470_MCL_T1_d13_N100k.fcs',
+            '0470_FL_T1_d13_N100k.fcs',
+            '2740_HCL_T1_d13_N40k.fcs',
+            '2660_LPL_T1_d13_N100k.fcs',
+            '0020_MZL_T1_d13_N100k.fcs',
+            '3260_MBL_T1_d13_N100k.fcs',
+            '3390_UC_T1_d13_N100k.fcs',
+            '3110_BL_T1_d13_N100k.fcs',
+            '5630_NB_T1_d13_N100k.fcs',
+            '2170_CLL_T1_d13_N100k.fcs',
+            '2630_DLBCL_T1_d13_N100k.fcs',
+            '1550_MCL_T1_d13_N100k.fcs',
+            '1990_FL_T1_d13_N100k.fcs',
+            '3630_HCL_T1_d13_N100k.fcs',
+            '1740_LPL_T1_d13_N100k.fcs',
+            '0200_MZL_T1_d13_N77k.fcs',
+            '2620_MBL_T1_d13_N100k.fcs',
+            '2210_UC_T1_d13_N100k.fcs',
+        ]
+        test_data_fns = [
+            '6080_NB_T1_d13_N100k.fcs',
+            '0910_CLL_T1_d13_N100k.fcs',
+            '1920_DLBCL_T1_d13_N100k.fcs',
+            '3910_MCL_T1_d13_N100k.fcs',
+            '0290_FL_T1_d13_N100k.fcs',
+            '2640_HCL_T1_d13_N69k.fcs',
+            '2420_LPL_T1_d13_N100k.fcs',
+            '3730_MZL_T1_d13_N100k.fcs',
+            '3850_MBL_T1_d13_N100k.fcs',
+            '1580_UC_T1_d13_N100k.fcs',
+            '1230_BL_T1_d13_N100k.fcs',
+        ]
+
+    else:  # LT2
+        channels = [
+            'FS', 'SS', 'CD103_FITC', 'CD43_PE', 'CD25_ECD', 'CD10_PC5.5', 'CD200_PC7',
+            'CD52_APC', 'CD11c_APC_A700', 'CD20_APC_A750', 'IgM_PB', 'CD19_KrOr'
+        ]
+        label_key = 'population'
+        cutoff_dict = {
+            'FS': 100000, 'SS': 20000, 'CD103_FITC': 300, 'CD43_PE': 1500, 'CD25_ECD': 1000,
+            'CD10_PC5.5': 1000, 'CD200_PC7': 1000, 'CD52_APC': 150, 'CD11c_APC_A700': 200,
+            'CD20_APC_A750': 300, 'IgM_PB': 400, 'CD19_KrOr': 200,
+        }
+        relabel_data_kwargs = {'old_to_new_label_mapping': {1: 1, 9: 1, 7: 0, 10: 0}, 'new_label_key': 'binary_labels'}
+        train_data_fns = [
+            '5680_NB_T2_d13_N100k.fcs',
+            '2400_CLL_T2_d13_N100k.fcs',
+            '3280_DLBCL_T2_d13_N73k.fcs',
+            '1470_MCL_T2_d13_N100k.fcs',
+            '0470_FL_T2_d13_N100k.fcs',
+            '2740_HCL_T2_d13_N40k.fcs',
+            '2660_LPL_T2_d13_N100k.fcs',
+            '0020_MZL_T2_d13_N100k.fcs',
+            '3260_MBL_T2_d13_N100k.fcs',
+            '3390_UC_T2_d13_N100k.fcs',
+            '3110_BL_T2_d13_N100k.fcs',
+            '5630_NB_T2_d13_N100k.fcs',
+            '2170_CLL_T2_d13_N100k.fcs',
+            '2630_DLBCL_T2_d13_N100k.fcs',
+            '1550_MCL_T2_d13_N100k.fcs',
+            '1990_FL_T2_d13_N100k.fcs',
+            '3630_HCL_T2_d13_N100k.fcs',
+            '1740_LPL_T2_d13_N100k.fcs',
+            '0200_MZL_T2_d13_N77k.fcs',
+            '2620_MBL_T2_d13_N100k.fcs',
+            '2210_UC_T2_d13_N100k.fcs',
+        ]
+        test_data_fns = [
+            '6080_NB_T2_d13_N100k.fcs',
+            '0910_CLL_T2_d13_N100k.fcs',
+            '1920_DLBCL_T2_d13_N100k.fcs',
+            '3910_MCL_T2_d13_N100k.fcs',
+            '0290_FL_T2_d13_N100k.fcs',
+            '2640_HCL_T2_d13_N69k.fcs',
+            '2420_LPL_T2_d13_N100k.fcs',
+            '3730_MZL_T2_d13_N100k.fcs',
+            '3850_MBL_T2_d13_N100k.fcs',
+            '1580_UC_T2_d13_N100k.fcs',
+            '1230_BL_T2_d13_N100k.fcs',
+        ]
+
+    dataset_to_dir = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma/concatenated_labled_fcs_format_21Blood4Bcell_T1_Labels',
+        'LT2': 'lymphoma/concatenated_labled_fcs_format_22Blood4Bcell_T2_Labels',
+    }
+
+    data_subdir = dataset_to_dir[dataset]
+
+    save_path = os.path.join('results/pipeline_workflow', dataset)
+    os.makedirs(save_path, exist_ok=True)
+
+    data_dir = os.path.join('./data/raw', data_subdir)
+
+    with open(os.path.join(save_path, 'train_samples.txt'), 'w') as f:
+        for line in train_data_fns:
+            f.write(line + '\n')
+
+    with open(os.path.join(save_path, 'test_samples.txt'), 'w') as f:
+        for line in test_data_fns:
+            f.write(line + '\n')
+
+    preprocessing_kwargs = {'flavour': 'log10_w_custom_cutoffs', 'flavour_kwargs': {'cutoffs': cutoff_dict}}
+
+    save_path_som = os.path.join(save_path, 'som')
+    os.makedirs(save_path_som, exist_ok=True)
+
+    save_path_fcnn = os.path.join(save_path, 'fcnn')
+    os.makedirs(save_path_fcnn, exist_ok=True)
+
+    if train:
+        # ### Train the SOM-classifier gating pipeline
+        som_kwargs = {
+            'som_topology': 'planar',
+            'som_grid_type': 'rectangular',
+            'som_dimensions': (25, 25),
+            'neighborhood': 'gaussian',
+            'gaussian_neighborhood_sigma': 0.1,
+            'initialization': 'pca',
+            'n_epochs': 1000,
+            'radius_0': -0.5,
+            'radius_n': 0.1,
+            'radius_cooling': 'exponential',
+            'learning_rate_0': 0.1,
+            'learning_rate_n': 0.001,
+            'learning_rate_decay': 'exponential',
+            'verbosity': 2
+        }
+        gp_som = GatingPipeline(
+            train_data_file_path=data_dir,
+            train_data_file_names=train_data_fns,
+            train_data_file_type='fcs',
+            save_path=save_path_som,
+            channels=channels,
+            label_key=label_key,
+            channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+            relabel_data_kwargs=relabel_data_kwargs,
+            preprocessing_kwargs=preprocessing_kwargs,
+            gating_method='som',
+            gating_method_kwargs=som_kwargs,
+            verbosity=2,
+        )
+        gp_som.train()
+        gp_som.save(filename='trained_pipeline_som.pkl')
+
+        # ### Train the FCNN-softmax-classifier gating pipeline
+        fcnn_kwargs = {'layer_sizes': (128, 64, 32), 'n_epochs': 20, 'device': 'cuda', 'verbosity': 2}
+        gp_fcnn = GatingPipeline(
+            train_data_file_path=data_dir,
+            train_data_file_names=train_data_fns,
+            train_data_file_type='fcs',
+            save_path=save_path_fcnn,
+            channels=channels,
+            label_key=label_key,
+            channel_names_alignment_kwargs={'reference_channel_names': 0},  # Use 1st file as reference
+            relabel_data_kwargs=relabel_data_kwargs,
+            preprocessing_kwargs=preprocessing_kwargs,
+            gating_method='fcnn',
+            gating_method_kwargs=fcnn_kwargs,
+            verbosity=2,
+        )
+        gp_fcnn.train()
+        gp_fcnn.save(filename='trained_pipeline_fcnn.pkl')
+        del gp_som, gp_fcnn
+
+    # ###### Inference with new data ###### #
+    # ### Set parameters
+    output_dir = os.path.join(save_path, 'output')
+    output_dir_test_samples = os.path.join(output_dir, 'test_samples')
+    os.makedirs(output_dir_test_samples, exist_ok=True)
+
+    dim_red_methods = ('som', 'pca', 'umap')
+    dim_red_method_kwargs = (None, None, {'n_jobs': 12})
+
+    # ### Inference with the SOM pipeline
+    gp_som = GatingPipeline.load(filename='trained_pipeline_som.pkl', filepath=save_path_som)
+    gp_som.verbosity = 2
+    # Training data
+    gp_som.inference(
+        data_file_path=data_dir,
+        data_file_names=train_data_fns,
+        sample_wise=False,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_path=output_dir,
+        save_filename='annotated_train_data.fcs',
+        scale_channels=[label_key, ],
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+    )
+    # Test data samples concatenated
+    gp_som.inference(
+        data_file_path=data_dir,
+        data_file_names=test_data_fns,
+        sample_wise=False,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_path=output_dir,
+        save_filename='annotated_test_data.fcs',
+        scale_channels=[label_key],
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+    )
+    # Test data individual samples
+    gp_som.inference(
+        data_file_path=data_dir,
+        data_file_names=test_data_fns,
+        sample_wise=True,
+        gate=True,
+        dim_red_methods=dim_red_methods,
+        dim_red_method_kwargs=dim_red_method_kwargs,
+        save_path=output_dir_test_samples,
+        save_filename='annotated_test_data.fcs',
+        scale_channels=[label_key],
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+    )
+
+    # ### Inference with the FCNN pipeline
+    gp_fcnn = GatingPipeline.load(filename='trained_pipeline_fcnn.pkl', filepath=save_path_fcnn)
+    # Training data
+    gp_fcnn.inference(
+        data_file_path=output_dir,
+        data_file_names=['annotated_train_data.fcs', ],
+        gate=True,
+        dim_red_methods=None,
+        dim_red_method_kwargs=None,
+        save_path=output_dir,
+        save_filename='annotated_train_data.fcs',
+        scale_channels=None,
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+    )
+    # Test data samples concatenated
+    gp_fcnn.inference(
+        data_file_path=output_dir,
+        data_file_names=['annotated_test_data.fcs', ],
+        gate=True,
+        dim_red_methods=None,
+        dim_red_method_kwargs=None,
+        save_path=output_dir,
+        save_filename='annotated_test_data.fcs',
+        scale_channels=None,
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+    )
+    # Test data individual samples
+    gp_fcnn.inference(
+        data_file_path=output_dir_test_samples,
+        data_file_names=[f'annotated_test_data_sample_id_{i + 1}.fcs' for i in range(len(test_data_fns))],
+        gate=True,
+        dim_red_methods=None,
+        dim_red_method_kwargs=None,
+        save_path=output_dir_test_samples,
+        save_filename='annotated_test_data.fcs',
+        scale_channels=None,
+        val_range=(0.0, 2 ** 20),
+        keep_unscaled=True,
+    )
+
+    del gp_som, gp_fcnn
+
+    # ###### Output validation ###### #
+    annotated_test_data = readfcs.read(os.path.join(output_dir, 'annotated_test_data.fcs'))
+    print("# ### Annotated test data:\n", annotated_test_data)
+    df = annotated_test_data.to_df()
+    print("# Channels:\n", df.columns)
+
+    for drm in dim_red_methods:
+        fig, ax = plt.subplots(dpi=300)
+        scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue='sample_id_unscaled', palette='deep', ax=ax)
+        plt.legend(title='Sample ID', markerscale=4)
+        plt.savefig(os.path.join(output_dir, f'sample_id_dimred_{drm}.png'), dpi=300)
+        plt.close('all')
+        for gm in ['som', 'fcnn']:
+            fig, ax = plt.subplots(dpi=300)
+            scatterplot(data=df, x=f'{drm}_1', y=f'{drm}_2', s=1, hue=f'pred_{gm}_unscaled', palette='deep', ax=ax)
+            plt.legend(title='Pred', markerscale=4)
+            plt.savefig(os.path.join(output_dir, f'gating_{gm}_dimred_{drm}.png'), dpi=300)
+            plt.close('all')
+
+
+def main_pipeline_output_downsampling():
+
+    import os
+    import numpy as np
+
+    from flagx.io import FlowDataManager, export_to_fcs
+    from validation.utils.val_utils import get_downsampling_bool
+
+    np.random.seed(42)
+
+    # ### Set parameters
+    datasets = ['Imstat', 'LT1', 'LT2']
+    data_files = ['annotated_train_data.fcs', 'annotated_test_data.fcs']
+    label_key = 'population'
+    sample_id_key = 'sample_id'
+
+    target_num_events = 100000
+
+    double_stratified = False
+    # Stratify w.r.t. num events per sample and cell types, if False fixed  num events per sample
+
+    for dataset in datasets:
+
+        results_path = os.path.join(os.getcwd(), 'results/pipeline_workflow', dataset, 'output')
+
+        for data_file in data_files:
+
+            # Instantiate a datamanager
+            fdm = FlowDataManager(
+                data_file_names=[data_file, ],
+                data_file_type=None,
+                data_file_path=results_path,
+                save_path=results_path,
+                verbosity=2,
+            )
+
+            # Load data file to anndata
+            fdm.load_data_files_to_anndata()
+
+            adata = fdm.anndata_list_[0]
+
+            # Extract the labels
+            col_index = adata.var_names.get_loc(label_key)
+            labels = adata.X[:, col_index]
+
+            # Extract the sample ids
+            col_index = adata.var_names.get_loc(sample_id_key)
+            sample_ids = adata.X[:, col_index]
+
+            if double_stratified:  # ### Double stratified downsampling
+
+                # Get the downsampling bool where stratification w.r.t. num events per sample is used
+                ds_bool_sample_based = get_downsampling_bool(
+                    y=sample_ids,
+                    target_num_events=target_num_events,
+                    stratified=True
+                )
+
+                # Get the event count per sample
+                # (used as target num events for population size-based, sample-wise stratified downsampling)
+                sample_ids_downsampled = sample_ids[ds_bool_sample_based]
+                sample_ids_unique, counts = np.unique(sample_ids_downsampled, return_counts=True)
+
+                # Downsample per sample, stratify w.r.t. population sizes
+                ds_bool = np.zeros_like(sample_ids).astype(bool)
+                for sample_id, count in zip(sample_ids_unique, counts):
+
+                    sample_id_bool = (sample_ids == sample_id)
+
+                    labels_current_sample = labels[sample_id_bool]
+
+                    ds_bool_current_sample = get_downsampling_bool(
+                        y=labels_current_sample,
+                        target_num_events=count,
+                        stratified=True
+                    )
+
+                    ds_bool[sample_id_bool] = ds_bool_current_sample
+            else:  # ### Same num events per sample, stratify w.r.t. population sizes
+
+                # Define num events per sample such that target_num_events is reached
+                unique_sample_ids = np.unique(sample_ids)
+                num_samples = unique_sample_ids.shape[0]
+                base = target_num_events // num_samples
+                remainder = target_num_events % num_samples
+                events_per_sample = np.full(num_samples, base, dtype=int)
+                events_per_sample[:remainder] += 1
+
+                # Downsample per sample, stratify w.r.t. population sizes
+                ds_bool = np.zeros_like(sample_ids).astype(bool)
+                for sample_id, num_events in zip(unique_sample_ids, events_per_sample):
+                    sample_bool = (sample_ids == sample_id)
+                    labels_current_sample = labels[sample_bool]
+
+                    ds_bool_current_sample = get_downsampling_bool(
+                        y=labels_current_sample,
+                        target_num_events=num_events,
+                        stratified=True
+                    )
+                    ds_bool[sample_bool] = ds_bool_current_sample
+
+            # Apply downsampling
+            adata_downsampled = adata[ds_bool, :].copy()
+
+            print(f'# ### Num events before: {adata.n_obs}, after: {adata_downsampled.n_obs}')
+            print(adata_downsampled)
+
+            export_to_fcs(
+                data_list=[adata_downsampled, ],
+                save_path=results_path,
+                save_filenames=data_file[:-4] + f'_downsampled_{target_num_events}_events.fcs',
+            )
 
 
 if __name__ == '__main__':
@@ -2445,12 +2941,6 @@ if __name__ == '__main__':
 
     # main_time_table_aggregation()
 
-    print('done')
+    # main_pipeline_workflow()
 
-    # Todo:
-    #  - som on hpc -> started
-    #  - num samples num events for som -> started random cases
-    #  - random_sample_order_trials -> started for fcnn
-    #  - local training
-    #  - probabilistic predictions
-    #  - aggregate time tables
+    print('done')
