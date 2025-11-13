@@ -731,7 +731,7 @@ def plot_sample_sizes(
     if print_total:
         total = sample_sizes.sum()
         ax.text(
-            0.02, 0.98, f'Total Events: {total}',
+            0.02, 0.95, f'Total events: {total}',
             transform=ax.transAxes,  # Axes coordinates (0–1)
             ha='left', va='top',  # Align top-right
             fontsize=10,
@@ -749,7 +749,7 @@ def plot_sample_sizes(
 
         lower = m - std
         if lower > sample_sizes.min():
-            ax.axhline(y=lower, color='gold', linestyle='--', linewidth=1.5, label=f'Std: {np.round(std, 3)}')
+            ax.axhline(y=lower, color='gold', linestyle='--', linewidth=1.5, label=f'Std: {np.round(std, 1)}')
         upper = m + std
         if upper < sample_sizes.max():
             ax.axhline(y=upper, color='gold', linestyle='--', linewidth=1.5)
@@ -758,10 +758,24 @@ def plot_sample_sizes(
     if title is not None:
         ax.set_title(title)
 
-    ax.set_xlabel(f'Sample ID (1--{len(ys)})')
+    ticks = ax.get_xticks()
+    custom_ticks = [1, ]
+    for t in ticks:
+        if t >= 2 and t <= len(ys):
+            custom_ticks.append(np.round(t, decimals=0))
+    max_tick = max(custom_ticks)
+    if abs(len(ys) - max_tick) < 2:
+        custom_ticks[-1] = len(ys)
+    else:
+        custom_ticks.append(len(ys))
 
-    ax.set_ylabel('Number of Events')
+    custom_labels = [str(int(tick)) for tick in custom_ticks]
+    ax.set_xticks(custom_ticks)
+    ax.set_xticklabels(custom_labels)
 
+    ax.set_xlabel(f'Sample ID (1\u2013{len(ys)})')
+
+    ax.set_ylabel('Number of events')
 
     return ax
 
@@ -793,24 +807,24 @@ def plot_class_balance(
 
     # Prepare DataFrame for plotting
     plot_data = pd.DataFrame({
-        'Cell Type Label': class_counts.index,
+        'Cell type label': class_counts.index,
         'Count': class_counts.to_numpy(),
         'Percentage': percentages.to_numpy(),
     })
 
     # Change label order
     if label_order is None:
-        label_order = sorted(set(plot_data['Cell Type Label']))
+        label_order = sorted(set(plot_data['Cell type label']))
     else:
-        unique_labels = set(plot_data['Cell Type Label'])
+        unique_labels = set(plot_data['Cell type label'])
         label_order = [l for l in label_order if l in unique_labels]
 
     # Barplot
     sns.barplot(
         data=plot_data,
-        x='Cell Type Label',
+        x='Cell type label',
         y='Count',
-        hue='Cell Type Label',
+        hue='Cell type label',
         order=label_order,
         palette=palette,
         legend=False,
@@ -820,7 +834,7 @@ def plot_class_balance(
     # Add vertical labels
     max_count = plot_data['Count'].max()
     for idx, label in enumerate(label_order):
-        row = plot_data[plot_data['Cell Type Label'] == label].iloc[0]
+        row = plot_data[plot_data['Cell type label'] == label].iloc[0]
         is_max = row['Count'] == max_count
         y_pos = (row['Count'] * 0.85) if is_max else (row['Count'] + (0.01 * total))
 
@@ -836,8 +850,7 @@ def plot_class_balance(
     if title is not None:
         ax.set_title(title)
 
-
-    ax.set_ylabel('Number of Events')
+    ax.set_ylabel('Number of events')
 
 
     return ax
@@ -960,7 +973,8 @@ def plot_n_samples_n_events(
 def annotate_mosaic(
         fig: plt.Figure, axd: Dict[str, plt.Axes],
         fontsize: Union[float, None] = None,
-        excluded: Union[List[str], None] = None
+        excluded: Union[List[str], None] = None,
+        xy: Tuple[float, float] = (0.0, 0.95),
 ):
     if excluded is None:
         excluded = []
@@ -973,8 +987,8 @@ def annotate_mosaic(
             # label physical distance to the left and up:
             trans = mtransforms.ScaledTranslation(-20 / 72, 7 / 72, fig.dpi_scale_trans)
             ax.text(
-                0.0,
-                0.95,
+                xy[0],
+                xy[1],
                 label,
                 transform=ax.transAxes + trans,
                 fontsize=fontsize,
