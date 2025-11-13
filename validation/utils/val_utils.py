@@ -485,19 +485,31 @@ def get_time_str(seconds: float) -> str:
     m = int((seconds % 3600) // 60)
     s = seconds % 60
 
-    time_str = f'{h} h {m} m {s:.4f} s'
+    if h >= 1:
+        time_str = f'{h} h {m} m {s:.2f} s'
+    elif h == 0 and m >= 1:
+        time_str = f'{m} m {s:.2f} s'
+    else:
+        time_str = f'{s:.2f} s'
 
     return time_str
 
 
-def get_gb_mb_str(mem_mb: float) -> str:
-    if pd.isna(mem_mb):
+def get_gb_mb_str(mem_mib: float) -> str:
+    if pd.isna(mem_mib):
         return 'NaN'
-    if mem_mb < 1024:
-        return f'{mem_mb:.1f} MB'
-    gb = int(mem_mb // 1024)
-    mb = mem_mb % 1024
-    return f'{gb} GB {mb:.1f} MB'
+
+    # Convert MiB values to MB
+    mb_decimal = mem_mib * 1.048576  # 1 MiB = 2**20 B
+    gb_decimal = mb_decimal / 1000
+
+    # if mem_mb < 1024:
+    #     return f'{mem_mb:.1f} MB'
+    # gb = int(mem_mb // 1024)
+    # mb = mem_mb % 1024
+    # return f'{gb} GB {mb:.1f} MB'
+
+    return f'{gb_decimal:.2f} GB'
 
 
 def get_error_dataframe(
