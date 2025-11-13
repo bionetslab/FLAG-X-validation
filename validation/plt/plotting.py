@@ -856,23 +856,6 @@ def plot_class_balance(
     return ax
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def plot_prec_rec_vs_thresh(
         y_trues: List[np.ndarray],
         y_probs: List[np.ndarray],
