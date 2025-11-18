@@ -6,16 +6,17 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .._legacy_typing import Union, Tuple, Dict, List, SelfSoftmaxClassifier, Any
+from typing import Tuple, List, Dict, Union, Any
+from typing_extensions import Self
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 
-from .fcnn_softmax_model import FCNNModel
+from .fcnn_model import FCNNModel
 
 
-class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
+class MLPClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
             self,
             layer_sizes: Tuple[int, int, int] = (128, 64, 32),
@@ -51,7 +52,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
             y: np.ndarray
-    ) -> SelfSoftmaxClassifier:
+    ) -> Self:
 
         # ### Data processing and preparation
         # Check input data format
@@ -244,7 +245,7 @@ class SoftmaxClassifier(BaseEstimator, ClassifierMixin):
             filename: str = 'softmax_classifier.pkl',
             filepath: Union[str, None] = None,
             map_location: Union[str, torch.device] = 'cpu',
-    ) -> SelfSoftmaxClassifier:
+    ) -> Self:
         if filepath is None:
             filepath = os.getcwd()
 

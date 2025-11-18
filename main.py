@@ -1569,7 +1569,7 @@ def main_fcnn():
     import numpy as np
     import pandas as pd
 
-    from flagx.gating import SoftmaxClassifier
+    from flagx.gating import MLPClassifier
     from validation.utils import eval_wrapper, eval_wrapper_sample_wise, scalability_wrapper
 
     # ### Set flags and important variables here #######################################################################
@@ -1617,7 +1617,7 @@ def main_fcnn():
             y_train = np.load(os.path.join(data_p, 'y_train.npy'))
 
             # Instantiate the Softmax classifier with default parameters
-            fcnn_clf = SoftmaxClassifier(
+            fcnn_clf = MLPClassifier(
                 layer_sizes=(128, 64, 32),
                 n_epochs=20,
                 data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
@@ -1635,7 +1635,7 @@ def main_fcnn():
 
         else:
             # Load the SOM classifier
-            fcnn_clf = SoftmaxClassifier.load(filepath=save_p)
+            fcnn_clf = MLPClassifier.load(filepath=save_p)
 
         if predict:
             # Load the test data
@@ -1740,7 +1740,7 @@ def main_num_samples_num_events_experiment():
     import matplotlib.pyplot as plt
 
     from validation.utils.val_utils import n_samples_experiment_helper
-    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from flagx.gating import SomClassifier, MLPClassifier
     from validation.plt import plot_n_samples_n_events
 
     # ### Set flags and important variables here #######################################################################
@@ -1830,7 +1830,7 @@ def main_num_samples_num_events_experiment():
                 verbosity=2,
             )
         else:  # FCNN
-            clf = SoftmaxClassifier(
+            clf = MLPClassifier(
                 layer_sizes=(128, 64, 32),
                 n_epochs=20,
                 data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 3},
@@ -1866,7 +1866,7 @@ def main_random_sample_order_trials():
     import numpy as np
     import pandas as pd
 
-    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from flagx.gating import SomClassifier, MLPClassifier
     from validation.utils import eval_wrapper_sample_wise
 
     # ### Set flags and important variables here #######################################################################
@@ -1965,7 +1965,7 @@ def main_random_sample_order_trials():
                     verbosity=2,
                 )
             else:
-                clf = SoftmaxClassifier(
+                clf = MLPClassifier(
                     layer_sizes=(128, 64, 32),
                     n_epochs=20,
                     data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 3},
@@ -2013,7 +2013,7 @@ def main_local_training():
     import numpy as np
     import pandas as pd
 
-    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from flagx.gating import SomClassifier, MLPClassifier
     from validation.utils import eval_wrapper_sample_wise, scalability_wrapper, get_downsampling_bool
 
 
@@ -2110,7 +2110,7 @@ def main_local_training():
                 verbosity=2,
             )
         else:  # fcnn
-            clf = SoftmaxClassifier(
+            clf = MLPClassifier(
                 layer_sizes=(128, 64, 32),
                 n_epochs=20,
                 data_loader_params={'batch_size': 128, 'shuffle': True, 'num_workers': 6},
@@ -2189,7 +2189,7 @@ def main_probabilistic_predictions():
     import os
     import numpy as np
 
-    from flagx.gating import SomClassifier, SoftmaxClassifier
+    from flagx.gating import SomClassifier, MLPClassifier
 
     # ### Set flags and important variables here #######################################################################
     data_sets = ['lymphoma_tube1_binary', 'lymphoma_tube2_binary']
@@ -2214,7 +2214,7 @@ def main_probabilistic_predictions():
             if m == 'som_20':
                 clf = SomClassifier.load(filepath=os.path.join('results/local_training', m, data_set, trafo))
             else:  # 'fcnn'
-                clf = SoftmaxClassifier.load(filepath=os.path.join('results/local_training', m, data_set, trafo))
+                clf = MLPClassifier.load(filepath=os.path.join('results/local_training', m, data_set, trafo))
 
             # Predict probabilities and save predictions
             save_p = os.path.join(os.getcwd(), 'results/probabilistic_predictions', m, data_set, trafo)
