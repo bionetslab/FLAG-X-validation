@@ -128,14 +128,25 @@ def test_save_and_load_roundtrip(mlp_classifier, small_X, small_y, tmp_path):
     assert np.allclose(pred_original, pred_loaded)
 
 
-@pytest.mark.skipif(torch.cuda.is_available(), reason='Only meaningful when no GPU')
-def test_load_with_map_location_cpu(mlp_classifier, small_X, small_y, tmp_path):
+@pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA not available')
+def test_load_with_map_location_from_gpu_to_cpu(mlp_classifier, small_X, small_y, tmp_path):
+
+    # Trains on GPU by default
     mlp_classifier.fit(small_X, small_y)
-    path = tmp_path / 'mlp_cpu.pkl'
+
+    # Save model
+    path = tmp_path / 'mlp_gpu.pkl'
     mlp_classifier.save(filename=path.name, filepath=str(tmp_path))
 
-    loaded = MLPClassifier.load(filename=path.name, filepath=str(tmp_path), map_location='cpu')
-    assert loaded.device == 'cpu'
+    # Load to CPU explicitly
+    loaded = MLPClassifier.load(
+        filename=path.name,
+        filepath=str(tmp_path),
+        map_location='cpu'
+    )
+
+    for param in loaded.model_.parameters():
+        assert param.device.type == 'cpu'
 
 
 def test_get_num_correct():
