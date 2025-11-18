@@ -3,16 +3,13 @@ import os
 import warnings
 import pickle
 import copy
-import time
 
-import flowio
 import numpy as np
 import pandas as pd
 
-from .._legacy_typing import Literal, Tuple, Union, List, Dict, Callable, Iterable, SelfSomClassifier, Any
-from math import log, exp
+from typing import Tuple, List, Dict, Union, Callable, Iterable, Any
+from typing_extensions import Literal, Self
 from somoclu import Somoclu
-from umap import UMAP
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.metrics import f1_score
@@ -63,11 +60,13 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         self.learning_rate_decay = learning_rate_decay
         # If radius_0 < 0 set radius_0 relative to the SOM dimensions
 
+        # Internal flags
+        self._is_fitted = False
+        self._labeled_data = False
+
         # ### Initialize all variables associated with a trained SOM classifier
-        self.is_fitted_ = False
         self.som_ = None
         self.n_features_in_ = None
-        self.labeled_data_ = False
         # These are only relevant if trained on labeled data:
         self.classes_ = None
         self.class_counts_ = None
@@ -78,7 +77,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         self.som_unit_labels_ = None
 
         # Epoch wise training
-        self.epoch_wise_som_training_metrics_ = None  # Only relevant if SOM is trained epoch wise
+        # self.epoch_wise_som_training_metrics_ = None  # Only relevant if SOM is trained epoch wise
 
         # Hyperparameter tuning
         self.grid_search_ = None
@@ -109,13 +108,13 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
             y: np.ndarray,
-    ) -> SelfSomClassifier:
+    ) -> Self:
 
         # Check input data format
         X, y = check_X_y(X, y)
 
         # Check if .fit() was called already
-        if self.is_fitted_:
+        if self._is_fitted:
 
             warnings.warn(
                 "The `.fit()` method was called on an already trained SOM classifier. "
@@ -156,7 +155,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
         # If SOM classifier was already trained on labeled data (and now is trained again on labeled data),
         # raise warning regarding the label computation
-        if self.is_fitted_ and self.labeled_data_:
+        if self._is_fitted and self._labeled_data:
             warnings.warn(
                 "SOM unit annotations are based on current labeled data. "
                 "To include previous training labels, call `.annotate_som()` with all labeled data.", UserWarning
@@ -166,15 +165,14 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         self.annotate_som(X=X, y=y)
 
         # If no labeled data passed to .fit(), raise UserWarning
-        if not self.labeled_data_:
+        if not self._labeled_data:
             warnings.warn(
-                'No labeled data provided—label prediction is not possible. '
-                'To manually annotate labels in Kaluza, call `.export_fcs()` '
-                'to extract the training data annotated with SOM nodes as an .fcs file.',
+                'No labeled data provided. Only the SOM component is trained in an unsupervised fashion.',
                 UserWarning
             )
 
         # Set flag indicating that SOM classifier is fitted
+        self._is_fitted = True
         self.is_fitted_ = True
 
         return self
@@ -191,7 +189,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         X = check_array(X)
 
         # If SOM Classifier was trained on labeled data compute prediction
-        if self.labeled_data_:
+        if self._labeled_data:
 
             # Get BMU of events
             bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
@@ -214,9 +212,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         else:
             y_pred = np.full(X.shape[0], self.unlabeled_label)
             warnings.warn(
-                'No labeled data provided—label prediction is not possible. '
-                'To manually annotate labels in Kaluza, call `.export_fcs()` '
-                'to extract the training data annotated with SOM nodes as an .fcs file.',
+                'No labeled training data was provided -- label prediction is not possible.',
                 UserWarning
             )
 
@@ -235,7 +231,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         X = check_array(X)
 
         # If SOM Classifier was trained on labeled data compute prediction probabilities
-        if self.labeled_data_:
+        if self._labeled_data:
             # Get BMUs of events
             bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
 
@@ -252,9 +248,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         else:
             y_proba = np.full((X.shape[0], 1), self.unlabeled_label)
             warnings.warn(
-                'No labeled data provided—label prediction is not possible. '
-                'To manually annotate labels in Kaluza, call `.export_fcs()` '
-                'to extract the training data annotated with SOM nodes as an .fcs file.',
+                'No labeled training data was provided. Prediction is not possible.',
                 UserWarning
             )
 
@@ -264,7 +258,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
             y: np.ndarray,
-    ) -> SelfSomClassifier:
+    ) -> Self:
 
         # Ensure SOM has been trained before annotation
         if not hasattr(self, 'som_') or self.som_ is None:
@@ -326,183 +320,183 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
                 )
 
             # Set flag indicating that SOM classifier was trained on labeled data
-            self.labeled_data_ = True
+            self._labeled_data = True
         else:
             # Reset all class attributes that are associated with a SOM classifier trained on labeled data
             self._reset_to_unlabeled()
 
         return self
 
-    def export_fcs(
-            self,
-            X: Union[List[np.ndarray], np.ndarray],
-            channel_names_X: Union[List[str], None] = None,
-            X_raw: Union[List[np.ndarray], np.ndarray, List[pd.DataFrame], pd.DataFrame, None] = None,
-            channel_names_X_raw: Union[List[str], None] = None,
-            keep_X: bool = False,
-            val_range: Union[Tuple[float, float], None] = (0.0, 2**20),
-            save_unscaled_data: bool = False,
-            scale_X_raw_channels: Union[List[str], None] = None,
-            sample_ids: Union[List[int], None] = None,
-            compute_umap: bool = False,
-            umap_kwargs: Union[Dict, None] = None,
-            save_mode: Literal['fcs', 'csv', 'no_save'] = 'no_save',
-            fcs_metadata_dict: Union[Dict, None] = None,
-            save_path: Union[str, None] = None,
-            filename: Union[str, None] = None,
-    ) -> pd.DataFrame:
-
-        # Behaviour:
-        # - X: pass or annotate channel names
-        # - X, X_raw: keep only X_raw, if channel names passed use, if df use columns, else annotate
-        # - X, X_raw, keep_X: keep X, X_raw, if channel names passed use, if df use columns, else annotate (for both)
-
-        # - All channels that are not in channel_names_X_raw are scaled
-
-        # Check whether the SOM classifier was fitted
-        check_is_fitted(self, 'is_fitted_')
-
-        # Turn array input into list
-        if not isinstance(X, List):
-            X = [X, ]
-
-        if not isinstance(X_raw, List):
-            if X_raw is not None:
-                X_raw = [X_raw, ]
-
-        if X_raw is not None and len(X_raw) != len(X):
-            raise ValueError("'X' and 'X_raw' must have the same length.")
-
-        # Define sample ids
-        if sample_ids is not None:
-            if len(sample_ids) != len(X):
-                raise ValueError("'sample_ids' and 'X' must have the same length.")
-        else:
-            sample_ids = [i for i in range(len(X))]
-
-        # Define channel names for X if X_raw is None or X is to be kept
-        if X_raw is None or keep_X:
-            if channel_names_X is not None:
-                if len(channel_names_X) != X[0].shape[1]:
-                    raise ValueError(
-                        "Length of 'channel_names_X' must match number of dimensions of 'X' in axis 1 "
-                    )
-            else:
-                channel_names_X = [f'X_channel_{i}' for i in range(X[0].shape[1])]
-        else:
-            channel_names_X = None
-
-        # Define channel names for X_raw if it is not None
-        if X_raw is not None:
-            if channel_names_X_raw is not None:
-                if len(channel_names_X_raw) != X_raw[0].shape[1]:
-                    raise ValueError(
-                        "Length of 'channel_names_X_raw' must match number of dimensions of 'X_raw' in axis 1 "
-                    )
-            else:
-                if isinstance(X_raw[0], pd.DataFrame):
-                    channel_names_X_raw = X_raw[0].columns.tolist()
-                else:
-                    channel_names_X_raw = [f'X_raw_channel_{i}' for i in range(X[0].shape[1])]
-        else:
-            channel_names_X_raw = None
-
-        # Annotate the individual data matrices
-        fcs_dfs = [pd.DataFrame()] * len(X)
-        for i, (x, x_raw, s_id) in enumerate(zip(X, X_raw if X_raw is not None else [None, ] * len(X), sample_ids)):
-            fcs_dfs[i] = self._x_to_fcs_style_df(
-                X=x,
-                channel_names_X=channel_names_X,
-                X_raw=x_raw,
-                channel_names_X_raw=channel_names_X_raw,
-                keep_X=keep_X,
-                sample_id=s_id
-            )
-
-        # Concatenate the annotated matrices
-        fcs_df = pd.concat(fcs_dfs, axis=0, ignore_index=True)
-
-        # Add annotations for better visualization of the SOM in Kaluza
-        fcs_df = self._add_visualization_annotations(fcs_df=fcs_df)
-
-        # Compute UMAP embedding of the data
-        if compute_umap:
-            if self.verbosity >= 1:
-                print('Computing UMAP map...')
-            st = time.time()
-            umap_reducer = UMAP(**umap_kwargs if umap_kwargs is not None else {})
-            umap_embedding = umap_reducer.fit_transform(np.concatenate(X))  # Shape: n samples x 2
-            et = time.time()
-            fcs_df['umap1'] = umap_embedding[:, 0]
-            fcs_df['umap2'] = umap_embedding[:, 1]
-
-            if self.verbosity >= 1:
-                print(f'UMAP map computation took {et-st:.2f} seconds')
-
-        # Scale all entries of the data matrix to a given interval
-        if val_range is not None:
-            if X_raw is not None: # Raw data should not be scaled, except for certain channels
-                if scale_X_raw_channels is None:
-                    scale_X_raw_channels = []
-
-                scale_bool = ~fcs_df.columns.isin(
-                    [c for c in channel_names_X_raw if c not in scale_X_raw_channels]
-                )
-
-            else:  # No X_raw, scale everything
-                scale_bool = np.ones(fcs_df.shape[1]).astype(bool)
-
-            scaled_data = SomClassifier._scale_column_wise(x=fcs_df.loc[:, scale_bool].to_numpy(), val_range=val_range)
-
-            if save_unscaled_data:
-                # Create df with scaled data, mark channels as scaled
-                scaled_df = pd.DataFrame(
-                    data=scaled_data,
-                    index=fcs_df.index,
-                    columns=[f'{col}_scaled' for i, col in enumerate(fcs_df.columns.tolist()) if scale_bool[i]],
-                )
-                # Concatenate with original df
-                fcs_df = pd.concat([fcs_df, scaled_df], axis=1)
-            else:
-                # Create df with scaled data, keep original channel names
-                scaled_df = pd.DataFrame(
-                    data=scaled_data,
-                    index=fcs_df.index,
-                    columns=fcs_df.columns[scale_bool],
-                )
-                # Concatenate with part of original df that was not scaled
-                fcs_df = pd.concat([fcs_df.loc[:, ~scale_bool], scaled_df], axis=1)
-
-        # Save to .fcs or .csv format
-        if save_mode != 'no_save':
-            if save_path is None:
-                save_path = os.getcwd()
-
-            if save_mode == 'fcs':
-                if filename is None:
-                    filename = 'som.fcs'
-
-                # Define meta dict
-                if fcs_metadata_dict is None:
-                    fcs_metadata_dict = {}
-                fcs_metadata_dict.update({f"P{i}R": str(val_range[1]) for i in range(1, fcs_df.shape[1] + 1)})
-
-                with open(os.path.join(save_path, filename), 'wb') as f:
-                    flowio.create_fcs(
-                        file_handle=f,
-                        event_data=fcs_df.to_numpy().flatten().tolist(),
-                        channel_names=fcs_df.columns.tolist(),
-                        opt_channel_names=fcs_df.columns.tolist(),
-                        metadata_dict=fcs_metadata_dict,
-                )
-
-            else:
-                if filename is None:
-                    filename = 'som.csv'
-
-                fcs_df.to_csv(os.path.join(save_path, filename))
-
-        return fcs_df
+    # def export_fcs(
+    #         self,
+    #         X: Union[List[np.ndarray], np.ndarray],
+    #         channel_names_X: Union[List[str], None] = None,
+    #         X_raw: Union[List[np.ndarray], np.ndarray, List[pd.DataFrame], pd.DataFrame, None] = None,
+    #         channel_names_X_raw: Union[List[str], None] = None,
+    #         keep_X: bool = False,
+    #         val_range: Union[Tuple[float, float], None] = (0.0, 2**20),
+    #         save_unscaled_data: bool = False,
+    #         scale_X_raw_channels: Union[List[str], None] = None,
+    #         sample_ids: Union[List[int], None] = None,
+    #         compute_umap: bool = False,
+    #         umap_kwargs: Union[Dict, None] = None,
+    #         save_mode: Literal['fcs', 'csv', 'no_save'] = 'no_save',
+    #         fcs_metadata_dict: Union[Dict, None] = None,
+    #         save_path: Union[str, None] = None,
+    #         filename: Union[str, None] = None,
+    # ) -> pd.DataFrame:
+    #
+    #     # Behaviour:
+    #     # - X: pass or annotate channel names
+    #     # - X, X_raw: keep only X_raw, if channel names passed use, if df use columns, else annotate
+    #     # - X, X_raw, keep_X: keep X, X_raw, if channel names passed use, if df use columns, else annotate (for both)
+    #
+    #     # - All channels that are not in channel_names_X_raw are scaled
+    #
+    #     # Check whether the SOM classifier was fitted
+    #     check_is_fitted(self, 'is_fitted_')
+    #
+    #     # Turn array input into list
+    #     if not isinstance(X, List):
+    #         X = [X, ]
+    #
+    #     if not isinstance(X_raw, List):
+    #         if X_raw is not None:
+    #             X_raw = [X_raw, ]
+    #
+    #     if X_raw is not None and len(X_raw) != len(X):
+    #         raise ValueError("'X' and 'X_raw' must have the same length.")
+    #
+    #     # Define sample ids
+    #     if sample_ids is not None:
+    #         if len(sample_ids) != len(X):
+    #             raise ValueError("'sample_ids' and 'X' must have the same length.")
+    #     else:
+    #         sample_ids = [i for i in range(len(X))]
+    #
+    #     # Define channel names for X if X_raw is None or X is to be kept
+    #     if X_raw is None or keep_X:
+    #         if channel_names_X is not None:
+    #             if len(channel_names_X) != X[0].shape[1]:
+    #                 raise ValueError(
+    #                     "Length of 'channel_names_X' must match number of dimensions of 'X' in axis 1 "
+    #                 )
+    #         else:
+    #             channel_names_X = [f'X_channel_{i}' for i in range(X[0].shape[1])]
+    #     else:
+    #         channel_names_X = None
+    #
+    #     # Define channel names for X_raw if it is not None
+    #     if X_raw is not None:
+    #         if channel_names_X_raw is not None:
+    #             if len(channel_names_X_raw) != X_raw[0].shape[1]:
+    #                 raise ValueError(
+    #                     "Length of 'channel_names_X_raw' must match number of dimensions of 'X_raw' in axis 1 "
+    #                 )
+    #         else:
+    #             if isinstance(X_raw[0], pd.DataFrame):
+    #                 channel_names_X_raw = X_raw[0].columns.tolist()
+    #             else:
+    #                 channel_names_X_raw = [f'X_raw_channel_{i}' for i in range(X[0].shape[1])]
+    #     else:
+    #         channel_names_X_raw = None
+    #
+    #     # Annotate the individual data matrices
+    #     fcs_dfs = [pd.DataFrame()] * len(X)
+    #     for i, (x, x_raw, s_id) in enumerate(zip(X, X_raw if X_raw is not None else [None, ] * len(X), sample_ids)):
+    #         fcs_dfs[i] = self._x_to_fcs_style_df(
+    #             X=x,
+    #             channel_names_X=channel_names_X,
+    #             X_raw=x_raw,
+    #             channel_names_X_raw=channel_names_X_raw,
+    #             keep_X=keep_X,
+    #             sample_id=s_id
+    #         )
+    #
+    #     # Concatenate the annotated matrices
+    #     fcs_df = pd.concat(fcs_dfs, axis=0, ignore_index=True)
+    #
+    #     # Add annotations for better visualization of the SOM in Kaluza
+    #     fcs_df = self._add_visualization_annotations(fcs_df=fcs_df)
+    #
+    #     # Compute UMAP embedding of the data
+    #     if compute_umap:
+    #         if self.verbosity >= 1:
+    #             print('Computing UMAP map...')
+    #         st = time.time()
+    #         umap_reducer = UMAP(**umap_kwargs if umap_kwargs is not None else {})
+    #         umap_embedding = umap_reducer.fit_transform(np.concatenate(X))  # Shape: n samples x 2
+    #         et = time.time()
+    #         fcs_df['umap1'] = umap_embedding[:, 0]
+    #         fcs_df['umap2'] = umap_embedding[:, 1]
+    #
+    #         if self.verbosity >= 1:
+    #             print(f'UMAP map computation took {et-st:.2f} seconds')
+    #
+    #     # Scale all entries of the data matrix to a given interval
+    #     if val_range is not None:
+    #         if X_raw is not None: # Raw data should not be scaled, except for certain channels
+    #             if scale_X_raw_channels is None:
+    #                 scale_X_raw_channels = []
+    #
+    #             scale_bool = ~fcs_df.columns.isin(
+    #                 [c for c in channel_names_X_raw if c not in scale_X_raw_channels]
+    #             )
+    #
+    #         else:  # No X_raw, scale everything
+    #             scale_bool = np.ones(fcs_df.shape[1]).astype(bool)
+    #
+    #         scaled_data = SomClassifier._scale_column_wise(x=fcs_df.loc[:, scale_bool].to_numpy(), val_range=val_range)
+    #
+    #         if save_unscaled_data:
+    #             # Create df with scaled data, mark channels as scaled
+    #             scaled_df = pd.DataFrame(
+    #                 data=scaled_data,
+    #                 index=fcs_df.index,
+    #                 columns=[f'{col}_scaled' for i, col in enumerate(fcs_df.columns.tolist()) if scale_bool[i]],
+    #             )
+    #             # Concatenate with original df
+    #             fcs_df = pd.concat([fcs_df, scaled_df], axis=1)
+    #         else:
+    #             # Create df with scaled data, keep original channel names
+    #             scaled_df = pd.DataFrame(
+    #                 data=scaled_data,
+    #                 index=fcs_df.index,
+    #                 columns=fcs_df.columns[scale_bool],
+    #             )
+    #             # Concatenate with part of original df that was not scaled
+    #             fcs_df = pd.concat([fcs_df.loc[:, ~scale_bool], scaled_df], axis=1)
+    #
+    #     # Save to .fcs or .csv format
+    #     if save_mode != 'no_save':
+    #         if save_path is None:
+    #             save_path = os.getcwd()
+    #
+    #         if save_mode == 'fcs':
+    #             if filename is None:
+    #                 filename = 'som.fcs'
+    #
+    #             # Define meta dict
+    #             if fcs_metadata_dict is None:
+    #                 fcs_metadata_dict = {}
+    #             fcs_metadata_dict.update({f"P{i}R": str(val_range[1]) for i in range(1, fcs_df.shape[1] + 1)})
+    #
+    #             with open(os.path.join(save_path, filename), 'wb') as f:
+    #                 flowio.create_fcs(
+    #                     file_handle=f,
+    #                     event_data=fcs_df.to_numpy().flatten().tolist(),
+    #                     channel_names=fcs_df.columns.tolist(),
+    #                     opt_channel_names=fcs_df.columns.tolist(),
+    #                     metadata_dict=fcs_metadata_dict,
+    #             )
+    #
+    #         else:
+    #             if filename is None:
+    #                 filename = 'som.csv'
+    #
+    #             fcs_df.to_csv(os.path.join(save_path, filename))
+    #
+    #     return fcs_df
 
     # ### hyperparameter_tuning(), fit_epoch_wise() ####################################################################
     def hyperparameter_tuning(
@@ -518,7 +512,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             # https://scikit-learn.org/1.5/modules/model_evaluation.html#scoring-parameter
             gridsearchcv_kwargs: Union[Dict, None] = None,
             # 'n_jobs', 'pre_dispatch', 'error_score', 'return_train_score'
-    ) -> SelfSomClassifier:
+    ) -> Self:
 
         # Set a default parameter grid if none is provided
         if param_grid is None:
@@ -568,226 +562,226 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         # Return self with updated parameters
         return self
 
-    def fit_with_checkpoints(
-            self,
-            X: np.ndarray,
-            y: np.ndarray,
-            checkpoint_interval: Union[int, None] = 100,
-            tracking_interval: Union[int, None] = None,  # 10
-            track_losses: bool = False,  # som_metrics
-            track_impurities: bool = False,
-            X_y_val: Union[Tuple[np.ndarray, np.ndarray], None] = None,
-            checkpoint_dir: Union[str, None] = None,
-            save_tracked: bool = False,
-    ) -> SelfSomClassifier:
-
-        if checkpoint_interval < 2 or checkpoint_interval >= self.n_epochs:
-            raise ValueError("'checkpoint_interval' must be greater or equal to 2 and smaller than 'n_epochs'")
-
-        if tracking_interval is not None:
-            if tracking_interval < 2 or tracking_interval >= self.n_epochs:
-                raise ValueError("'checkpoint_interval' must be greater or equal to 2 and smaller than 'n_epochs'")
-
-        if self.radius_cooling != 'linear' or self.learning_rate_decay != 'linear':
-            warnings.warn(
-                "For checkpointed training it is recommended to use 'linear' decay functions for the radius "
-                "and learning rate, not 'exponential'", UserWarning)
-
-        if (track_losses or track_impurities or (X_y_val is not None)) and tracking_interval is None:
-            tracking_interval = 10
-
-        if checkpoint_dir is None:
-            checkpoint_dir = os.getcwd()
-
-        n_checkpoint_intervals = self.n_epochs // checkpoint_interval
-        i_checkpoints = [(i + 1) * checkpoint_interval for i in range(n_checkpoint_intervals)]
-
-        # Define points where training is stopped for checkpointing or tracking
-        i_stop = np.unique(np.concatenate((np.array(i_checkpoints), np.array([self.n_epochs, ])), axis=0))
-
-        if tracking_interval is not None:
-            n_tracking_intervals = self.n_epochs // tracking_interval
-            i_tracking = [(i + 1) * tracking_interval for i in range(n_tracking_intervals)]
-            i_stop = np.sort(np.unique(np.concatenate((np.array(i_tracking), i_stop), axis=0)))
-        else:
-            i_tracking = []
-
-        training_intervals = np.diff(np.concatenate((np.array([0,]), i_stop), axis=0))
-
-        # Raise an error if any training interval is smaller than 2
-        if (training_intervals <= 1).any():
-            raise ValueError("One or more training interval is smaller than 2.")
-
-        # Check input format
-        X, y = check_X_y(X, y)
-
-        # Get labeled input data
-        X_labeled, y_labeled = SomClassifier._get_labeled_data(
-            X=X,
-            y=y,
-            nan_val=self.unlabeled_label,
-            verbosity=self.verbosity
-        )
-
-        # Check if .fit() was called already
-        if self.is_fitted_:
-
-            warnings.warn(
-                "The `.fit_with_checkpoints()` method was called on an already trained SOM classifier. "
-                "Training will continue with the new data and the existing codebook. "
-                "To restart training from scratch, call `.reset()` before calling `.fit_with_checkpoints()`.",
-                UserWarning
-            )
-
-            # Raise a ValueError if the input data does not match the dimension of the previous input data
-            if X.shape[1] != self.n_features_in_:
-                raise ValueError(
-                    f"Expected {self.n_features_in_} features as per previous training, but got {X.shape[1]}."
-                )
-
-            # Set parameters to train with the new data and the codebook from the previously trained SOM
-            self.initialization = None
-            self.initial_codebook = np.copy(self.som_.codebook)
-
-        self.n_features_in_ = X.shape[1]
-
-        # Initialize the SOM
-        self._initialize_som()
-
-        # Set the initial radius parameter of the SOM (negative values are interpreted as fractions of the grid size)
-        self._set_radius_0()
-
-        # Get decay functions for radius and learning rate
-        decay_fct_radius = SomClassifier._get_decay_function(
-            val0=self.radius_0, val1=self.radius_n, n_epochs=self.n_epochs, strategy=self.radius_cooling)
-        decay_fct_lr = SomClassifier._get_decay_function(
-            val0=self.learning_rate_0, val1=self.learning_rate_n, n_epochs=self.n_epochs,
-            strategy=self.learning_rate_decay)
-
-        # Initialize lists for tracking
-        if track_losses:
-            quantization_loss = []  # 1 dim
-            topographical_loss = []  # 1 dim
-        if track_impurities:
-            entropies = []  # som dim
-            ginies = []  # som dim
-        if X_y_val is not None:
-            X_val, y_val = check_X_y(X_y_val[0], X_y_val[1])
-            if track_losses:
-                quantization_loss_val = []  # 1 dim
-                topographical_loss_val = []  # 1 dim
-
-            f1_macro_train = []  # 1 dim
-            f1_micro_train = []  # 1 dim
-            f1_weighted_train = []  # 1 dim
-            f1_macro_val = []  # 1 dim
-            f1_micro_val = []  # 1 dim
-            f1_weighted_val = []  # 1 dim
-            f1_class_wise_train = []  # n classes dim
-            f1_class_wise_val = []  # n classes dim
-
-        # Define var that tracks how many epochs were already trained
-        n_epochs_done = 0
-
-        # Loop over intervals, stop for tracking or saving
-        for j, (interval, i) in enumerate(zip(training_intervals, i_stop)):
-            # Train the SOM on all data (unsupervised)
-            self.som_.train(
-                data=X,
-                epochs=int(interval),
-                radius0=decay_fct_radius(n_epochs_done),
-                radiusN=decay_fct_radius(n_epochs_done + interval),
-                radiuscooling='linear',  # Approximate the chosen decay function by piecewise linear function
-                scale0=decay_fct_lr(n_epochs_done),
-                scaleN=decay_fct_lr(n_epochs_done + interval),
-                scalecooling='linear',  # Approximate the chosen decay function by piecewise linear function
-            )
-
-            # Only need to annotate som if it is to be saved, impurities are tracked or validation metrics are tracked
-            if i in i_checkpoints or (i in i_tracking and (track_impurities or X_y_val is not None)) :
-
-                # If SOM classifier was already trained on labeled data (and now is trained again on labeled data),
-                # raise warning regarding the label computation
-                if self.is_fitted_ and self.labeled_data_:
-                    warnings.warn(
-                        "SOM unit annotations are based on current labeled data. "
-                        "To include previous training labels, call `.annotate_som()` with all labeled data.",
-                        UserWarning
-                    )
-
-                # Annotate the trained SOM's units
-                self.annotate_som(X=X, y=y)
-
-                # If no labeled data passed to .fit(), raise UserWarning
-                if not self.labeled_data_:
-                    warnings.warn(
-                        'No labeled data provided—label prediction is not possible. '
-                        'To manually annotate labels in Kaluza, call `.export_fcs()` '
-                        'to extract the training data annotated with SOM nodes as an .fcs file.',
-                        UserWarning
-                    )
-
-                if track_impurities:
-                    entropies.append(self.unit_impurity(impurity_measure='entropy'))
-                    ginies.append(self.unit_impurity(impurity_measure='gini'))
-
-                if X_y_val is not None:
-                    if track_losses:
-                        quantization_loss_val.append(self.quantization_error(X=X_val))
-                        topographical_loss_val.append(self.topographic_error(X=X_val))
-
-                    y_pred_train = self.predict(X=X_labeled)
-                    y_pred_val = self.predict(X=X_val)
-
-                    f1_macro_train.append(f1_score(y_labeled, y_pred_train, average='macro'))
-                    f1_micro_train.append(f1_score(y_labeled, y_pred_train, average='micro'))
-                    f1_weighted_train.append(f1_score(y_labeled, y_pred_train, average='weighted'))
-
-                    f1_macro_val.append(f1_score(y_val, y_pred_val, average='macro'))
-                    f1_micro_val.append(f1_score(y_val, y_pred_val, average='micro'))
-                    f1_weighted_val.append(f1_score(y_val, y_pred_val, average='weighted'))
-
-                    f1_class_wise_train.append(f1_score(y_labeled, y_pred_train, average=None))
-                    f1_class_wise_val.append(f1_score(y_val, y_pred_val, average=None))
-
-                if (i_checkpoints == i).any():
-                    self.save(filename=f'checkpoint_nepochs{n_epochs_done + interval}.pkl', filepath=checkpoint_dir)
-
-            if i in i_tracking and track_losses:
-                quantization_loss.append(self.quantization_error(X=X))
-                topographical_loss.append(self.topographic_error(X=X))
-
-            n_epochs_done += interval
-
-        if save_tracked:
-            res_dict = {'n_epochs': i_tracking}
-            if track_losses:
-                res_dict['quantization_loss'] = quantization_loss
-                res_dict['topographical_loss'] = topographical_loss
-            if track_impurities:
-                res_dict['entropies'] = entropies
-                res_dict['ginies'] = ginies
-            if X_y_val is not None:
-                if track_losses:
-                    res_dict['quantization_loss_val'] = quantization_loss_val
-                    res_dict['topographical_loss_val'] = topographical_loss_val
-
-                res_dict['f1_macro_train'] = f1_macro_train
-                res_dict['f1_micro_train'] = f1_micro_train
-                res_dict['f1_weighted_train'] = f1_weighted_train
-                res_dict['f1_macro_val'] = f1_macro_val
-                res_dict['f1_micro_val'] = f1_micro_val
-                res_dict['f1_weighted_val'] = f1_weighted_val
-                res_dict['f1_class_wise_train'] = f1_class_wise_train
-                res_dict['f1_class_wise_val'] = f1_class_wise_val
-
-            with open(os.path.join(checkpoint_dir, 'res_dict.pkl'), 'wb') as f:
-                pickle.dump(res_dict, f)
-
-        # Set flag indicating that SOM classifier is fitted
-        self.is_fitted_ = True
-
-        return self
+    # def fit_with_checkpoints(
+    #         self,
+    #         X: np.ndarray,
+    #         y: np.ndarray,
+    #         checkpoint_interval: Union[int, None] = 100,
+    #         tracking_interval: Union[int, None] = None,  # 10
+    #         track_losses: bool = False,  # som_metrics
+    #         track_impurities: bool = False,
+    #         X_y_val: Union[Tuple[np.ndarray, np.ndarray], None] = None,
+    #         checkpoint_dir: Union[str, None] = None,
+    #         save_tracked: bool = False,
+    # ) -> Self:
+    #
+    #     if checkpoint_interval < 2 or checkpoint_interval >= self.n_epochs:
+    #         raise ValueError("'checkpoint_interval' must be greater or equal to 2 and smaller than 'n_epochs'")
+    #
+    #     if tracking_interval is not None:
+    #         if tracking_interval < 2 or tracking_interval >= self.n_epochs:
+    #             raise ValueError("'checkpoint_interval' must be greater or equal to 2 and smaller than 'n_epochs'")
+    #
+    #     if self.radius_cooling != 'linear' or self.learning_rate_decay != 'linear':
+    #         warnings.warn(
+    #             "For checkpointed training it is recommended to use 'linear' decay functions for the radius "
+    #             "and learning rate, not 'exponential'", UserWarning)
+    #
+    #     if (track_losses or track_impurities or (X_y_val is not None)) and tracking_interval is None:
+    #         tracking_interval = 10
+    #
+    #     if checkpoint_dir is None:
+    #         checkpoint_dir = os.getcwd()
+    #
+    #     n_checkpoint_intervals = self.n_epochs // checkpoint_interval
+    #     i_checkpoints = [(i + 1) * checkpoint_interval for i in range(n_checkpoint_intervals)]
+    #
+    #     # Define points where training is stopped for checkpointing or tracking
+    #     i_stop = np.unique(np.concatenate((np.array(i_checkpoints), np.array([self.n_epochs, ])), axis=0))
+    #
+    #     if tracking_interval is not None:
+    #         n_tracking_intervals = self.n_epochs // tracking_interval
+    #         i_tracking = [(i + 1) * tracking_interval for i in range(n_tracking_intervals)]
+    #         i_stop = np.sort(np.unique(np.concatenate((np.array(i_tracking), i_stop), axis=0)))
+    #     else:
+    #         i_tracking = []
+    #
+    #     training_intervals = np.diff(np.concatenate((np.array([0,]), i_stop), axis=0))
+    #
+    #     # Raise an error if any training interval is smaller than 2
+    #     if (training_intervals <= 1).any():
+    #         raise ValueError("One or more training interval is smaller than 2.")
+    #
+    #     # Check input format
+    #     X, y = check_X_y(X, y)
+    #
+    #     # Get labeled input data
+    #     X_labeled, y_labeled = SomClassifier._get_labeled_data(
+    #         X=X,
+    #         y=y,
+    #         nan_val=self.unlabeled_label,
+    #         verbosity=self.verbosity
+    #     )
+    #
+    #     # Check if .fit() was called already
+    #     if self.is_fitted_:
+    #
+    #         warnings.warn(
+    #             "The `.fit_with_checkpoints()` method was called on an already trained SOM classifier. "
+    #             "Training will continue with the new data and the existing codebook. "
+    #             "To restart training from scratch, call `.reset()` before calling `.fit_with_checkpoints()`.",
+    #             UserWarning
+    #         )
+    #
+    #         # Raise a ValueError if the input data does not match the dimension of the previous input data
+    #         if X.shape[1] != self.n_features_in_:
+    #             raise ValueError(
+    #                 f"Expected {self.n_features_in_} features as per previous training, but got {X.shape[1]}."
+    #             )
+    #
+    #         # Set parameters to train with the new data and the codebook from the previously trained SOM
+    #         self.initialization = None
+    #         self.initial_codebook = np.copy(self.som_.codebook)
+    #
+    #     self.n_features_in_ = X.shape[1]
+    #
+    #     # Initialize the SOM
+    #     self._initialize_som()
+    #
+    #     # Set the initial radius parameter of the SOM (negative values are interpreted as fractions of the grid size)
+    #     self._set_radius_0()
+    #
+    #     # Get decay functions for radius and learning rate
+    #     decay_fct_radius = SomClassifier._get_decay_function(
+    #         val0=self.radius_0, val1=self.radius_n, n_epochs=self.n_epochs, strategy=self.radius_cooling)
+    #     decay_fct_lr = SomClassifier._get_decay_function(
+    #         val0=self.learning_rate_0, val1=self.learning_rate_n, n_epochs=self.n_epochs,
+    #         strategy=self.learning_rate_decay)
+    #
+    #     # Initialize lists for tracking
+    #     if track_losses:
+    #         quantization_loss = []  # 1 dim
+    #         topographical_loss = []  # 1 dim
+    #     if track_impurities:
+    #         entropies = []  # som dim
+    #         ginies = []  # som dim
+    #     if X_y_val is not None:
+    #         X_val, y_val = check_X_y(X_y_val[0], X_y_val[1])
+    #         if track_losses:
+    #             quantization_loss_val = []  # 1 dim
+    #             topographical_loss_val = []  # 1 dim
+    #
+    #         f1_macro_train = []  # 1 dim
+    #         f1_micro_train = []  # 1 dim
+    #         f1_weighted_train = []  # 1 dim
+    #         f1_macro_val = []  # 1 dim
+    #         f1_micro_val = []  # 1 dim
+    #         f1_weighted_val = []  # 1 dim
+    #         f1_class_wise_train = []  # n classes dim
+    #         f1_class_wise_val = []  # n classes dim
+    #
+    #     # Define var that tracks how many epochs were already trained
+    #     n_epochs_done = 0
+    #
+    #     # Loop over intervals, stop for tracking or saving
+    #     for j, (interval, i) in enumerate(zip(training_intervals, i_stop)):
+    #         # Train the SOM on all data (unsupervised)
+    #         self.som_.train(
+    #             data=X,
+    #             epochs=int(interval),
+    #             radius0=decay_fct_radius(n_epochs_done),
+    #             radiusN=decay_fct_radius(n_epochs_done + interval),
+    #             radiuscooling='linear',  # Approximate the chosen decay function by piecewise linear function
+    #             scale0=decay_fct_lr(n_epochs_done),
+    #             scaleN=decay_fct_lr(n_epochs_done + interval),
+    #             scalecooling='linear',  # Approximate the chosen decay function by piecewise linear function
+    #         )
+    #
+    #         # Only need to annotate som if it is to be saved, impurities are tracked or validation metrics are tracked
+    #         if i in i_checkpoints or (i in i_tracking and (track_impurities or X_y_val is not None)) :
+    #
+    #             # If SOM classifier was already trained on labeled data (and now is trained again on labeled data),
+    #             # raise warning regarding the label computation
+    #             if self.is_fitted_ and self._labeled_data:
+    #                 warnings.warn(
+    #                     "SOM unit annotations are based on current labeled data. "
+    #                     "To include previous training labels, call `.annotate_som()` with all labeled data.",
+    #                     UserWarning
+    #                 )
+    #
+    #             # Annotate the trained SOM's units
+    #             self.annotate_som(X=X, y=y)
+    #
+    #             # If no labeled data passed to .fit(), raise UserWarning
+    #             if not self._labeled_data:
+    #                 warnings.warn(
+    #                     'No labeled data provided—label prediction is not possible. '
+    #                     'To manually annotate labels in Kaluza, call `.export_fcs()` '
+    #                     'to extract the training data annotated with SOM nodes as an .fcs file.',
+    #                     UserWarning
+    #                 )
+    #
+    #             if track_impurities:
+    #                 entropies.append(self.unit_impurity(impurity_measure='entropy'))
+    #                 ginies.append(self.unit_impurity(impurity_measure='gini'))
+    #
+    #             if X_y_val is not None:
+    #                 if track_losses:
+    #                     quantization_loss_val.append(self.quantization_error(X=X_val))
+    #                     topographical_loss_val.append(self.topographic_error(X=X_val))
+    #
+    #                 y_pred_train = self.predict(X=X_labeled)
+    #                 y_pred_val = self.predict(X=X_val)
+    #
+    #                 f1_macro_train.append(f1_score(y_labeled, y_pred_train, average='macro'))
+    #                 f1_micro_train.append(f1_score(y_labeled, y_pred_train, average='micro'))
+    #                 f1_weighted_train.append(f1_score(y_labeled, y_pred_train, average='weighted'))
+    #
+    #                 f1_macro_val.append(f1_score(y_val, y_pred_val, average='macro'))
+    #                 f1_micro_val.append(f1_score(y_val, y_pred_val, average='micro'))
+    #                 f1_weighted_val.append(f1_score(y_val, y_pred_val, average='weighted'))
+    #
+    #                 f1_class_wise_train.append(f1_score(y_labeled, y_pred_train, average=None))
+    #                 f1_class_wise_val.append(f1_score(y_val, y_pred_val, average=None))
+    #
+    #             if (i_checkpoints == i).any():
+    #                 self.save(filename=f'checkpoint_nepochs{n_epochs_done + interval}.pkl', filepath=checkpoint_dir)
+    #
+    #         if i in i_tracking and track_losses:
+    #             quantization_loss.append(self.quantization_error(X=X))
+    #             topographical_loss.append(self.topographic_error(X=X))
+    #
+    #         n_epochs_done += interval
+    #
+    #     if save_tracked:
+    #         res_dict = {'n_epochs': i_tracking}
+    #         if track_losses:
+    #             res_dict['quantization_loss'] = quantization_loss
+    #             res_dict['topographical_loss'] = topographical_loss
+    #         if track_impurities:
+    #             res_dict['entropies'] = entropies
+    #             res_dict['ginies'] = ginies
+    #         if X_y_val is not None:
+    #             if track_losses:
+    #                 res_dict['quantization_loss_val'] = quantization_loss_val
+    #                 res_dict['topographical_loss_val'] = topographical_loss_val
+    #
+    #             res_dict['f1_macro_train'] = f1_macro_train
+    #             res_dict['f1_micro_train'] = f1_micro_train
+    #             res_dict['f1_weighted_train'] = f1_weighted_train
+    #             res_dict['f1_macro_val'] = f1_macro_val
+    #             res_dict['f1_micro_val'] = f1_micro_val
+    #             res_dict['f1_weighted_val'] = f1_weighted_val
+    #             res_dict['f1_class_wise_train'] = f1_class_wise_train
+    #             res_dict['f1_class_wise_val'] = f1_class_wise_val
+    #
+    #         with open(os.path.join(checkpoint_dir, 'res_dict.pkl'), 'wb') as f:
+    #             pickle.dump(res_dict, f)
+    #
+    #     # Set flag indicating that SOM classifier is fitted
+    #     self.is_fitted_ = True
+    #
+    #     return self
 
     # ### Scores and performance metrics ###############################################################################
     # score(), activation_frequencies(), quantization_error(), topographic_error(), unit_impurity(), mean_impurity()
@@ -830,7 +824,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
 
         # Extract BMU codebook vectors
-        bmu_vectors = self.som_.codebook[bmus[:, 0], bmus[:, 1]]  # Shape: (n_samples, n_features)
+        bmu_vectors = self.som_.codebook[bmus[:, 1], bmus[:, 0], :]  # Shape: (n_samples, n_features)
 
         # Compute Euclidean distances
         quantization_error = np.linalg.norm(X - bmu_vectors, axis=1)
@@ -842,8 +836,11 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             X: np.ndarray,
     ) -> float:
         # Note: Count how often the 1st and 2nd BMUs are not adjacent in the trained SOM
-        assert self.som_topology == 'planar' and self.som_grid_type == 'rectangular', \
-            'Topographical error calculation is currently only implemented for planar and rectangular SOMs'
+        if self.som_topology != 'planar' or self.som_grid_type != 'rectangular':
+           raise NotImplementedError(
+               'Topographical error calculation is currently only implemented for planar and rectangular SOMs'
+           )
+
         surface_state = self.som_.get_surface_state(data=X)
         bmu1 = self.som_.get_bmus(surface_state)
         bmu2 = SomClassifier._get_ith_bmus(surface_state=surface_state, i=2, som_dim0=self.som_dimensions[0])
@@ -859,7 +856,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
         check_is_fitted(self, 'is_fitted_')
 
-        if self.labeled_data_:
+        if self._labeled_data:
             # Calculate the frequency with which a class occurs at each unit,
             # account for case where unit is not bmu for any by excluding from division
             # frequencies = self.class_counts_per_unit_ / self.class_counts_per_unit_.sum(axis=2, keepdims=True)
@@ -882,9 +879,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         else:
             impurity = np.full(self.som_dimensions, np.inf)
             warnings.warn(
-                'No labeled data provided—label prediction is not possible. '
-                'To manually annotate labels in Kaluza, call `.export_fcs()` '
-                'to extract the training data annotated with SOM nodes as an .fcs file.',
+                'No labeled data provided for training -- calculating unit impurity is not possible.',
                 UserWarning
             )
 
@@ -900,7 +895,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
         check_is_fitted(self, 'is_fitted_')
 
-        if self.labeled_data_:
+        if self._labeled_data:
             output_classes = np.sort(
                 np.array([self.new_to_og_classes_dict_[key] for key in np.unique(self.som_unit_labels_)]))
             input_classes = np.sort(self.og_classes_)
@@ -917,9 +912,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         else:
             only_in_input = np.array([])
             warnings.warn(
-                'No labeled data provided—label prediction is not possible. '
-                'To manually annotate labels in Kaluza, call `.export_fcs()` '
-                'to extract the training data annotated with SOM nodes as an .fcs file.',
+                'No labeled training data was provided',
                 UserWarning
             )
 
@@ -941,7 +934,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             cls,
             filename: str = 'som_classifier.pkl',
             filepath: Union[str, None] = None,
-    ) -> SelfSomClassifier:
+    ) -> Self:
         if filepath is None:
             filepath = os.getcwd()
 
@@ -950,8 +943,9 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
     def reset(self):
         # Initialize all variables associated with a trained SOM classifier
-        self.is_fitted_ = False
-        self.labeled_data_ = False
+        self._is_fitted = False
+        del self.is_fitted_
+        self._labeled_data = False
         self.som_ = None
         self.n_features_in_ = None
         self.classes_ = None
@@ -966,7 +960,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
     # ### Auxiliary functions ##########################################################################################
     def _reset_to_unlabeled(self):
-        self.labeled_data_ = False
+        self._labeled_data = False
         self.classes_ = None
         self.class_counts_ = None
         self.class_priors_ = None
@@ -1064,33 +1058,33 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         j_s, i_s = np.divmod(bmu_indices, self.som_dimensions[1])
         return np.column_stack((i_s, j_s))
 
-    @staticmethod
-    def _get_decay_function(
-            val0: float,
-            val1: float,
-            n_epochs: int,
-            strategy: Literal['linear', 'exponential'] = 'linear',
-    ) -> Callable:
-        # ### For train epoch wise, Todo ...
-        if strategy == 'linear':
-            m = (val1 - val0) / n_epochs
-            b = val0
-
-            def _decay_function(x: int):
-                return m * x + b
-        elif strategy == 'exponential':
-            if val0 == 0:
-                raise ValueError("For exponential decay, val0 cannot be zero.")
-
-            rate = log(val1 / val0) / n_epochs
-
-            def _decay_function(x: int):
-                return val0 * exp(rate * x)
-        else:
-            raise ValueError(f"Invalid decay strategy: {strategy}. Choose 'linear' or 'exponential'.")
-
-        # Return decay fct with params
-        return _decay_function
+    # @staticmethod
+    # def _get_decay_function(
+    #         val0: float,
+    #         val1: float,
+    #         n_epochs: int,
+    #         strategy: Literal['linear', 'exponential'] = 'linear',
+    # ) -> Callable:
+    #     # ### For train epoch wise
+    #     if strategy == 'linear':
+    #         m = (val1 - val0) / n_epochs
+    #         b = val0
+    #
+    #         def _decay_function(x: int):
+    #             return m * x + b
+    #     elif strategy == 'exponential':
+    #         if val0 == 0:
+    #             raise ValueError("For exponential decay, val0 cannot be zero.")
+    #
+    #         rate = log(val1 / val0) / n_epochs
+    #
+    #         def _decay_function(x: int):
+    #             return val0 * exp(rate * x)
+    #     else:
+    #         raise ValueError(f"Invalid decay strategy: {strategy}. Choose 'linear' or 'exponential'.")
+    #
+    #     # Return decay fct with params
+    #     return _decay_function
 
     @staticmethod
     def _get_ith_bmus(
@@ -1217,15 +1211,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
         # Compute radius for each unit that is proportional to count
         counts = unit_counts['count'].to_numpy()
-        # Version 2:
-        radii = 0.5 * np.sqrt(counts) / np.sqrt(counts.max())
-        # Version 1:
-        # radii = np.sqrt(counts / np.pi)
-        # radii = 0.5 * radii / radii.max()
-        # Version 0:
-        # radii = (counts - counts.min()) / (counts.max() - counts.min())
-        # radii = np.sqrt(radii)  # Area should be proportional to count -> use square root
-        # radii = radii * 0.5  # Radius should be <= 0.5
+        radii = 0.5 * np.sqrt(counts) / np.sqrt(counts.max()) # Area should be proportional to count -> use square root
         unit_counts['radius'] = radii
 
         bmus_df['bmu1_scattered'] = np.zeros(bmus.shape[0])
@@ -1248,64 +1234,64 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
 
         return bmus, bmus_scattered, som_unit_ids, radii_out
 
-    def _x_to_fcs_style_df(
-            self,
-            X: np.ndarray,
-            channel_names_X: Union[List[str], None],
-            X_raw: Union[np.ndarray, pd.DataFrame, None],
-            channel_names_X_raw: Union[List[str], None],
-            keep_X: bool,
-            sample_id: int,
-    ) -> pd.DataFrame:
-
-        # Check input data format
-        X = check_array(X)
-
-        # No X_raw, use just X, channel_names are not None by design
-        if X_raw is None:
-            fcs_df = pd.DataFrame(data=X, columns=channel_names_X)
-
-        # X_raw not None  -> channel_names_X_raw cannot be None
-        else:
-            # X_raw is df
-            if isinstance(X_raw, pd.DataFrame):
-                fcs_df = X_raw
-                fcs_df.columns = channel_names_X_raw
-
-            # X_raw is numpy array
-            else:
-                fcs_df = pd.DataFrame(data=X_raw, columns=channel_names_X_raw)
-
-            # keep_X -> channel_names_X cannot be None
-            if keep_X:
-                # Check if channel names overlap
-                overlap = set(channel_names_X) & set(fcs_df.columns)
-                if bool(overlap):
-                    channel_names_X = [f'train_{cn}' for cn in channel_names_X]
-                    warnings.warn(
-                        f'The channels names {overlap} are shared between X and X_raw. '
-                        f'Adding prefix "train_" to "channel_names_X"', UserWarning)
-
-                x_df = pd.DataFrame(data=X, columns=channel_names_X)
-                # Concatenate the dataframes
-                fcs_df = pd.concat([fcs_df.reset_index(drop=True), x_df.reset_index(drop=True)], axis=1)
-
-        # Annotate the sample id
-        fcs_df['sample_id'] = np.full(fcs_df.shape[0], sample_id, dtype=int)
-
-        # Annotate the bmu coordinates
-        bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
-        fcs_df['bmu1'] = bmus[:, 0]
-        fcs_df['bmu2'] = bmus[:, 1]
-
-        # Annotate the SOM unit label of the bmus
-        fcs_df['som_unit_label'] = self._get_row_major_positions(bmus=bmus, start_from=1)
-
-        # Annotate labels
-        if self.labeled_data_:
-            fcs_df['label_predicted'] = self.predict(X=X)
-
-        return fcs_df
+    # def _x_to_fcs_style_df(
+    #         self,
+    #         X: np.ndarray,
+    #         channel_names_X: Union[List[str], None],
+    #         X_raw: Union[np.ndarray, pd.DataFrame, None],
+    #         channel_names_X_raw: Union[List[str], None],
+    #         keep_X: bool,
+    #         sample_id: int,
+    # ) -> pd.DataFrame:
+    #
+    #     # Check input data format
+    #     X = check_array(X)
+    #
+    #     # No X_raw, use just X, channel_names are not None by design
+    #     if X_raw is None:
+    #         fcs_df = pd.DataFrame(data=X, columns=channel_names_X)
+    #
+    #     # X_raw not None  -> channel_names_X_raw cannot be None
+    #     else:
+    #         # X_raw is df
+    #         if isinstance(X_raw, pd.DataFrame):
+    #             fcs_df = X_raw
+    #             fcs_df.columns = channel_names_X_raw
+    #
+    #         # X_raw is numpy array
+    #         else:
+    #             fcs_df = pd.DataFrame(data=X_raw, columns=channel_names_X_raw)
+    #
+    #         # keep_X -> channel_names_X cannot be None
+    #         if keep_X:
+    #             # Check if channel names overlap
+    #             overlap = set(channel_names_X) & set(fcs_df.columns)
+    #             if bool(overlap):
+    #                 channel_names_X = [f'train_{cn}' for cn in channel_names_X]
+    #                 warnings.warn(
+    #                     f'The channels names {overlap} are shared between X and X_raw. '
+    #                     f'Adding prefix "train_" to "channel_names_X"', UserWarning)
+    #
+    #             x_df = pd.DataFrame(data=X, columns=channel_names_X)
+    #             # Concatenate the dataframes
+    #             fcs_df = pd.concat([fcs_df.reset_index(drop=True), x_df.reset_index(drop=True)], axis=1)
+    #
+    #     # Annotate the sample id
+    #     fcs_df['sample_id'] = np.full(fcs_df.shape[0], sample_id, dtype=int)
+    #
+    #     # Annotate the bmu coordinates
+    #     bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
+    #     fcs_df['bmu1'] = bmus[:, 0]
+    #     fcs_df['bmu2'] = bmus[:, 1]
+    #
+    #     # Annotate the SOM unit label of the bmus
+    #     fcs_df['som_unit_label'] = self._get_row_major_positions(bmus=bmus, start_from=1)
+    #
+    #     # Annotate labels
+    #     if self._labeled_data:
+    #         fcs_df['label_predicted'] = self.predict(X=X)
+    #
+    #     return fcs_df
 
     def _get_row_major_positions(
             self,
@@ -1315,54 +1301,54 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         pos = bmus[:, 0] * self.som_dimensions[0] + bmus[:, 1] + start_from
         return pos
 
-    @staticmethod
-    def _scale_column_wise(
-            x: np.ndarray,
-            val_range: Tuple[float, float],
-    ) -> np.ndarray:
+    # @staticmethod
+    # def _scale_column_wise(
+    #         x: np.ndarray,
+    #         val_range: Tuple[float, float],
+    # ) -> np.ndarray:
+    #
+    #     # Get column-wise min and max
+    #     col_min = x.min(axis=0)
+    #     col_max = x.max(axis=0)
+    #
+    #     # Get scale, avoid zero division in constant columns
+    #     scale = col_max - col_min
+    #     scale[scale == 0] = 1
+    #
+    #     x_scaled = (x - col_min) / scale * (val_range[1] - val_range[0]) + val_range[0]
+    #
+    #     return x_scaled
 
-        # Get column-wise min and max
-        col_min = x.min(axis=0)
-        col_max = x.max(axis=0)
-
-        # Get scale, avoid zero division in constant columns
-        scale = col_max - col_min
-        scale[scale == 0] = 1
-
-        x_scaled = (x - col_min) / scale * (val_range[1] - val_range[0]) + val_range[0]
-
-        return x_scaled
-
-    @staticmethod
-    def _add_visualization_annotations(
-            fcs_df: pd.DataFrame,
-    ) -> pd.DataFrame:
-
-        # Get dataframe of structure: 'bmu1', 'bmu2', 'som_unit_label', 'count'
-        unit_counts = fcs_df.groupby(['bmu1', 'bmu2', 'som_unit_label']).size().reset_index(name='count')
-
-        # Compute radius for each unit that is proportional to count
-        radii = unit_counts['count'].to_numpy()
-        radii = (radii - radii.min()) / (radii.max() - radii.min())
-        radii = np.sqrt(radii)  # Area should be proportional to count -> use square root
-        radii = radii * 0.5  # Radius should be <= 0.5
-        unit_counts['radius'] = radii
-
-        fcs_df['bmu1_plot'] = np.zeros(fcs_df.shape[0])
-        fcs_df['bmu2_plot'] = np.zeros(fcs_df.shape[0])
-        fcs_df['radius'] = np.zeros(fcs_df.shape[0])
-
-        for bmu1, bmu2, som_unit_label, count, radius in zip(
-                unit_counts['bmu1'], unit_counts['bmu2'], unit_counts['som_unit_label'], unit_counts['count'],
-                unit_counts['radius']
-        ):
-            x, y = SomClassifier._random_points_on_sphere(x_center=bmu1, y_center=bmu2, radius=radius, n=count)
-            mask = fcs_df['som_unit_label'] == som_unit_label
-            fcs_df.loc[mask, 'bmu1_plot'] = x
-            fcs_df.loc[mask, 'bmu2_plot'] = y
-            fcs_df.loc[mask, 'radius'] = radius
-
-        return fcs_df
+    # @staticmethod
+    # def _add_visualization_annotations(
+    #         fcs_df: pd.DataFrame,
+    # ) -> pd.DataFrame:
+    #
+    #     # Get dataframe of structure: 'bmu1', 'bmu2', 'som_unit_label', 'count'
+    #     unit_counts = fcs_df.groupby(['bmu1', 'bmu2', 'som_unit_label']).size().reset_index(name='count')
+    #
+    #     # Compute radius for each unit that is proportional to count
+    #     radii = unit_counts['count'].to_numpy()
+    #     radii = (radii - radii.min()) / (radii.max() - radii.min())
+    #     radii = np.sqrt(radii)  # Area should be proportional to count -> use square root
+    #     radii = radii * 0.5  # Radius should be <= 0.5
+    #     unit_counts['radius'] = radii
+    #
+    #     fcs_df['bmu1_plot'] = np.zeros(fcs_df.shape[0])
+    #     fcs_df['bmu2_plot'] = np.zeros(fcs_df.shape[0])
+    #     fcs_df['radius'] = np.zeros(fcs_df.shape[0])
+    #
+    #     for bmu1, bmu2, som_unit_label, count, radius in zip(
+    #             unit_counts['bmu1'], unit_counts['bmu2'], unit_counts['som_unit_label'], unit_counts['count'],
+    #             unit_counts['radius']
+    #     ):
+    #         x, y = SomClassifier._random_points_on_sphere(x_center=bmu1, y_center=bmu2, radius=radius, n=count)
+    #         mask = fcs_df['som_unit_label'] == som_unit_label
+    #         fcs_df.loc[mask, 'bmu1_plot'] = x
+    #         fcs_df.loc[mask, 'bmu2_plot'] = y
+    #         fcs_df.loc[mask, 'radius'] = radius
+    #
+    #     return fcs_df
 
     @staticmethod
     def _random_points_on_sphere(
