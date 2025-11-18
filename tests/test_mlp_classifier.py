@@ -3,7 +3,6 @@ import pytest
 import torch
 import numpy as np
 from sklearn.exceptions import NotFittedError
-from sklearn.metrics import f1_score
 
 from flagx.gating import MLPClassifier
 
@@ -157,7 +156,7 @@ def test_get_num_correct():
         [0.0, 0.1, 2.5],
         [0.0, 0.2, 3.1],
     ])
-    num_correct = MLPClassifier.get_num_correct(y_pred_logits, y_true)
+    num_correct = MLPClassifier._get_num_correct(y_pred_logits, y_true)
     assert num_correct == 3
 
 
