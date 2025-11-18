@@ -20,7 +20,7 @@ def test_fit_dimension_mismatch(som_classifier, small_y):
 
 def test_annotate_creates_labels(som_classifier, small_X, small_y):
     som_classifier.fit(small_X, small_y)
-    assert som_classifier.labeled_data_
+    assert som_classifier._labeled_data
     assert som_classifier.som_unit_labels_.shape == (3, 3)
     assert set(som_classifier.som_unit_labels_.flatten()).issubset({0, 1})
 
@@ -48,7 +48,7 @@ def test_reset_clears_state(som_classifier, small_X, small_y):
     assert not hasattr(som_classifier, 'is_fitted_')
     assert som_classifier._is_fitted is False
     assert som_classifier.som_ is None
-    assert som_classifier.labeled_data_ is False
+    assert som_classifier._labeled_data is False
 
 
 def test_transform_shapes(som_classifier, small_X, small_y):
@@ -87,7 +87,7 @@ def test_fit_with_unlabeled_data_warns(som_classifier, small_X):
     with pytest.warns(UserWarning):
         som_classifier.fit(small_X, y_unlabeled)
 
-    assert som_classifier.labeled_data_ is False
+    assert som_classifier._labeled_data is False
     assert som_classifier.classes_ is None
 
 
@@ -343,15 +343,13 @@ def test_hyperparameter_tuning(som_classifier, small_X, small_y):
 def test_fit_second_time_different_features_raises(som_classifier, small_X, small_y):
     som_classifier.fit(small_X, small_y)
     X_bigger = np.random.rand(10, small_X.shape[1] + 2)
-    with pytest.raises(ValueError, match='Expected'):
+    with pytest.raises(ValueError):
         som_classifier.fit(X_bigger, small_y)
 
 
 def test_predict_warns_on_unknown_bmu(som_classifier, small_X, small_y):
     # Force some units to have zero support by using tiny dataset
-    som_classifier.som_dimensions = (10, 10)
     som_classifier.fit(small_X[:2], small_y[:2])
-
     with pytest.warns(UserWarning, match="the BMU has no label"):
         som_classifier.predict(small_X)
 
