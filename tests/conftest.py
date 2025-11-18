@@ -1,7 +1,7 @@
 
 import numpy as np
 import pytest
-from flagx.gating import SomClassifier
+from flagx.gating import SomClassifier, MLPClassifier
 
 
 @pytest.fixture
@@ -36,6 +36,14 @@ def large_y():
 def large_som_classifier():
     return SomClassifier(
         som_dimensions=(11, 11),
+        n_epochs=6,
+        verbosity=0,
+    )
+
+@pytest.fixture
+def mlp_classifier():
+    return MLPClassifier(
+        layer_sizes=(16, 8, 4),
         n_epochs=6,
         verbosity=0,
     )
