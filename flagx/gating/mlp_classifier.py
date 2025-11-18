@@ -22,7 +22,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             layer_sizes: Tuple[int, int, int] = (128, 64, 32),
             n_epochs: int = 20,
             data_loader_params: Union[Dict[str, Any], None] = None,
-            device: Union[str, None] = None,  # If None use default
+            device: Union[str, None] = None,  # If None use gpu if available, else cpu
             verbosity: int = 1,
     ):
         super().__init__()
@@ -34,7 +34,12 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         self.device = device
         self.verbose = verbosity
 
-        self.is_fitted_ = False
+        # Set device to default cuda device if available, else cpu
+        if self.device is None:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device(self.device)
+
         self.classes_ = None
         self.class_counts_ = None
         self.og_classes_ = None
@@ -61,25 +66,20 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         # Rename classes to integers starting from 0 and extract label information
         (
             y, self.classes_, self.class_counts_, self.class_priors_, self.new_to_og_classes_dict_, self.og_classes_
-        ) = SoftmaxClassifier._process_class_labels(y=y)
+        ) = MLPClassifier._process_class_labels(y=y)
 
         # Get tensor dataset and data loader
         if self.data_loader_params is None:
             self.data_loader_params = {'batch_size': 128, 'shuffle': True, 'num_workers': 6}
-            if self.verbosity >= 1:
-                warnings.warn("No data_loader_params provided, using batch_size=128, shuffle=True, num_workers=6")
+            warnings.warn("No data_loader_params provided, using batch_size=128, shuffle=True, num_workers=6")
 
-        self.data_set_, self.data_loader_ = SoftmaxClassifier.get_data_set_data_loader(
+        self.data_set_, self.data_loader_ = MLPClassifier._get_data_set_data_loader(
             X=X,
             y=y,
             data_loader_params=self.data_loader_params
         )
 
         # ### Model training
-        # Set device to default cuda device if available, else cpu
-        if self.device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
         # Instantiate the softmax classifier
         self.model_ = FCNNModel(in_size=X.shape[1], out_size=self.classes_.shape[0])
 
@@ -90,7 +90,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         self.optimizer_ = optim.Adam(self.model_.parameters(), lr=0.001)
 
         # Train the model
-        self.losses_, self.n_corrects_ = SoftmaxClassifier.train_loop(
+        self.losses_, self.n_corrects_ = MLPClassifier._train_loop(
             model=self.model_,
             data_loader=self.data_loader_,
             criterion=self.criterion_,
@@ -154,7 +154,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         return f1_score(y, y_pred, average='macro', sample_weight=sample_weight)
 
     @staticmethod
-    def train_loop(
+    def _train_loop(
             model: nn.Module,
             data_loader: DataLoader,
             criterion: nn.Module,
@@ -186,7 +186,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
 
             for batch in data_loader:  # Get Batch
 
-                # Extract data from current ba
+                # Extract data from current batch
                 x, y = batch
 
                 # Move data to device
@@ -209,7 +209,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
                 optimizer.step()
 
                 # Track loss and number of correct predictions
-                n_correct_epoch += SoftmaxClassifier.get_num_correct(model_out, y)
+                n_correct_epoch += MLPClassifier._get_num_correct(model_out, y)
                 loss_epoch += loss.item()
 
             # Track loss and number of correct predictions
@@ -217,9 +217,9 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             n_correct.append(n_correct_epoch)
 
             if verbosity >= 2:
-                print(f'# ### Epoch {epoch + 1}/{n_epochs} ###')
+                print(f'# --- Epoch {epoch + 1}/{n_epochs} --- #')
                 print(f'# Loss: {loss_epoch:.4f}')
-                print(f'# N correct pred: {n_correct_epoch}/{n_events} ###')
+                print(f'# Number of correct predictions: {n_correct_epoch}/{n_events}')
 
         # Move model to cpu
         model.cpu()
@@ -231,7 +231,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
 
     def save(
             self,
-            filename: str = 'softmax_classifier.pkl',
+            filename: str = 'mlp_classifier.pkl',
             filepath: Union[str, None] = None,
     ) -> None:
         if filepath is None:
@@ -242,7 +242,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
     @classmethod
     def load(
             cls,
-            filename: str = 'softmax_classifier.pkl',
+            filename: str = 'mlp_classifier.pkl',
             filepath: Union[str, None] = None,
             map_location: Union[str, torch.device] = 'cpu',
     ) -> Self:
@@ -269,7 +269,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         return y_new, new_classes, counts, class_priors, new_to_og_classes_dict, og_classes
 
     @staticmethod
-    def get_data_set_data_loader(
+    def _get_data_set_data_loader(
             X: np.ndarray,
             y: np.ndarray,
             data_loader_params: Dict[str, Any],
@@ -286,7 +286,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         return dataset, data_loader
 
     @staticmethod
-    def get_num_correct(preds, labels):
+    def _get_num_correct(preds, labels):
         return preds.argmax(dim=1).eq(labels).sum().item()
 
 
