@@ -140,9 +140,24 @@ def test_load_with_map_location_cpu(mlp_classifier, small_X, small_y, tmp_path):
 
 
 def test_get_num_correct():
+    # true labels
     y_true = torch.tensor([1, 1, 1, 1, 1, 0, 0, 0, 0, 0])
-    y_pred = torch.tensor([1, 1, 1, 2, 0, 1, 1, 1, 2, 2])
-    num_correct = MLPClassifier.get_num_correct(y_true, y_pred)
+
+    # pretend these are model logits for 3 classes (shape: [10, 3])
+    # predictions will be argmax along dim=1 → [1, 1, 1, 2, 0, 1, 1, 1, 2, 2]
+    y_pred_logits = torch.tensor([
+        [0.1, 0.9, 0.0],
+        [0.2, 0.8, 0.0],
+        [0.0, 3.0, 0.1],
+        [0.0, 0.1, 5.0],
+        [2.0, 0.1, 0.0],
+        [0.1, 0.9, 0.2],
+        [0.1, 0.9, 0.3],
+        [0.0, 1.0, 0.8],
+        [0.0, 0.1, 2.5],
+        [0.0, 0.2, 3.1],
+    ])
+    num_correct = MLPClassifier.get_num_correct(y_pred_logits, y_true)
     assert num_correct == 3
 
 
