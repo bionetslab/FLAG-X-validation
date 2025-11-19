@@ -15,10 +15,12 @@ def main_data_processing():
     import os
     import copy
     import re
+    import random
+    import torch
+    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
-    from typing import List, Dict, Union, Tuple, Any
-    from flagx.utils import set_random_seed
+    from typing import List, Dict, Union, Tuple
     from flagx.io import FlowDataManager
 
 
@@ -43,7 +45,13 @@ def main_data_processing():
 
                 # Set random seeds for random, numpy and torch
                 seed = 42
-                set_random_seed(seed=seed)
+                torch.manual_seed(seed)  # Sets the seed for generating random numbers on all devices.
+                torch.cuda.manual_seed_all(seed)  # Set the seed for generating random numbers on all GPUs.
+                # torch.cuda.manual_seed(seed)  # Set the seed for generating random numbers for the current GPU.
+                # torch.backends.cudnn.deterministic = True
+                # torch.backends.cudnn.benchmark = False
+                np.random.seed(seed)
+                random.seed(seed)
 
                 # Set label key
                 current_lk = lk
@@ -165,7 +173,7 @@ def main_data_processing():
                             layer_key=None,  # Use adata.X, transformed data
                             label_key=current_lk,
                             label_layer_key='no_trafo',  # Use labels from original untransformed data
-                            shuffle=True,  # Used pytorch dataloader under the hood, seed is set by set_random_seed()
+                            shuffle=True,  # Used pytorch dataloader under the hood, seed is set beforehand
                             precision='32bit',  # Same as FCS
                         )
 
