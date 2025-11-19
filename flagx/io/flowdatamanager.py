@@ -420,7 +420,7 @@ class FlowDataManager:
                     "Missing required argument: 'cutoffs' (dict of {channel: cutoff}) must be provided in kwargs "
                     "for 'log10_w_custom_cutoffs' flavour."
                 )
-            trafo_fct = FlowDataManager.log10_w_channel_wise_cutoff
+            trafo_fct = FlowDataManager.log10_w_custom_cutoffs
         else:
             if 'preprocessing_method' not in kwargs:
                 raise ValueError(
@@ -450,7 +450,7 @@ class FlowDataManager:
         adata.X = x
 
     @staticmethod
-    def log10_w_channel_wise_cutoff(
+    def log10_w_custom_cutoffs(
             adata: sc.AnnData,
             cutoffs: Dict[str, int],
     ):
