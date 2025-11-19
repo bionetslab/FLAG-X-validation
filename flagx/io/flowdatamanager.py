@@ -9,14 +9,14 @@ import os
 import warnings
 import gc
 
-from .._legacy_typing import Tuple, Union, Literal, List, Dict, Any
+from typing import Tuple, List, Dict, Union, Any
+from typing_extensions import Literal
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
+from matplotlib import colormaps
 from .flowdataset import FlowDataset
 from .flowdataloader import FlowDataLoader
 
-# Todo:
-#  - Add documentation
 
 class FlowDataManager:
     def __init__(
@@ -436,9 +436,9 @@ class FlowDataManager:
 
             # Apply transformation
             if kwargs:
-                trafo_fct(adata=adata, **kwargs)
+                trafo_fct(adata, **kwargs)
             else:
-                trafo_fct(adata=adata)
+                trafo_fct(adata)
 
         if not inplace:
             return data_list
@@ -503,7 +503,7 @@ class FlowDataManager:
                 raise ValueError(
                     "'data_split' must be tuple or triple corresponding to fractions for train- (val-) and test-data")
 
-            if sum(data_split) != 1 or any(x < 0 for x in data_split):
+            if not np.isclose(sum(data_split), 1.0) or any(x < 0 for x in data_split):
                 raise ValueError(
                     'The train-(val-)test-split must be passed as a tuple of non negative decimals that sum to one')
 
@@ -531,17 +531,22 @@ class FlowDataManager:
 
             else:
 
+                # Compute number of samples in train, val and test set beforehand
+                n = len(data_list)
+                n_train = int(data_split[0] * n)
+                n_val = int(data_split[1] * n)
+                n_test = n - n_train - n_val
+
                 # Check for stratification
                 stratify = kwargs.pop('stratify', None)
 
                 if stratify is not None:
 
                     # Split into train and val-test set
-                    perc_val_test_data = data_split[1] + data_split[2]
-                    train_data, train_stratify, val_test_data, val_test_stratify = train_test_split(
+                    train_data, val_test_data, train_stratify, val_test_stratify = train_test_split(
                         data_list, stratify,
-                        test_size=perc_val_test_data,
-                        train_size=data_split[0],
+                        test_size=n_val + n_test,
+                        train_size=n_train,
                         stratify=stratify,
                         **kwargs
                     )
@@ -549,26 +554,26 @@ class FlowDataManager:
                     # Split val-test data into val and test set
                     val_data, test_data = train_test_split(
                         val_test_data,
-                        test_size=data_split[2] / perc_val_test_data,
-                        train_size=data_split[1] / perc_val_test_data,
+                        test_size=n_test / (n_val + n_test),
+                        train_size=n_val / (n_val + n_test),
                         stratify=val_test_stratify,
                         **kwargs
                     )
 
                 else:
                     # Split into train and val-test set
-                    perc_val_test_data = data_split[1] + data_split[2]
                     train_data, val_test_data = train_test_split(
                         data_list,
-                        test_size=perc_val_test_data,
-                        train_size=data_split[0], **kwargs
+                        test_size=n_val + n_test,
+                        train_size=n_train,
+                        **kwargs
                     )
 
                     # Split val-test data into val and test set
                     val_data, test_data = train_test_split(
                         val_test_data,
-                        test_size=data_split[2] / perc_val_test_data,
-                        train_size=data_split[1] / perc_val_test_data,
+                        test_size=n_test,
+                        train_size=n_val,
                         **kwargs
                     )
 
@@ -649,6 +654,262 @@ class FlowDataManager:
         data_split.set_index('filename', drop=True, inplace=True)
 
         return data_split
+
+    # ### sample_wise_downsampling() ###################################################################################
+    def sample_wise_downsampling(
+            self,
+            data_set: Literal['train', 'val', 'test', 'all'],
+            target_num_events: Union[int, float],
+            stratified: bool = False,
+            label_key: Union[int, str, None] = None,
+            # .obs key or varname or var index, if none is passed -> just data
+            label_layer_key: Union[str, None] = None,
+    ) -> None:
+
+        if data_set == 'all':
+            data_list = self.anndata_list_
+        elif data_set == 'train':
+            data_list = self.train_data_
+        elif data_set == 'test':
+            data_list = self.test_data_
+        elif data_set == 'val':
+            data_list = self.val_data_
+
+            if data_list is None:
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all".',
+                        UserWarning
+                    )
+                return
+        else:
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
+
+        # Downsample selected data list inplace, if og is to be kept use the worker
+        FlowDataManager.sample_wise_downsampling_worker(
+            data_list=data_list,
+            target_num_events=target_num_events,
+            stratified=stratified,
+            label_key=label_key,
+            label_layer_key=label_layer_key,
+            inplace=True,
+        )
+
+    @staticmethod
+    def sample_wise_downsampling_worker(
+            data_list: List[sc.AnnData],
+            target_num_events: Union[int, float],  # values < 1 will be interpreted as fractions
+            stratified: bool = False,
+            label_key: Union[int, str, None] = None,
+            # .obs key or varname or var index, if none is passed -> just data
+            label_layer_key: Union[str, None] = None,
+            inplace: bool = False,
+    ) -> Union[List[sc.AnnData], None]:
+
+        if target_num_events < 0:
+            raise ValueError("'target_num_events' must be greater than 0")
+
+        if target_num_events >= 1 and not isinstance(target_num_events, int):
+            raise ValueError("'target_num_events' must be of type int if >= 1.")
+
+        if stratified and label_key is None:
+            raise ValueError("'stratified' is True but 'label_key' is None. Need labels for stratification.")
+
+        if not inplace:
+            data_list = copy.deepcopy(data_list)
+
+        for i, adata in enumerate(data_list):
+            # If target_num_events is < 1 interpret as fraction
+            tne = target_num_events if target_num_events >= 1 else round(adata.n_obs * target_num_events)
+            # Get labels (by column index, column name, obs key)
+            labels = FlowDataManager._get_labels(adata=adata, label_key=label_key, layer_key=label_layer_key)
+            # Get bool indicating which events to keep
+            ds_bool = FlowDataManager._get_downsampling_bool(y=labels, target_num_events=tne, stratified=stratified)
+            # Update data_list
+            data_list[i] = adata[ds_bool, :].copy()
+
+        if not inplace:
+            return data_list
+
+    @staticmethod
+    def _get_downsampling_bool(y: np.ndarray, target_num_events: int, stratified: bool = False) -> np.ndarray:
+
+        num_events = y.shape[0]
+
+        keep_mask = np.zeros_like(y, dtype=bool)
+
+        if target_num_events >= num_events:
+            keep_mask[:] = True
+
+        elif stratified:
+
+            unique_labels, counts = np.unique(y, return_counts=True)
+            selected_indices = []
+
+            for label, count in zip(unique_labels, counts):
+
+                # Get the number of events of this class to keep
+                target_num_events_class = int(round(target_num_events * (count / num_events)))
+                target_num_events_class = min(target_num_events_class, count)
+
+                # Get the indices where y == class
+                class_indices = np.where(y == label)[0]
+
+                # Randomly draw from the indices and append to list
+                if target_num_events_class > 0:
+                    selected = np.random.choice(class_indices, target_num_events_class, replace=False)
+                    selected_indices.extend(selected)
+
+            # Adjust the number of events to the exact desired number (account for rounding errors)
+            if len(selected_indices) > target_num_events:
+                selected_indices = np.random.choice(selected_indices, target_num_events, replace=False)
+            elif len(selected_indices) < target_num_events:
+                remaining_unselected_events = np.setdiff1d(np.arange(num_events), selected_indices)
+                additional_events = np.random.choice(
+                    remaining_unselected_events, target_num_events - len(selected_indices), replace=False
+                )
+                selected_indices.extend(additional_events)
+
+            # Set mask to True for selected events
+            keep_mask[selected_indices] = True
+
+
+        else:
+
+            # Select events by drawing uniform at random without replacement
+            selected_indices = np.random.choice(np.arange(num_events), target_num_events, replace=False)
+
+            # Set mask to True for selected events
+            keep_mask[selected_indices] = True
+
+        return keep_mask
+
+    # ### check_class_balance() ########################################################################################
+    def check_class_balance(
+            self,
+            data_set: Literal['train', 'val', 'test', 'all'],
+            label_key: Union[int, str],
+            label_layer_key: Union[str, None] = None,
+            filename_class_balance_df: Union[str, None] = None,
+    ) -> Union[pd.DataFrame, None]:
+
+        if data_set == 'all':
+            data_list = self.anndata_list_
+        elif data_set == 'train':
+            data_list = self.train_data_
+        elif data_set == 'test':
+            data_list = self.test_data_
+        elif data_set == 'val':
+            data_list = self.val_data_
+
+            if data_list is None:
+                if self._verbosity >= 1:
+                    warnings.warn(
+                        'No validation set was created when splitting the data. '
+                        'Options are "train", "test", "all". Returning None',
+                        UserWarning
+                    )
+                return
+        else:
+            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
+
+        class_balance_df = FlowDataManager.check_class_balance_worker(
+            data_list=data_list,
+            label_key=label_key,
+            label_layer_key=label_layer_key,
+            save_path=self.save_path,
+            filename_class_balance_df=filename_class_balance_df,
+        )
+
+        return class_balance_df
+
+    @staticmethod
+    def check_class_balance_worker(
+            data_list: List[sc.AnnData],
+            label_key: Union[int, str],
+            label_layer_key: Union[str, None] = None,
+            save_path: Union[str, None] = None,
+            filename_class_balance_df: Union[str, None] = None,
+            verbosity: int = 1,
+    ) -> pd.DataFrame:
+        # Extract labels from data list
+        label_vec = FlowDataManager._get_numpy_label_vector(
+            data_list=data_list,
+            label_key=label_key,
+            layer_key=label_layer_key,
+            verbosity=verbosity,
+        )
+
+        unique_labels, class_counts = np.unique(label_vec, return_counts=True)
+        class_fracs = class_counts / class_counts.sum()
+
+        sorted_indices = np.argsort(class_counts)[::-1]
+        unique_labels = unique_labels[sorted_indices]
+        class_counts = class_counts[sorted_indices]
+        class_fracs = class_fracs[sorted_indices]
+
+        if verbosity >= 2:
+            print(f'# ### Absolute counts for the labels:\n{class_counts}')
+            print(f'# ### Relative frequencies for the labels:\n{class_fracs}')
+
+        results_df = pd.DataFrame(
+            {
+                'count': class_counts.astype(int),
+                'fraction': class_fracs
+            },
+            index=unique_labels.astype(int),
+        ).T
+
+        if filename_class_balance_df is not None:
+            if save_path is None:
+                save_path = os.getcwd()
+
+            results_df.to_csv(os.path.join(save_path, filename_class_balance_df))
+
+        return results_df
+
+    @staticmethod
+    def plot_class_balance_df(
+            class_balance_df: pd.DataFrame,
+            dpi: int = 100,
+            ax: Union[plt.Axes, None] = None,
+    ) -> plt.Axes:
+        if ax is None:
+            fig, ax = plt.subplots(dpi=dpi)
+
+        num_classes = class_balance_df.shape[1]
+
+        cmap_name = 'tab10' if num_classes <= 10 else 'tab20'
+        color_map = colormaps[cmap_name].resampled(num_classes)
+        colors = [color_map(i) for i in range(num_classes)]
+
+        class_balance_df.loc['fraction'].plot(kind='bar', color=colors, ax=ax)
+
+        ax.set_xlabel('Class')
+        ax.set_ylabel('Frequency')
+        ax.set_title('Class Balance')
+
+        ax.set_xticks(range(num_classes))
+        ax.set_xticklabels(class_balance_df.columns)
+
+        class_fracs = class_balance_df.loc['fraction'].to_numpy()
+        class_counts = class_balance_df.loc['count'].to_numpy()
+
+        y_max = class_fracs.max() * 1.1
+        ax.set_ylim(0, y_max)
+        for idx, (frac, count) in enumerate(zip(class_fracs, class_counts)):
+            text = f'total: {count}, frac: {round(frac, 4)}'
+            text_offset = 0.05 * y_max
+            y_text = frac + text_offset
+            if y_text + 6 * text_offset > y_max:
+                ax.text(
+                    idx, y_text, text, ha='center', va='top', rotation=90)
+            else:
+                ax.text(
+                    idx, y_text, text, ha='center', va='bottom', rotation=90)
+
+        return ax
 
     # ### get_data_loader() ############################################################################################
     def get_data_loader(
@@ -874,231 +1135,6 @@ class FlowDataManager:
                 except KeyError:
                     raise ValueError("'label_key' not found in .obs or .var_names")
         return labels.astype(int)
-
-    # ### sample_wise_downsampling() ###################################################################################
-    def sample_wise_downsampling(
-            self,
-            data_set: Literal['train', 'val', 'test', 'all'],
-            fraction: float,
-            stratified: bool = False,
-            label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
-            label_layer_key: Union[str, None] = None,
-    ) -> None:
-
-        if data_set == 'all':
-            data_list = self.anndata_list_
-        elif data_set == 'train':
-            data_list = self.train_data_
-        elif data_set == 'test':
-            data_list = self.test_data_
-        elif data_set == 'val':
-            data_list = self.val_data_
-
-            if data_list is None:
-                if self._verbosity >= 1:
-                    warnings.warn(
-                        'No validation set was created when splitting the data. '
-                        'Options are "train", "test", "all".',
-                        UserWarning
-                    )
-                return
-        else:
-            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
-
-        # Downsample selected data list inplace, if og is to be kept use the worker
-        FlowDataManager.sample_wise_downsampling_worker(
-            data_list=data_list,
-            fraction=fraction,
-            stratified=stratified,
-            label_key=label_key,
-            label_layer_key=label_layer_key,
-            inplace=True,
-        )
-
-    # Todo: refactor
-    @staticmethod
-    def sample_wise_downsampling_worker(
-            data_list: List[sc.AnnData],
-            fraction: float,
-            stratified: bool = False,
-            label_key: Union[int, str, None] = None,  # .obs key or varname or var index, if none is passed -> just data
-            label_layer_key: Union[str, None] = None,
-            inplace : bool = False,
-    ) -> Union[List[sc.AnnData], None]:
-
-        if fraction < 0 or fraction > 1:
-            raise ValueError("'fraction' must be between 0 and 1")
-
-        if stratified and label_key is None:
-            raise ValueError("'stratified' is True but 'label_key' is None. Need labels for stratification.")
-
-        if not inplace:
-            data_list = copy.deepcopy(data_list)
-
-        for i, adata in enumerate(data_list):
-            # Get labels (by column index, column name, obs key)
-            labels = FlowDataManager._get_labels(adata=adata, label_key=label_key, layer_key=label_layer_key)
-            # Get bool indicating which events to keep
-            ds_bool = FlowDataManager._get_downsampling_bool(y=labels, fraction=fraction, stratified=stratified)
-            # Update data_list
-            data_list[i] = adata[ds_bool, :].copy()
-
-        if not inplace:
-            return data_list
-
-    @staticmethod
-    def _get_downsampling_bool(y: np.ndarray, fraction: float, stratified: bool = False) -> np.ndarray:
-
-        keep_mask = np.zeros_like(y, dtype=bool)
-
-        if stratified:
-
-            unique_labels, counts = np.unique(y, return_counts=True)
-
-            for label, count in zip(unique_labels, counts):
-                # Get indices where y == label
-                label_indices = np.where(y == label)[0]
-                # Keep fraction events with label, at least one
-                num_events_to_keep = max(1, int(np.round(count * fraction)))
-                # Choose num_events_to_keep random events with label
-                selected_indices = np.random.choice(label_indices, num_events_to_keep, replace=False)
-                # Set mask to True for selected events
-                keep_mask[selected_indices] = True
-
-        else:
-            num_samples = y.shape[0]
-            num_samples_to_keep = max(1, int(np.round(num_samples * fraction)))
-
-            selected_indices = np.random.choice(np.arange(num_samples), num_samples_to_keep, replace=False)
-
-            keep_mask[selected_indices] = True
-
-        return keep_mask
-
-    # ### check_class_balance() ########################################################################################
-    def check_class_balance(
-            self,
-            data_set: Literal['train', 'val', 'test', 'all'],
-            label_key: Union[int, str],
-            label_layer_key: Union[str, None] = None,
-            filename_class_balance_df: Union[str, None] = None,
-    ) -> Union[pd.DataFrame, None]:
-
-        if data_set == 'all':
-            data_list = self.anndata_list_
-        elif data_set == 'train':
-            data_list = self.train_data_
-        elif data_set == 'test':
-            data_list = self.test_data_
-        elif data_set == 'val':
-            data_list = self.val_data_
-
-            if data_list is None:
-                if self._verbosity >= 1:
-                    warnings.warn(
-                        'No validation set was created when splitting the data. '
-                        'Options are "train", "test", "all". Returning None',
-                        UserWarning
-                    )
-                return
-        else:
-            raise ValueError("'data_set' must be 'all', 'train', 'test' or 'val'")
-
-        class_balance_df = FlowDataManager.check_class_balance_worker(
-            data_list=data_list,
-            label_key=label_key,
-            label_layer_key=label_layer_key,
-            save_path=self.save_path,
-            filename_class_balance_df=filename_class_balance_df,
-        )
-
-        return class_balance_df
-
-    @staticmethod
-    def check_class_balance_worker(
-            data_list: List[sc.AnnData],
-            label_key: Union[int, str],
-            label_layer_key: Union[str, None] = None,
-            save_path: Union[str, None] = None,
-            filename_class_balance_df: Union[str, None] = None,
-            verbosity: int = 1,
-    ) -> pd.DataFrame:
-        # Extract labels from data list
-        label_vec = FlowDataManager._get_numpy_label_vector(
-            data_list=data_list,
-            label_key=label_key,
-            layer_key=label_layer_key,
-            verbosity=verbosity,
-        )
-
-        unique_labels, class_counts = np.unique(label_vec, return_counts=True)
-        class_fracs = class_counts / class_counts.sum()
-
-        sorted_indices = np.argsort(class_counts)[::-1]
-        unique_labels = unique_labels[sorted_indices]
-        class_counts = class_counts[sorted_indices]
-        class_fracs = class_fracs[sorted_indices]
-
-        if verbosity >= 2:
-            print(f'# ### Absolute counts for the labels:\n{class_counts}')
-            print(f'# ### Relative frequencies for the labels:\n{class_fracs}')
-
-        results_df = pd.DataFrame(
-            {
-                'count': class_counts.astype(int),
-                'fraction': class_fracs
-            },
-            index=unique_labels.astype(int),
-        ).T
-
-        if filename_class_balance_df is not None:
-            if save_path is None:
-                save_path = os.getcwd()
-
-            results_df.to_csv(os.path.join(save_path, filename_class_balance_df))
-
-        return results_df
-
-    @staticmethod
-    def plot_class_balance_df(
-            class_balance_df: pd.DataFrame,
-            dpi: int = 100,
-            ax: Union[plt.Axes, None] = None,
-    ) -> plt.Axes:
-        if ax is None:
-            fig, ax = plt.subplots(dpi=dpi)
-
-        num_classes = class_balance_df.shape[1]
-
-        color_map = plt.cm.get_cmap("tab10" if num_classes <= 10 else "tab20", num_classes)
-        colors = [color_map(i) for i in range(num_classes)]
-
-        class_balance_df.loc['fraction'].plot(kind='bar', color=colors, ax=ax)
-
-        ax.set_xlabel('Class')
-        ax.set_ylabel('Frequency')
-        ax.set_title('Class Balance')
-
-        ax.set_xticks(range(num_classes))
-        ax.set_xticklabels(class_balance_df.columns)
-
-        class_fracs = class_balance_df.loc['fraction'].to_numpy()
-        class_counts = class_balance_df.loc['count'].to_numpy()
-
-        y_max = class_fracs.max() * 1.1
-        ax.set_ylim(0, y_max)
-        for idx, (frac, count) in enumerate(zip(class_fracs, class_counts)):
-            text = f'total: {count}, frac: {round(frac, 4)}'
-            text_offset = 0.05 * y_max
-            y_text = frac + text_offset
-            if y_text + 6 * text_offset > y_max:
-                ax.text(
-                    idx, y_text, text, ha='center', va='top', rotation=90)
-            else:
-                ax.text(
-                    idx, y_text, text, ha='center', va='bottom', rotation=90)
-
-        return ax
 
     # ### save_to_numpy_files() ########################################################################################
     def save_to_numpy_files(
