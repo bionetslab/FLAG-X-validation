@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from .._legacy_typing import Union, Tuple
+from typing import Union, Tuple
 from torch.utils.data import Dataset
 
 

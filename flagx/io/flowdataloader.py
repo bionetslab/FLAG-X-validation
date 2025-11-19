@@ -2,7 +2,7 @@
 import numpy as np
 
 from torch.utils.data import Dataset, DataLoader
-from .._legacy_typing import Union, Sequence, Tuple
+from typing import Union, Sequence, Tuple
 
 
 class FlowDataLoader:
