@@ -22,7 +22,7 @@ class FlowDataset(Dataset):
             self.file_path = data
             # ### Load data in previously defined mode
 
-            if self.on_disk:
+            if not self.on_disk:
                 self.data = np.load(self.file_path)
             else:
                 self.data = np.load(self.file_path, mmap_mode="r")
