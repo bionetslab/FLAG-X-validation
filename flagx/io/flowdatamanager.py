@@ -722,10 +722,13 @@ class FlowDataManager:
         for i, adata in enumerate(data_list):
             # If target_num_events is < 1 interpret as fraction
             tne = target_num_events if target_num_events >= 1 else round(adata.n_obs * target_num_events)
-            # Get labels (by column index, column name, obs key)
-            labels = FlowDataManager._get_labels(adata=adata, label_key=label_key, layer_key=label_layer_key)
+            # Get labels or number of events
+            if stratified:
+                y = FlowDataManager._get_labels(adata=adata, label_key=label_key, layer_key=label_layer_key)
+            else:
+                y = adata.n_obs
             # Get bool indicating which events to keep
-            ds_bool = FlowDataManager._get_downsampling_bool(y=labels, target_num_events=tne, stratified=stratified)
+            ds_bool = FlowDataManager._get_downsampling_bool(y=y, target_num_events=tne, stratified=stratified)
             # Update data_list
             data_list[i] = adata[ds_bool, :].copy()
 
@@ -733,11 +736,24 @@ class FlowDataManager:
             return data_list
 
     @staticmethod
-    def _get_downsampling_bool(y: np.ndarray, target_num_events: int, stratified: bool = False) -> np.ndarray:
+    def _get_downsampling_bool(
+            y: Union[np.ndarray, int],
+            target_num_events: int,
+            stratified: bool = False
+    ) -> np.ndarray:
 
-        num_events = y.shape[0]
+        if not (isinstance(y, int) or isinstance(y, np.ndarray)):
+            raise ValueError("'y' must be int (no stratification) or numpy array (stratification).")
 
-        keep_mask = np.zeros_like(y, dtype=bool)
+        if isinstance(y, int) and stratified:
+            raise ValueError('y must be an array of labels and not an integer')
+
+        if isinstance(y, int) and not stratified:
+            num_events = y
+        else:
+            num_events = y.shape[0]
+
+        keep_mask = np.zeros(num_events, dtype=bool)
 
         if target_num_events >= num_events:
             keep_mask[:] = True
