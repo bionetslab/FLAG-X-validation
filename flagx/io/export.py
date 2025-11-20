@@ -27,6 +27,12 @@ def export_to_fcs(
         if len(add_columns) != len(add_columns_names):
             raise ValueError("'add_columns' and 'add_columns_names' must have the same length")
 
+    if save_filenames is None:
+        if sample_wise:
+            save_filenames = [f'sample_{i}.fcs' for i in range(len(data_list))]
+        else:
+            save_filenames = 'samples_concatenated.fcs'
+
     # Initialize dataframes from AnnData
     fcs_dfs = _init_fcs_dfs(data_list=data_list, layer_key=layer_key)
 
