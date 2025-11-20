@@ -3,37 +3,8 @@ import pytest
 import flowio
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from flagx.io import FlowDataManager
 from flagx.io.export import export_to_fcs, _init_fcs_dfs, _scale_columns
-
-
-TEST_DATA_DIR = Path(__file__).parent / 'test_data'
-
-N_FILES = 5
-
-@pytest.fixture(scope='function')
-def test_files():
-    """Collect only files of the correct format."""
-    files = sorted(TEST_DATA_DIR.glob('*.csv'))
-
-    assert len(files) == N_FILES, f'Expected {N_FILES} FCS files.'
-
-    return [f.name for f in files]
-
-
-@pytest.fixture(scope='function')
-def fdm(test_files, tmp_path_factory):
-    """Separate FlowDataManager instance for each format."""
-    save_dir = tmp_path_factory.mktemp('fdm_output')
-
-    manager = FlowDataManager(
-        data_file_names=test_files,
-        data_file_path=str(TEST_DATA_DIR),
-        save_path=str(save_dir),
-        verbosity=0,
-    )
-    return manager
 
 
 # ------------------------------------------------------------
