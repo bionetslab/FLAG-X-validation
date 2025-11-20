@@ -15,7 +15,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from matplotlib import colormaps
 from .flowdataset import FlowDataset
-from .flowdataloader import FlowDataLoader
+from .flowdataloaders import FlowDataLoaders
 
 
 class FlowDataManager:
@@ -1056,7 +1056,7 @@ class FlowDataManager:
             batch_size = len(ds)
 
         # Instantiate the FlowDataLoader
-        flow_dataloader = FlowDataLoader(
+        flow_dataloader = FlowDataLoaders(
             dataset=ds,
             batch_size=batch_size,
             shuffle=shuffle,

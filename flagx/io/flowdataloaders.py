@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 from typing import Union, Sequence, Tuple
 
 
-class FlowDataLoader:
+class FlowDataLoaders:
     def __init__(
             self,
             dataset: Dataset,
@@ -14,7 +14,7 @@ class FlowDataLoader:
         self.dataset = dataset
         self.pytorch_dataloader = DataLoader(dataset, **kwargs)
         # Might be adding other custom Dataloaders later on
-        self.pytorch_np_dataloader = DataLoader(dataset, collate_fn=FlowDataLoader.np_collate, **kwargs)
+        self.pytorch_np_dataloader = DataLoader(dataset, collate_fn=FlowDataLoaders.np_collate, **kwargs)
 
     @staticmethod
     def np_collate(
