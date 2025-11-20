@@ -2,6 +2,7 @@
 import os
 import warnings
 import pickle
+import tempfile
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,9 +10,11 @@ import matplotlib.pyplot as plt
 from itertools import accumulate
 from sklearn.exceptions import NotFittedError
 
-from ._legacy_typing import List, Tuple, Dict, Union, Literal, Any
+from typing import List, Tuple, Dict, Union, Any
+from typing_extensions import Literal
+
 from .io import FlowDataManager, export_to_fcs
-from .gating import SomClassifier, SoftmaxClassifier
+from .gating import SomClassifier, MLPClassifier
 from .dimred import PCA, UMAP, TSNE, Isomap, LocallyLinearEmbedding, MDS, SpectralEmbedding
 
 
@@ -36,7 +39,9 @@ class GatingPipeline:
             # {'flavour': str, !optional! 'flavour_kwargs': dict, !optional! 'save_raw_to_layer': str}
             # if flavour == 'custom' then 'flavour_kwargs' must contain 'preprocessing_method'
 
-            gating_method: Literal['som', 'fcnn'] = 'som',
+            downsampling_kwargs: Union[Dict[str, Any], None] = None,
+
+            gating_method: Literal['som', 'mlp'] = 'som',
             gating_method_kwargs: Union[Dict[str, Any], None] = None,
             prediction_threshold: Union[float, None] = None,
 
@@ -60,10 +65,11 @@ class GatingPipeline:
         # Keyword arguments for preprocessing
         self.preprocessing_kwargs = preprocessing_kwargs
 
+        self.downsampling_kwargs = downsampling_kwargs
+
         # Channels to train on and channel with labels
         self.channels = channels
         self.label_key = label_key
-
 
         # Keyword arguments for relabeling the training data
         self.relabel_data_kwargs = relabel_data_kwargs
@@ -98,10 +104,15 @@ class GatingPipeline:
             data_file_names=self.train_data_file_names,
             data_file_type=self.train_data_file_type,
             label_key=self.label_key,
+            downsampling_kwargs=self.downsampling_kwargs,
             data_manager_save_path=self.train_data_manager_save_path,
             save_meta_info=True,
             fn_prefix_saving='train_'
         )
+
+        # If file type was inferred from the filenames set it here
+        if self.train_data_file_type is None:
+            self.train_data_file_type = train_fdm._data_file_type
 
         unique_classes = np.unique(y_train)
         if unique_classes.shape[0] == 2:
@@ -135,17 +146,17 @@ class GatingPipeline:
 
         if self.gating_method == 'som':
             self.gating_module_ = SomClassifier(**self.gating_method_kwargs)
-        elif self.gating_method == 'fcnn':
+        elif self.gating_method == 'mlp':
             if self.label_key is None:
                 raise ValueError(
-                    "'label_key' is required when gating_method is 'fcnn'. "
-                    "Unsupervised training is not possible for a FCNN."
+                    "'label_key' is required when gating_method is 'mlp'. "
+                    "Unsupervised training is not possible for a MLP."
                 )
-            self.gating_module_ = SoftmaxClassifier(**self.gating_method_kwargs)
+            self.gating_module_ = MLPClassifier(**self.gating_method_kwargs)
         else:
             raise NotImplementedError(
                 f"Gating method '{self.gating_method}' is not implemented. "
-                "Supported methods are: 'som', 'fcnn'."
+                "Supported methods are: 'som', 'mlp'."
             )
 
         # Call the fit method of the gating module
@@ -300,6 +311,7 @@ class GatingPipeline:
             data_file_names: Union[List[str], None] = None,  # default: listdir(path)
             data_file_type: Union[Literal['fcs', 'csv'], None] = None,
             label_key: Union[int, str, None] = None,  # If None unlabeled case
+            downsampling_kwargs: Union[Dict, None] = None,
             data_manager_save_path: Union[str, None] = None,  # default: cwd
             save_meta_info: bool = False,
             fn_prefix_saving: Union[str, None] = None,
@@ -330,14 +342,19 @@ class GatingPipeline:
         # Load train data files to anndata
         fdm.load_data_files_to_anndata()
 
+        # Downsample first
+        if downsampling_kwargs is not None:
+            if label_key is not None:
+                downsampling_kwargs['label_key'] = label_key
+            fdm.sample_wise_downsampling(data_set='all', **downsampling_kwargs)
+
+        # Check the number of events per sample
         if save_meta_info:
-            # Check the number of events per sample
             fdm.check_sample_sizes(filename_sample_sizes_df=f'{fn_prefix_saving}sample_sizes.csv')
             fdm.plot_sample_size_df(sample_size_df=fdm.sample_sizes_, dpi=300)
             plt.tight_layout()
             plt.savefig(os.path.join(fdm.save_path, f'{fn_prefix_saving}sample_sizes.png'))
             plt.close('all')
-
 
         # Align channel names
         if self.channel_names_alignment_kwargs is not None:
@@ -393,7 +410,7 @@ class GatingPipeline:
 
             label_layer_key = None
 
-        # Create dataloader
+        # Create dataloader with batch size = all events
         dl = fdm.get_data_loader(
             data_set='all',
             channels=self.channels,
@@ -408,7 +425,7 @@ class GatingPipeline:
             # **kwargs  # No data loader kwargs needed here
         )
 
-        # Get the train data from the data loader and fit
+        # Get the data matrices from the data loader
         if label_key is not None:
             x_train, y_train = next(iter(dl))
         else:
@@ -512,35 +529,41 @@ class GatingPipeline:
                 x_dimred = reducer.fit_transform(x_all)
                 return split_arrays(a=x_dimred, a_references=xs)
 
-
-    def save(
-            self,
-            filename: str = 'gating_pipeline.pkl',
-            filepath: Union[str, None] = None,
-    ):
+    def save(self, filename: str ='gating_pipeline.pkl', filepath: Union[str, None] = None):
 
         """Save the full pipeline to a pickle file, handling gating module separately if needed."""
 
         if filepath is None:
             filepath = self.save_path
 
-        # Save classifier separately if it has a custom save method
+        gating_module_bytes = None
+
+        # Save gating module separately if it has a custom save() method
         if self.gating_module_ is not None and hasattr(self.gating_module_, 'save'):
-            self.gating_module_.save(
-                filename='gating_module_' + filename, filepath=filepath
-            )
-            classifier_saved_separately = True
+
+            # Save to temp file
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_file = os.path.join(tmpdir, 'gating_module.pkl')
+                self.gating_module_.save(filename='gating_module.pkl', filepath=tmpdir)
+
+                # Read the raw bytes
+                with open(tmp_file, 'rb') as f:
+                    gating_module_bytes = f.read()
+
+            # Temporarily remove module for pickling
             gating_module_backup = self.gating_module_
-            self.gating_module_ = None  # Temporarily remove for pickling
+            self.gating_module_ = None
+            classifier_saved_separately = True
         else:
             classifier_saved_separately = False
-            gating_module_backup = None  # nothing to restore
+            gating_module_backup = None
 
-        # Save the rest of the pipeline
+        # Save pipeline + gating module bytes to one file
         with open(os.path.join(filepath, filename), 'wb') as f:
             pickle.dump({
                 'pipeline': self,
-                'classifier_saved_separately': classifier_saved_separately
+                'classifier_saved_separately': classifier_saved_separately,
+                'gating_module_bytes': gating_module_bytes,
             }, f)
 
         # Restore gating module after saving
@@ -548,13 +571,9 @@ class GatingPipeline:
             self.gating_module_ = gating_module_backup
 
     @classmethod
-    def load(
-            cls,
-            filename: str = 'gating_pipeline.pkl',
-            filepath: Union[str, None] = None,
-    ):
+    def load(cls, filename: str = 'gating_pipeline.pkl', filepath: Union[str, None] = None):
 
-        """Load the full pipeline from a pickle file. Load gating module separately if needed."""
+        """Load the pipeline from a pickle file."""
 
         if filepath is None:
             filepath = os.getcwd()
@@ -564,20 +583,34 @@ class GatingPipeline:
 
         pipeline = obj['pipeline']
         classifier_saved_separately = obj.get('classifier_saved_separately', False)
+        gating_module_bytes = obj.get('gating_module_bytes', None)
 
-        # Load classifier if saved separately
-        if classifier_saved_separately:
-            if pipeline.gating_method == 'som':
-                pipeline.gating_module_ = SomClassifier.load(
-                    filename='gating_module_' + filename, filepath=filepath,
-                )
-            elif pipeline.gating_method == 'fcnn':
-                pipeline.gating_module_ = SoftmaxClassifier.load(
-                    filename='gating_module_' + filename, filepath=filepath,
-                )
-            else:
-                raise NotImplementedError(f"No load method defined for {pipeline.gating_method}")
+        # Reconstruct gating module using existing load() API
+        if classifier_saved_separately and gating_module_bytes is not None:
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+
+                tmp_file = os.path.join(tmpdir, 'gating_module.pkl')
+
+                # Write bytes back to the same filename that `.load()` expects
+                with open(tmp_file, 'wb') as f:
+                    f.write(gating_module_bytes)
+
+                # Ask gating module class to load normally
+                if pipeline.gating_method == 'som':
+                    pipeline.gating_module_ = SomClassifier.load(
+                        filename='gating_module.pkl', filepath=tmpdir
+                    )
+                elif pipeline.gating_method == 'mlp':
+                    pipeline.gating_module_ = MLPClassifier.load(
+                        filename='gating_module.pkl', filepath=tmpdir
+                    )
+                else:
+                    raise NotImplementedError(
+                        f'No load method defined for {pipeline.gating_method}'
+                    )
 
         return pipeline
+
 
 
