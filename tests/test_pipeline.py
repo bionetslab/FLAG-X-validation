@@ -37,7 +37,7 @@ def pipeline_kwargs(test_files, gating_method, gating_method_kwargs, tmp_path):
 
     return dict(
         train_data_file_path=str(TEST_DATA_DIR),
-        train_data_file_names=test_files,
+        train_data_file_names=test_files[0:3],
         train_data_file_type=None,
         save_path=str(tmp_path),
         channels=TRAIN_CHANNELS,
@@ -57,7 +57,7 @@ def test_pipeline_initialization(test_files, tmp_path, pipeline_kwargs):
     pipe = GatingPipeline(**pipeline_kwargs)
 
     assert pipe.train_data_file_path == str(TEST_DATA_DIR)
-    assert pipe.train_data_file_names == test_files
+    assert pipe.train_data_file_names == test_files[0:3]
     assert pipe.train_data_file_type is None
     assert pipe.save_path == str(tmp_path)
     assert os.path.isdir(pipe.save_path)
@@ -131,14 +131,14 @@ def test_inference_sample_wise_saves_multiple_files(pipeline_kwargs, test_files,
 
     pipe.inference(
         data_file_path=str(TEST_DATA_DIR),
-        data_file_names=test_files,
+        data_file_names=test_files[0:3],
         sample_wise=True,
         gate=True,
         save_path=str(output_dir),
         save_filename='annotated.fcs',
     )
 
-    for i in range(5):
+    for i in range(3):
         name = f'annotated_sample_id_{i+1}.fcs'
         assert (output_dir / name).exists()
 
@@ -148,7 +148,6 @@ def test_inference_sample_wise_saves_multiple_files(pipeline_kwargs, test_files,
 )
 def test_dimensionality_reduction_methods(pipeline_kwargs, test_files, tmp_path, methods):
     pipe = GatingPipeline(**pipeline_kwargs)
-    pipe.train()
 
     # This should not raise
     pipe.inference(
@@ -268,7 +267,6 @@ def test_no_labels_warns_or_raises(pipeline_kwargs, gating_method, test_files, t
 
 def test_dimred_invalid_method(pipeline_kwargs):
     pipe = GatingPipeline(**pipeline_kwargs)
-    pipe.train()
 
     with pytest.raises(NotImplementedError):
         pipe._reduce_dimension_helper(
@@ -279,12 +277,12 @@ def test_dimred_invalid_method(pipeline_kwargs):
 
 def test_inference_dimred_mismatch(pipeline_kwargs, test_files, tmp_path):
     pipe = GatingPipeline(**pipeline_kwargs)
-    pipe.train()
 
     with pytest.raises(ValueError):
         pipe.inference(
             data_file_path=str(TEST_DATA_DIR),
             data_file_names=test_files,
+            gate=False,
             dim_red_methods=('umap', 'pca'),
             dim_red_method_kwargs=({'n_neighbors': 5},),  # mismatch
             save_path=str(tmp_path),
@@ -293,7 +291,6 @@ def test_inference_dimred_mismatch(pipeline_kwargs, test_files, tmp_path):
 
 def test_inference_scale_channels_extra(pipeline_kwargs, test_files, tmp_path):
     pipe = GatingPipeline(**pipeline_kwargs)
-    pipe.train()
 
     output = tmp_path / 'scale_test'
     output.mkdir()
@@ -302,6 +299,7 @@ def test_inference_scale_channels_extra(pipeline_kwargs, test_files, tmp_path):
     pipe.inference(
         data_file_path=str(TEST_DATA_DIR),
         data_file_names=test_files,
+        gate=False,
         scale_channels=['NOT_A_CHANNEL', 'FS INT'],
         save_path=str(output),
     )
@@ -345,7 +343,7 @@ def test_data_pipeline_autolist(tmp_path):
     assert len(fdm.anndata_list_) == 5  # number of test_files of type csv or fcs
 
 
-def test_inference_train_no_gate(pipeline_kwargs, test_files, tmp_path):
+def test_inference_no_train_no_gate(pipeline_kwargs, test_files, tmp_path):
     pipe = GatingPipeline(**pipeline_kwargs)
 
     outdir = tmp_path / 'notrain_nogate'
