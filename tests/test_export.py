@@ -9,14 +9,7 @@ from flagx.io.export import export_to_fcs, _init_fcs_dfs, _scale_columns
 
 
 TEST_DATA_DIR = Path(__file__).parent / 'test_data'
-EXPECTED_CHANNELS = [
-    'FS INT', 'SS PEAK', 'SS INT', 'SS TOF',
-    'FL1 INT_CD14-FITC', 'FL2 INT_CD19-PE', 'FL3 INT_CD13-ECD',
-    'FL4 INT_CD33-PC5.5', 'FL5 INT_CD34-PC7', 'FL6 INT_CD117-APC',
-    'FL7 INT_CD7-APC700', 'FL8 INT_CD16-APC750', 'FL9 INT_HLA-PB',
-    'FL10 INT_CD45-KO', 'TIME', 'label'
-]
-N_CHANNELS = len(EXPECTED_CHANNELS)
+
 N_FILES = 5
 
 @pytest.fixture(scope='function')
