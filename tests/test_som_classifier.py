@@ -135,7 +135,7 @@ def test_annotation_zero_support_units(som_classifier, small_X, small_y):
     som_classifier.fit(small_X[0:3, :], small_y[0:3])
 
     labels = som_classifier.som_unit_labels_
-    assert labels.shape == (0, 0)
+    assert labels.shape == (2, 2)
     # Some will be -1
     assert -1 in labels
 
