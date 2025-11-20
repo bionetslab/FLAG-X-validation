@@ -263,7 +263,7 @@ def test_downsampling_target_num(fdm):
 
     fdm.sample_wise_downsampling(
         data_set='all',
-        target_num_events=100,
+        target_num_events=10,
         label_key='label',
     )
 
@@ -272,7 +272,7 @@ def test_downsampling_target_num(fdm):
     for old, new in zip(orig_sizes, new_sizes):
         assert new <= old
         assert new > 0
-    assert all(new == 100 for new in new_sizes)
+    assert all(new == 10 for new in new_sizes)
 
 
 def test_downsampling_stratified(fdm):

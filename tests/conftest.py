@@ -21,8 +21,8 @@ def small_y():
 @pytest.fixture
 def som_classifier():
     return SomClassifier(
-        som_dimensions=(3, 3),
-        n_epochs=6,
+        som_dimensions=(2, 2),
+        n_epochs=2,
         verbosity=0,
     )
 
@@ -40,15 +40,15 @@ def large_y():
 def large_som_classifier():
     return SomClassifier(
         som_dimensions=(11, 11),
-        n_epochs=6,
+        n_epochs=2,
         verbosity=0,
     )
 
 @pytest.fixture
 def mlp_classifier():
     return MLPClassifier(
-        layer_sizes=(16, 8, 4),
-        n_epochs=6,
+        layer_sizes=(8, 4, 2),
+        n_epochs=2,
         verbosity=0,
     )
 

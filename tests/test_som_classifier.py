@@ -9,7 +9,7 @@ def test_fit_sets_is_fitted(som_classifier, small_X, small_y):
 
     assert som_classifier.is_fitted_
     assert som_classifier.n_features_in_ == small_X.shape[1]
-    assert som_classifier.som_.codebook.shape == (3, 3, small_X.shape[1])
+    assert som_classifier.som_.codebook.shape == (2, 2, small_X.shape[1])
 
 
 def test_fit_dimension_mismatch(som_classifier, small_y):
@@ -21,7 +21,7 @@ def test_fit_dimension_mismatch(som_classifier, small_y):
 def test_annotate_creates_labels(som_classifier, small_X, small_y):
     som_classifier.fit(small_X, small_y)
     assert som_classifier._labeled_data
-    assert som_classifier.som_unit_labels_.shape == (3, 3)
+    assert som_classifier.som_unit_labels_.shape == (2, 2)
     assert set(som_classifier.som_unit_labels_.flatten()).issubset({0, 1})
 
 
@@ -66,7 +66,7 @@ def test_unit_impurity_matrix_shape(som_classifier, small_X, small_y):
     som_classifier.fit(small_X, small_y)
     impurity = som_classifier.unit_impurity()
 
-    assert impurity.shape == (3, 3)
+    assert impurity.shape == (2, 2)
     assert np.all(impurity >= 0)
 
 
@@ -96,7 +96,7 @@ def test_negative_radius_sets_default(som_classifier, small_X, small_y):
     som_classifier.fit(small_X, small_y)
 
     # radius_0 replaced based on min dimension
-    assert som_classifier.radius_0 == pytest.approx(3 * 0.5)
+    assert som_classifier.radius_0 == pytest.approx(2 * 0.5)
 
 
 def test_predict_before_fit_raises(som_classifier, small_X):
@@ -135,7 +135,7 @@ def test_annotation_zero_support_units(som_classifier, small_X, small_y):
     som_classifier.fit(small_X[0:3, :], small_y[0:3])
 
     labels = som_classifier.som_unit_labels_
-    assert labels.shape == (3, 3)
+    assert labels.shape == (0, 0)
     # Some will be -1
     assert -1 in labels
 
@@ -158,8 +158,8 @@ def test_unit_impurity_gini_vs_entropy_positive(som_classifier, small_X, small_y
     ent = som_classifier.unit_impurity('entropy')
     gin = som_classifier.unit_impurity('gini')
 
-    assert ent.shape == (3, 3)
-    assert gin.shape == (3, 3)
+    assert ent.shape == (2, 2)
+    assert gin.shape == (2, 2)
     assert np.all(ent >= 0)
     assert np.all(gin >= 0)
 
@@ -222,7 +222,7 @@ def test_activation_frequencies_shape(som_classifier, small_X, small_y):
     som_classifier.fit(small_X, small_y)
     freqs = som_classifier.activation_frequencies(small_X)
 
-    assert freqs.shape == (3, 3)
+    assert freqs.shape == (2, 2)
     assert np.isclose(freqs.sum(), 1.0, atol=1e-6)
 
 
@@ -242,8 +242,6 @@ def test_quantization_error_is_nonnegative(som_classifier, small_X, small_y):
 def test_quantization_error_zero_on_exact_codebook(som_classifier, small_X, small_y):
     # Fit to get initialized SOM
     som_classifier.fit(small_X, small_y)
-
-    print('####', som_classifier.som_.codebook.shape)
 
     # Flatten codebook from (rows, cols, features) -> (rows*cols, features)
     codebook_flat = som_classifier.som_.codebook.reshape(-1, som_classifier.n_features_in_)
