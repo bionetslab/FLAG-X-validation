@@ -1,6 +1,7 @@
 
 import os
 import pytest
+import numpy as np
 from sklearn.exceptions import NotFittedError
 from pathlib import Path
 from flagx import GatingPipeline
@@ -265,4 +266,97 @@ def test_no_labels_warns_or_raises(pipeline_kwargs, gating_method, test_files, t
             pipe.train()
 
 
+def test_dimred_invalid_method(pipeline_kwargs):
+    pipe = GatingPipeline(**pipeline_kwargs)
+    pipe.train()
 
+    with pytest.raises(NotImplementedError):
+        pipe._reduce_dimension_helper(
+            xs=[np.zeros((10, 5))],
+            dim_red_method='not_exist'
+        )
+
+
+def test_inference_dimred_mismatch(pipeline_kwargs, test_files, tmp_path):
+    pipe = GatingPipeline(**pipeline_kwargs)
+    pipe.train()
+
+    with pytest.raises(ValueError):
+        pipe.inference(
+            data_file_path=str(TEST_DATA_DIR),
+            data_file_names=test_files,
+            dim_red_methods=('umap', 'pca'),
+            dim_red_method_kwargs=({'n_neighbors': 5},),  # mismatch
+            save_path=str(tmp_path),
+        )
+
+
+def test_inference_scale_channels_extra(pipeline_kwargs, test_files, tmp_path):
+    pipe = GatingPipeline(**pipeline_kwargs)
+    pipe.train()
+
+    output = tmp_path / 'scale_test'
+    output.mkdir()
+
+    # Should not raise; nonexistent channel just ignored
+    pipe.inference(
+        data_file_path=str(TEST_DATA_DIR),
+        data_file_names=test_files,
+        scale_channels=['NOT_A_CHANNEL', 'FS INT'],
+        save_path=str(output),
+    )
+
+    assert (output / 'annotated_data.fcs').exists()
+
+
+def test_save_without_gating_module(tmp_path):
+    pipe = GatingPipeline(save_path=str(tmp_path))
+    pipe.gating_module_ = None
+    pipe.is_trained_ = True
+
+    pipe.save(filepath=str(tmp_path))
+    assert (tmp_path / 'gating_pipeline.pkl').exists()
+
+    loaded = GatingPipeline.load(filepath=str(tmp_path))
+    assert loaded.gating_module_ is None
+
+
+def test_data_pipeline_autolist(tmp_path):
+    pipe = GatingPipeline(
+        train_data_file_path=str(TEST_DATA_DIR),
+        train_data_file_names=None,  # will autolist
+        channels=['FS INT', 'SS INT'],
+        label_key='label',
+        save_path=str(tmp_path),
+        gating_method='som',
+        gating_method_kwargs={'som_dimensions': (2, 2), 'n_epochs': 1},
+    )
+
+    fdm, x, y = pipe._data_pipeline(
+        data_file_path=str(TEST_DATA_DIR),
+        data_file_names=None,
+        data_file_type=None,
+        label_key='label',
+        downsampling_kwargs=None,
+        save_meta_info=False,
+    )
+
+    assert isinstance(x, np.ndarray)
+    assert len(fdm.anndata_list_) == 5  # number of test_files of type csv or fcs
+
+
+def test_inference_train_no_gate(pipeline_kwargs, test_files, tmp_path):
+    pipe = GatingPipeline(**pipeline_kwargs)
+
+    outdir = tmp_path / 'notrain_nogate'
+    outdir.mkdir()
+
+    pipe.inference(
+        data_file_path=str(TEST_DATA_DIR),
+        data_file_names=test_files,
+        gate=False,
+        dim_red_methods=('pca',),
+        save_path=str(outdir),
+    )
+
+    assert (outdir / 'annotated_data.fcs').exists()
