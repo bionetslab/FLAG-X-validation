@@ -559,3 +559,176 @@ def test_relabel_data(fdm):
     for adata in fdm.anndata_list_:
         assert 'relabeled' in adata.obs
         assert set(adata.obs['relabeled']).issubset(mapping.values())
+
+# ------------------------------------------------------------
+# 10. Misc
+# ------------------------------------------------------------
+def test_determine_filetype():
+    assert FlowDataManager._determine_filetype('file.fcs') == 'fcs'
+    assert FlowDataManager._determine_filetype('file.csv') == 'csv'
+    assert FlowDataManager._determine_filetype('file.txt') == 'unknown'
+
+
+def test_init_invalid_data_file_names():
+    with pytest.raises(TypeError):
+        FlowDataManager(data_file_names='not-a-list')
+
+    with pytest.raises(TypeError):
+        FlowDataManager(data_file_names=[1, 2, 3])
+
+    with pytest.raises(ValueError):
+        FlowDataManager(data_file_names=[])
+
+def test_init_invalid_types():
+    with pytest.raises(ValueError):
+        FlowDataManager(data_file_names=['a.csv'], data_file_type='pdf')
+
+    with pytest.raises(TypeError):
+        FlowDataManager(data_file_names=['a.csv'], data_file_path=123)
+
+    with pytest.raises(TypeError):
+        FlowDataManager(data_file_names=['a.csv'], save_path=999)
+
+    with pytest.raises(ValueError):
+        FlowDataManager(data_file_names=['a.csv'], verbosity=-1)
+
+def test_preprocessing_invalid_flavour(fdm):
+    fdm.load_data_files_to_anndata()
+    with pytest.raises(ValueError):
+        fdm.sample_wise_preprocessing(flavour='not-a-method')
+
+def test_preprocessing_custom_missing_func(fdm):
+    fdm.load_data_files_to_anndata()
+    with pytest.raises(ValueError):
+        fdm.sample_wise_preprocessing(flavour='custom')
+
+def test_custom_cutoff_missing_channel(fdm):
+    fdm.load_data_files_to_anndata()
+    adata = fdm.anndata_list_[0]
+
+    missing_channel = 'NON_EXISTENT'
+    cutoffs = {missing_channel: 50}
+
+    with pytest.raises(IndexError):
+        FlowDataManager.log10_w_custom_cutoffs(adata, cutoffs)
+
+def test_data_split_invalid_sizes(fdm):
+    fdm.load_data_files_to_anndata()
+
+    with pytest.raises(ValueError):
+        fdm.perform_data_split(data_split=(0.5,))
+
+    with pytest.raises(ValueError):
+        fdm.perform_data_split(data_split=(0.3, 0.3))  # sums to 0.6
+
+    with pytest.raises(ValueError):
+        fdm.perform_data_split(data_split=(0.3, -0.1, 0.8))  # negative
+
+def test_data_split_df_missing_columns(fdm):
+    fdm.load_data_files_to_anndata()
+
+    df_missing_filename = pd.DataFrame({'mode': ['train']})
+    with pytest.raises(ValueError):
+        FlowDataManager.perform_data_split_worker(fdm.anndata_list_, df_missing_filename)
+
+    df_missing_mode = pd.DataFrame({'filename': ['a.fcs']})
+    with pytest.raises(ValueError):
+        FlowDataManager.perform_data_split_worker(fdm.anndata_list_, df_missing_mode)
+
+def test_downsampling_invalid(fdm):
+    fdm.load_data_files_to_anndata()
+
+    with pytest.raises(ValueError):
+        fdm.sample_wise_downsampling('all', -5)
+
+    with pytest.raises(ValueError):
+        fdm.sample_wise_downsampling('all', 1.5)
+
+    with pytest.raises(ValueError):
+        fdm.sample_wise_downsampling('all', 0.5, stratified=True, label_key=None)
+
+    with pytest.raises(ValueError):
+        fdm.sample_wise_downsampling('xyz', 20)
+
+def test_get_labels_errors(fdm):
+    fdm.load_data_files_to_anndata()
+    ad = fdm.anndata_list_[0]
+
+    # Out-of-bounds index
+    with pytest.raises(ValueError):
+        FlowDataManager._get_labels(ad, label_key=999)
+
+    # Bad string label
+    with pytest.raises(ValueError):
+        FlowDataManager._get_labels(ad, label_key='not_here')
+
+def test_setters(fdm, tmp_path):
+    new_dir = tmp_path / 'new'
+    fdm.save_path = str(new_dir)
+    assert fdm.save_path == str(new_dir)
+    assert new_dir.exists()
+
+    fdm.verbosity = 2
+    assert fdm.verbosity == 2
+
+    with pytest.raises(ValueError):
+        fdm.verbosity = -5
+
+    with pytest.raises(TypeError):
+        fdm.save_path = 123
+
+def test_align_channel_names_copy_mode(fdm):
+    fdm.load_data_files_to_anndata()
+    original = fdm.anndata_list_.copy()
+
+    new_list, log_df = FlowDataManager.align_channel_names_worker(
+        data_list=fdm.anndata_list_,
+        reference=0,
+        inplace=False
+    )
+
+    # Ensure original untouched
+    for ad_old, ad_new in zip(original, new_list):
+        assert not np.shares_memory(ad_old.X, ad_new.X)
+
+    assert isinstance(log_df, pd.DataFrame)
+
+@pytest.mark.parametrize('prec', ['16bit', '32bit', '64bit'])
+def test_save_numpy_precision(fdm, prec):
+    fdm.load_data_files_to_anndata()
+
+    fdm.save_to_numpy_files(
+        data_set='all',
+        sample_wise=False,
+        save_path=fdm.save_path,
+        filename_suffix=f'_{prec}',
+        channels=[0, 1],
+        label_key='label',
+        precision=prec,
+    )
+
+    assert (Path(fdm.save_path) / f'x_{prec}.npy').exists()
+    assert (Path(fdm.save_path) / f'y_{prec}.npy').exists()
+
+def test_relabel_copy_mode(fdm):
+    fdm.load_data_files_to_anndata()
+    data_copy = FlowDataManager.relabel_data_worker(
+        data_list=fdm.anndata_list_,
+        old_to_new_label_mapping={0: 5, 1: 6},
+        label_key='label',
+        inplace=False,
+    )
+
+    assert data_copy is not fdm.anndata_list_
+    for ad in data_copy:
+        assert 'new_labels' in ad.obs
+
+def test_check_og_channel_names_warning():
+    df = pd.DataFrame({
+        'filename': ['a', 'b'],
+        1: ['X', 'Y'],  # inconsistent channel
+    })
+
+    with pytest.warns(UserWarning):
+        FlowDataManager.check_og_channel_names_df_worker(df, verbosity=1)
+
