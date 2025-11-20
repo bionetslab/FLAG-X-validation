@@ -14,7 +14,7 @@ class FlowDataset(Dataset):
     ):
 
         if not (isinstance(data, str) or isinstance(data, np.ndarray)):
-            raise TypeError("'data' must be path to data file (.npy) or Numpy array")
+            raise ValueError("'data' must be path to data file (.npy) or Numpy array")
 
         self.on_disk = on_disk
 
