@@ -64,12 +64,12 @@ def test_np_collate_mixed_batch():
     ]
 
     with pytest.raises(ValueError):
-        FlowDataLoaders.np_collate(batch)
+        FlowDataLoaders._np_collate(batch)
 
 
 def test_np_collate_empty_batch():
     with pytest.raises(ValueError):
-        FlowDataLoaders.np_collate([])
+        FlowDataLoaders._np_collate([])
 
 
 # ======================================================================
@@ -82,7 +82,7 @@ def test_np_collate_label_conversion():
         (np.array([0.3, 0.4]), np.float32(6.0)),
     ]
 
-    data, labels = FlowDataLoaders.np_collate(batch)
+    data, labels = FlowDataLoaders._np_collate(batch)
     assert labels.tolist() == [5, 6]
     assert labels.dtype == int
 
