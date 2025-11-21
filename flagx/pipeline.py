@@ -19,6 +19,42 @@ from .dimred import PCA, UMAP, TSNE, Isomap, LocallyLinearEmbedding, MDS, Spectr
 
 
 class GatingPipeline:
+    """
+    End-to-end flow cytometry gating pipeline supporting preprocessing, downsampling, dimensionality reduction, and supervised or unsupervised gating.
+
+    This class orchestrates the full workflow:
+
+    1. **Load raw FCS/CSV files**
+    2. **Align channel names**
+    3. **(Optional) Relabel training data**
+    4. **(Optional) Preprocess data sample-wise**
+    5. **(Optional) Downsample data**
+    6. **Train the gating module**
+       - supervised: MLP classifier
+       - supervised or unsupervised: SOM classifier
+    7. **Inference on new samples**
+    8. **Optional dimensionality reduction (UMAP, SOM, PCA, t-SNE, etc.)**
+    9. **Export annotated FCS files**
+
+    Attributes:
+        train_data_file_path (str or None): Path to directory containing training data. Defaults to CWD.
+        train_data_file_names (list[str] or None): Specific training filenames to load. If None, uses all files in directory.
+        train_data_file_type (Literal['fcs','csv'] or None): Input file type. If None, inferred from first filename.
+        save_path (str or None): Output directory for pipeline metadata and results. If None, defaults to CWD.
+        channels (list[int] or list[str] or None): Indices or names of channels to train on.
+        label_key (int, str, or None): Key to labels in `.X`, `.obs`, or `.layers`. If None, only unsupervised SOM training is available.
+        channel_names_alignment_kwargs (dict or None): Arguments forwarded to channel alignment.
+        relabel_data_kwargs (dict or None): Mapping for relabeling training data.
+        preprocessing_kwargs (dict or None): Sample-wise preprocessing configuration.
+        downsampling_kwargs (dict or None): Sample-wise downsampling configuration.
+        gating_method (Literal['som','mlp']): Which model to train.
+        gating_method_kwargs (dict or None): Additional arguments for SOM or MLP.
+        prediction_threshold (float or None): Binary/abstention threshold; defaults chosen automatically.
+        verbosity (int): Logging level.
+        is_trained_ (bool): Whether the pipeline has been successfully trained.
+        gating_module_ (SomClassifier or MLPClassifier or None): The fitted gating model.
+        binary_classes_ (bool or None): Whether the task is binary classification.
+    """
     def __init__(
             self,
             train_data_file_path: Union[str, None] = None,   # default: cwd
@@ -47,6 +83,29 @@ class GatingPipeline:
 
             verbosity: int = 1,
     ):
+        """
+        Initialize the full gating pipeline and configure optional steps.
+
+        Args:
+            train_data_file_path (str or None): Path to directory containing training data. Defaults to CWD.
+            train_data_file_names (list[str] or None): Specific training filenames to load. If None, uses all files in directory.
+            train_data_file_type (Literal['fcs','csv'] or None): Input file type. If None, inferred from first filename.
+            save_path (str or None): Output directory for pipeline metadata and results. If None, defaults to CWD.
+            channels (list[int] or list[str] or None): Indices or names of channels to train on.
+            label_key (int, str, or None): Key to labels in `.X`, `.obs`, or `.layers`. If None, only unsupervised SOM training is available.
+            channel_names_alignment_kwargs (dict or None): Arguments forwarded to channel alignment.
+            relabel_data_kwargs (dict or None): Mapping for relabeling training data.
+            preprocessing_kwargs (dict or None): Sample-wise preprocessing configuration.
+            downsampling_kwargs (dict or None): Sample-wise downsampling configuration.
+            gating_method (Literal['som','mlp']): Which model to train.
+            gating_method_kwargs (dict or None): Additional arguments for SOM or MLP.
+            prediction_threshold (float or None): Binary/abstention threshold; defaults chosen automatically.
+            verbosity (int): Logging level.
+
+        Returns:
+            None
+        """
+
         super().__init__()
 
         # Path to/ filenames of/ filetype of training data
@@ -97,6 +156,23 @@ class GatingPipeline:
 
 
     def train(self):
+        """
+        Train the full gating pipeline.
+
+        This executes the full training workflow:
+        - Load raw data
+        - (Optional) Align channel names
+        - (Optional) Relabel and preprocess
+        - (Optional) Downsample
+        - Construct training matrix from all samples
+        - Train SOM or MLP gating module
+
+        The gating module is stored in `self.gating_module_`.
+
+        Raises:
+            ValueError: If MLP is selected but `label_key` is None.
+            ValueError: If binary labels are not exactly {0, 1}.
+        """
 
         # Get the train data from the raw data
         train_fdm, x_train, y_train = self._data_pipeline(
@@ -187,6 +263,35 @@ class GatingPipeline:
             val_range: Tuple[float, float] = (0.0, 2 ** 20),
             keep_unscaled: bool = False,
     ):
+        """
+        Apply the trained pipeline to new data for gating and/or dimensionality reduction.
+
+        This performs:
+        - Data loading + preprocessing (same as during training)
+        - (Optional) Prediction using the trained model
+        - (Optional) Dimensionality reduction using one or more methods
+        - Export to FCS file(s) with annotations added in new channels
+
+        Args:
+            data_file_path (str or None): Directory containing inference data.
+            data_file_names (list[str] or None): Specific inference filenames.
+            sample_wise (bool): If True, run dimension reduction and export separately per sample.
+            gate (bool): Whether to apply the trained gating model.
+            dim_red_methods (tuple[str] or None): Dimensionality reduction methods to apply.
+            dim_red_method_kwargs (tuple[dict] or None): One kwargs dict per method.
+            save_path (str or None): Output directory for FCS export.
+            save_filename (str or None): Base filename for exported FCS.
+            scale_channels (list[str] or None): Additional channels to scale for FCS export (e.g., previously added integer labels).
+            val_range (tuple[float,float]): Value range for scaling when writing FCS. (This is done for proper display of the added annotations in standard analysis software.)
+            keep_unscaled (bool): Whether to also retain unscaled values in separate channels.
+
+        Returns:
+            None
+
+        Raises:
+            NotFittedError: If gating was requested but the model is not trained.
+            ValueError: If dimensionality reduction kwargs do not match number of methods.
+        """
 
         # Load and process the data
         fdm, _, _ = self._data_pipeline(
@@ -530,8 +635,16 @@ class GatingPipeline:
                 return split_arrays(a=x_dimred, a_references=xs)
 
     def save(self, filename: str ='gating_pipeline.pkl', filepath: Union[str, None] = None):
+        """
+        Save the pipeline to a pickle file, including the gating model.
 
-        """Save the full pipeline to a pickle file, handling gating module separately if needed."""
+        Args:
+            filename (str): Output filename.
+            filepath (str or None): Directory to save to. Defaults to pipeline `save_path`.
+
+        Returns:
+            None
+        """
 
         if filepath is None:
             filepath = self.save_path
@@ -572,8 +685,16 @@ class GatingPipeline:
 
     @classmethod
     def load(cls, filename: str = 'gating_pipeline.pkl', filepath: Union[str, None] = None):
+        """
+        Load a previously saved GatingPipeline.
 
-        """Load the pipeline from a pickle file."""
+        Args:
+            filename (str): Pipeline pickle filename.
+            filepath (str or None): Directory path for the file. Defaults to CWD.
+
+        Returns:
+            GatingPipeline: Fully restored pipeline instance.
+        """
 
         if filepath is None:
             filepath = os.getcwd()
