@@ -25,6 +25,51 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             device: Union[str, None] = None,  # If None use gpu if available, else cpu
             verbosity: int = 1,
     ):
+        """
+        A three layer perceptron (MLP) classifier compatible with scikit-learn.
+
+        This classifier wraps a fully connected neural network implemented in PyTorch
+        while exposing a scikit-learn–style API.
+        The model supports multi-class classification, automatic device selection
+        (CPU/GPU), and provides the methods fit(), predict(), predict_proba(), score(), save(), and load().
+
+        Attributes:
+            layer_sizes (Tuple[int, int, int]):
+                Sizes of the fully connected hidden layers.
+            n_epochs (int):
+                Number of training epochs.
+            data_loader_params (dict or None):
+                Parameters passed to the PyTorch DataLoader. Defaults to {'batch_size': 128, 'shuffle': True, 'num_workers': 6}.
+            device (torch.device):
+                Device used for training and inference. E.g., 'cpu', 'cuda', 'cuda:0'.
+            verbosity (int):
+                Verbosity level for training logs.
+            classes_ (np.ndarray or None):
+                New class labels after re-indexing to integers starting from 0.
+            class_counts_ (np.ndarray or None):
+                Class counts from the training data.
+            og_classes_ (np.ndarray or None):
+                Original class labels before re-indexing.
+            class_priors_ (np.ndarray or None):
+                Estimated priors for each class.
+            new_to_og_classes_dict_ (Dict[int, Any] or None):
+                Mapping from new integer labels back to original labels.
+            data_set_ (TensorDataset or None):
+                PyTorch tensor dataset used for training.
+            data_loader_ (DataLoader or None):
+                PyTorch DataLoader used for minibatch training.
+            model_ (nn.Module or None):
+                Neural network model.
+            criterion_ (nn.Module or None):
+                Loss function, PyTorch CrossEntropyLoss.
+            optimizer_ (Optimizer or None):
+                PyTorch Adam optimizer with learning rate 0.001.
+            losses_ (List[float] or None):
+                Recorded training loss per epoch.
+            n_corrects_ (List[int] or None):
+                Number of correct predictions on the training data per epoch.
+        """
+
         super().__init__()
         self.layer_sizes = layer_sizes
         self.n_epochs = n_epochs
@@ -58,6 +103,21 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             X: np.ndarray,
             y: np.ndarray
     ) -> Self:
+        """
+        Fit the MLP classifier to the provided training data.
+
+        Args:
+            X (np.ndarray):
+                Feature matrix of shape (n_samples, n_features).
+            y (np.ndarray):
+                Target labels of shape (n_samples,).
+
+        Returns:
+            Self: The fitted classifier instance.
+
+        Raises:
+            ValueError: If X and y have incompatible shapes.
+        """
 
         # ### Data processing and preparation
         # Check input data format
@@ -108,6 +168,20 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray
     ) -> np.ndarray:
+        """
+        Predict class labels for the given input samples.
+
+        Args:
+            X (np.ndarray):
+                Feature matrix of shape (n_samples, n_features).
+
+        Returns:
+            np.ndarray:
+                Predicted class labels using the original label encoding.
+
+        Raises:
+           NotFittedError: If `predict()` is used before calling `fit()`.
+        """
 
         # Get softmax prediction
         y_proba = self.predict_proba(X)
@@ -124,6 +198,20 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray
     ) -> np.ndarray:
+        """
+       Predict class probabilities for the given samples.
+
+       Args:
+           X (np.ndarray):
+               Feature matrix of shape (n_samples, n_features).
+
+       Returns:
+           np.ndarray:
+               Array of shape (n_samples, n_classes) containing class probabilities.
+
+       Raises:
+           NotFittedError: If `predict()` is used before calling `fit()`.
+       """
 
         # Check whether fit was already called
         check_is_fitted(self, 'is_fitted_')
@@ -148,6 +236,23 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             y: np.ndarray,
             sample_weight: Union[np.ndarray, None] = None,
     ):
+        """
+        Compute the macro F1 score of the classifier on the given dataset.
+
+        Args:
+            X (np.ndarray):
+                Feature matrix of shape (n_samples, n_features).
+            y (np.ndarray):
+                True labels.
+            sample_weight (np.ndarray or None):
+                Optional sample weights.
+
+        Returns:
+            float: Macro-averaged F1 score.
+
+        Raises:
+           NotFittedError: If `score()` is used before calling `fit()`.
+        """
 
         y_pred = self.predict(X)
 
@@ -234,6 +339,19 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             filename: str = 'mlp_classifier.pkl',
             filepath: Union[str, None] = None,
     ) -> None:
+        """
+        Save the fitted classifier to disk using `torch.save`.
+
+        Args:
+            filename (str):
+                Name of the file to save the model to.
+            filepath (str or None):
+                Directory where the file will be saved. Defaults to current working directory.
+
+        Returns:
+            None
+        """
+
         if filepath is None:
             filepath = os.getcwd()
 
@@ -246,6 +364,21 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
             filepath: Union[str, None] = None,
             map_location: Union[str, torch.device] = 'cpu',
     ) -> Self:
+        """
+        Load a previously saved classifier from disk.
+
+        Args:
+            filename (str):
+                Name of the saved file.
+            filepath (str or None):
+                Directory containing the saved file. Defaults to current working directory.
+            map_location (str or torch.device):
+                Device mapping for loading the model (e.g., 'cpu' or 'cuda').
+
+        Returns:
+            Self: The loaded classifier instance.
+        """
+
         if filepath is None:
             filepath = os.getcwd()
 
