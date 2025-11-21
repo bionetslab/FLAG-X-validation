@@ -19,6 +19,50 @@ from numba import njit, prange
 
 
 class SomClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Self-Organizing Map (SOM) classifier with scikit-learn–compatible API.
+
+    This classifier uses Somoclu to train a 2D SOM grid in an unsupervised
+    fashion and assigns class labels to SOM units by majority vote across labeled training samples.
+    Predictions are computed using the BMU (best-matching unit) for each sample
+    and the majority class associated with that unit.
+
+    The classifier supports:
+        • Unsupervised SOM training
+        • Supervised unit annotation
+        • Class probability estimation
+        • Hyperparameter tuning (via GridSearchCV)
+        • SOM quality metrics (quantization error, topographic error)
+        • Visualization-oriented transformations
+        • Model saving and loading
+
+    Attributes:
+        som_topology (Literal['planar', 'toroid']): SOM grid topology. Defaults to 'planar'.
+        som_grid_type (Literal['rectangular', 'hexagonal']): Grid layout type. Defaults to 'rectangular'.
+        som_dimensions (Tuple[int, int]): Dimensions of the SOM grid (n_columns, n_rows). Defaults to (10, 10).
+        neighborhood (Literal['gaussian', 'bubble']): Neighborhood function type. Defaults to 'gaussian'.
+        gaussian_neighborhood_sigma (float or None): Sigma for Gaussian neighborhood function. Defaults to 1.0.
+        initialization (Literal['random', 'pca']): Codebook initialization method. Defaults to 'pca'.
+        initial_codebook (np.ndarray or None): Custom initialization of SOM weights. Defaults to None.
+        n_epochs (int): Number of SOM training epochs. Defaults to 100.
+        radius_0 (float): Initial neighborhood radius. Negative values are interpreted as fractions of the grid size. Defaults to -0.5.
+        radius_n (float): Final neighborhood radius. Defaults to 1.0.
+        radius_cooling (Literal['linear', 'exponential']): Radius decay schedule. Defaults to 'linear'.
+        learning_rate_0 (float): Initial learning rate. Defaults to 0.1.
+        learning_rate_n (float): Final learning rate. Defaults to 0.01.
+        learning_rate_decay (Literal['linear', 'exponential']): Learning rate decay schedule. Defaults to 'linear'.
+        unlabeled_label (Any): Label indicating unlabeled samples. Defaults to -999.
+        verbosity (int): Logging level. Defaults to 1.
+        som_ (Somoclu): Trained SOM object.
+        is_fitted_ (bool): Whether the model has been fitted.
+        classes_ (np.ndarray | None): Class labels after re-indexing to integers starting from 0.
+        class_counts_ (np.ndarray | None): Class counts from the training data.
+        og_classes_ (np.ndarray | None): Original class labels before re-indexing.
+        class_priors_ (np.ndarray | None): Empirical class priors.
+        som_unit_labels_ (np.ndarray): Majority class per SOM unit.
+        class_counts_per_unit_ (np.ndarray): Class histogram per SOM unit.
+        grid_search_ (GridSearchCV or None): Grid search results if hyperparameter tuning was performed.
+    """
     def __init__(
             self,
             som_topology: Literal['planar', 'toroid'] = 'planar',
@@ -29,7 +73,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             initialization: Literal['random', 'pca'] = 'pca',
             initial_codebook: Union[np.ndarray, None] = None,
             n_epochs: int = 100,
-            radius_0: float = 0.0,
+            radius_0: float = -0.5,
             radius_n: float = 1.0,
             radius_cooling: Literal['linear', 'exponential'] = 'linear',
             learning_rate_0: float = 0.1,
@@ -38,6 +82,27 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             unlabeled_label: Any = -999,
             verbosity: int = 1,
     ):
+        """
+        Initializes the MLPClassifier.
+
+        Parameters:
+            som_topology (Literal['planar', 'toroid']): SOM grid topology. Defaults to 'planar'.
+            som_grid_type (Literal['rectangular', 'hexagonal']): Grid layout type. Defaults to 'rectangular'.
+            som_dimensions (Tuple[int, int]): Dimensions of the SOM grid (n_columns, n_rows). Defaults to (10, 10).
+            neighborhood (Literal['gaussian', 'bubble']): Neighborhood function type. Defaults to 'gaussian'.
+            gaussian_neighborhood_sigma (float or None): Sigma for Gaussian neighborhood function. Defaults to 1.0.
+            initialization (Literal['random', 'pca']): Codebook initialization method. Defaults to 'pca'.
+            initial_codebook (np.ndarray or None): Custom initialization of SOM weights. Defaults to None.
+            n_epochs (int): Number of SOM training epochs. Defaults to 100.
+            radius_0 (float): Initial neighborhood radius. Negative values are interpreted as fractions of the grid size. Defaults to -0.5.
+            radius_n (float): Final neighborhood radius. Defaults to 1.0.
+            radius_cooling (Literal['linear', 'exponential']): Radius decay schedule. Defaults to 'linear'.
+            learning_rate_0 (float): Initial learning rate. Defaults to 0.1.
+            learning_rate_n (float): Final learning rate. Defaults to 0.01.
+            learning_rate_decay (Literal['linear', 'exponential']): Learning rate decay schedule. Defaults to 'linear'.
+            unlabeled_label (Any): Label indicating unlabeled samples. Defaults to -999.
+            verbosity (int): Logging level. Defaults to 1.
+        """
         super().__init__()
         # ### Initialize parameters
         self.som_topology = som_topology
@@ -109,6 +174,20 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             X: np.ndarray,
             y: np.ndarray,
     ) -> Self:
+        """
+        Train the SOM on input data and annotate units if labeled data is provided.
+
+        Args:
+            X (np.ndarray): Training features of shape (n_samples, n_features).
+            y (np.ndarray): Training labels. Unlabeled samples must be marked using `unlabeled_label`.
+
+        Returns:
+            Self: The fitted classifier instance.
+
+        Raises:
+            ValueError: If the feature dimension does not match a previous fit call.
+            UserWarning: If fitting continues from an already-initialized SOM.
+        """
 
         # Check input data format
         X, y = check_X_y(X, y)
@@ -181,6 +260,19 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray
     ) -> np.ndarray:
+        """
+        Predict labels for new samples using the BMU and unit annotations.
+
+        Args:
+            X (np.ndarray): Input feature matrix.
+
+        Returns:
+            np.ndarray: Predicted labels in the original label space.
+
+        Raises:
+            NotFittedError: If the classifier has not been fitted.
+            UserWarning: If units without labels are BMU for some samples.
+        """
 
         # Check whether the SOM classifier was fitted
         check_is_fitted(self, 'is_fitted_')
@@ -222,6 +314,19 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray
     ) -> np.ndarray:
+        """
+        Estimate class probabilities based on the class distribution of the BMU.
+
+        Args:
+            X (np.ndarray): Input feature matrix.
+
+        Returns:
+            np.ndarray: Class probabilities per sample.
+
+        Raises:
+            NotFittedError: If the classifier has not been fitted.
+            UserWarning: If no labeled data was provided.
+        """
         #  Confidence in prediction based on class distribution of events with unit as a bmu
 
         # Check whether the SOM classifier was fitted
@@ -259,6 +364,21 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             X: np.ndarray,
             y: np.ndarray,
     ) -> Self:
+        """
+        Assign class labels to SOM units by computing the majority class
+        among samples for which the respective unit is the BMU.
+
+        Args:
+            X (np.ndarray): Input features for annotation.
+            y (np.ndarray): Labels corresponding to X.
+
+        Returns:
+            Self: Updated classifier instance with unit annotations.
+
+        Raises:
+            RuntimeError: If SOM has not been trained prior to annotation.
+            UserWarning: If some SOM units have no support from labeled samples.
+        """
 
         # Ensure SOM has been trained before annotation
         if not hasattr(self, 'som_') or self.som_ is None:
@@ -342,6 +462,24 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             gridsearchcv_kwargs: Union[Dict, None] = None,
             # 'n_jobs', 'pre_dispatch', 'error_score', 'return_train_score'
     ) -> Self:
+        """
+        Perform hyperparameter optimization using Scikit-learn's GridSearchCV.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y (np.ndarray): Labels.
+            param_grid (dict or None): Hyperparameter search space.
+            cv (int or CrossValidator): Number of folds or cross-validation strategy. Defaults to 5.
+            scoring (str, callable, or None): Scoring metric. If 'internal', macro-F1 is used. Defaults to 'internal'.
+            refit (bool or str or callable): Whether to refit using the best model. Defaults to True.
+            gridsearchcv_kwargs (dict or None): Additional parameters for GridSearchCV. Defaults to None.
+
+        Returns:
+            Self: Classifier with updated best-found parameters.
+
+        Notes:
+            The method updates the instance with GridSearchCV stored in the grid_search_ attribute.
+        """
 
         # Set a default parameter grid if none is provided
         if param_grid is None:
@@ -399,6 +537,17 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             y: np.ndarray,
             sample_weight: Union[np.ndarray, None] = None,
     ):
+        """
+        Compute macro F1 score on the provided data.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y (np.ndarray): True labels.
+            sample_weight (np.ndarray or None): Optional sample weights.
+
+        Returns:
+            float: Macro-averaged F1 score.
+        """
         y_pred = self.predict(X)
         return f1_score(y, y_pred, average='macro', sample_weight=sample_weight)
 
@@ -406,6 +555,15 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
     ):
+        """
+        Compute activation frequencies of each SOM unit on the given data.
+
+        Args:
+            X (np.ndarray): Input features.
+
+        Returns:
+            np.ndarray: Array of shape (som_dim0, som_dim1) with normalized activation counts per unit.
+        """
         # Get BMUs for the data
         bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=X))
 
@@ -426,6 +584,18 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
     ) -> float:
+        """
+        Compute the SOM quantization error.
+
+        Quantization error = mean Euclidean distance between samples and
+        the codebook vector of their BMU.
+
+        Args:
+            X (np.ndarray): Input features.
+
+        Returns:
+            float: Mean quantization error.
+        """
         # Note: mse(x - BMU_vec(x))
 
         # Get BMUs for the data
@@ -443,6 +613,23 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray,
     ) -> float:
+        """
+        Compute the SOM topographic error.
+
+        Topographic error = proportion of samples where the 1st and 2nd BMUs
+        are not adjacent on the SOM grid.
+
+        Args:
+            X (np.ndarray): Input feature matrix.
+
+        Returns:
+            float: Topographic error.
+
+        Raises:
+            NotImplementedError:
+                If SOM topology is not planar rectangular.
+        """
+
         # Note: Count how often the 1st and 2nd BMUs are not adjacent in the trained SOM
         if self.som_topology != 'planar' or self.som_grid_type != 'rectangular':
            raise NotImplementedError(
@@ -461,6 +648,19 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             impurity_measure: Literal['entropy', 'gini'] = 'entropy',
     ) -> np.ndarray:
+
+        """
+        Compute class impurity for each SOM unit.
+
+        Args:
+            impurity_measure (Literal['entropy', 'gini']): Impurity metric.
+
+        Returns:
+            np.ndarray: Impurity per SOM unit.
+
+        Raises:
+            UserWarning: If classifier was trained without labeled data.
+        """
 
         check_is_fitted(self, 'is_fitted_')
 
@@ -497,9 +697,28 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             impurity_measure: Literal['entropy', 'gini'],
     ) -> float:
+        """
+        Compute the mean impurity across all SOM units.
+
+        Args:
+            impurity_measure (Literal['entropy', 'gini']): Impurity metric.
+
+        Returns:
+            float: Mean impurity over all units.
+        """
         return self.unit_impurity(impurity_measure=impurity_measure).mean()
 
     def unpredictable_classes(self) -> np.ndarray:
+        """
+        Identify classes that were seen during training but cannot be predicted
+        because no SOM unit was annotated with those labels.
+
+        Returns:
+            np.ndarray: Array of missing/unpredictable classes.
+
+        Raises:
+            UserWarning: If no labeled data was provided.
+        """
 
         check_is_fitted(self, 'is_fitted_')
 
@@ -532,6 +751,16 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             filename: str = 'som_classifier.pkl',
             filepath: Union[str, None] = None,
     ) -> None:
+        """
+        Save the trained classifier to disk using pickle.
+
+        Args:
+            filename (str): Output filename.
+            filepath (str or None): Directory to save the file. Defaults to CWD.
+
+        Returns:
+            None
+        """
         if filepath is None:
             filepath = os.getcwd()
         with open(os.path.join(filepath, filename), 'wb') as f:
@@ -543,6 +772,16 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             filename: str = 'som_classifier.pkl',
             filepath: Union[str, None] = None,
     ) -> Self:
+        """
+        Load a saved classifier instance from disk.
+
+        Args:
+            filename (str): File to load.
+            filepath (str or None): Directory containing the file.
+
+        Returns:
+            Self: Loaded classifier instance.
+        """
         if filepath is None:
             filepath = os.getcwd()
 
@@ -550,6 +789,13 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             return pickle.load(f)
 
     def reset(self):
+        """
+        Reset the classifier to its untrained state, clearing the trained SOM, class annotations, and metadata.
+
+        Returns:
+            None
+        """
+
         # Initialize all variables associated with a trained SOM classifier
         self._is_fitted = False
         del self.is_fitted_
@@ -713,6 +959,22 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             self,
             X: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Project samples onto the SOM grid and generate visualization-friendly scattered BMU coordinates.
+
+        Args:
+            X (np.ndarray): Input data.
+
+        Returns:
+            Tuple:
+                bmus (np.ndarray): BMU coordinates for each sample.
+                bmus_scattered (np.ndarray): Scattered BMU coordinates for visualization for each sample.
+                som_unit_ids (np.ndarray): Unit ID in row-major format for each sample.
+                radii (np.ndarray): Radius proportional to activation frequency across input data of BMU for each sample.
+
+        Raises:
+            NotFittedError: If the classifier has not been trained.
+        """
 
         check_is_fitted(self, 'is_fitted_')
 
