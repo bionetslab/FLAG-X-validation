@@ -67,11 +67,9 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         super().__init__()
         self.layer_sizes = layer_sizes
         self.n_epochs = n_epochs
-        self.verbosity = verbosity
         self.data_loader_params = data_loader_params
-
         self.device = device
-        self.verbose = verbosity
+        self.verbosity = verbosity
 
         # Set device to default cuda device if available, else cpu
         if self.device is None:
