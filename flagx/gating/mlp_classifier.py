@@ -31,7 +31,7 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         data_loader_params (dict[str, Any] | None): Parameters passed to the PyTorch DataLoader. If None, defaults to ``{'batch_size': 128, 'shuffle': True, 'num_workers': 6}``.
         device (str | None): Device to use for training (e.g., ``'cpu'``, ``'cuda'``, ``'cuda:0'``). If None, CUDA is used when available, otherwise falls back to CPU.
         verbosity (int): Verbosity level for training logs.
-        classes_ (np.ndarray | None): class labels after re-indexing to integers starting from 0.
+        classes_ (np.ndarray | None): Class labels after re-indexing to integers starting from 0.
         class_counts_ (np.ndarray | None): Class counts from the training data.
         og_classes_ (np.ndarray | None): Original class labels before re-indexing.
         class_priors_ (np.ndarray | None): Empirical class priors.
