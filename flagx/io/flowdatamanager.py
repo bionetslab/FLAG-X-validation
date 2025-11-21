@@ -19,6 +19,38 @@ from .flowdataloaders import FlowDataLoaders
 
 
 class FlowDataManager:
+    """
+    Manager class for loading, preprocessing, organizing, and exporting
+    flow cytometry datasets stored as FCS or CSV files.
+
+    The class wraps a complete data-management pipeline for cytometry workflows:
+    - Load raw files into AnnData objects  # Todo: add function references
+    - Inspect sample sizes
+    - Check class balance
+    - Relabel datasets
+    - Align channel names across samples
+    - Normalize/transform channels
+    - Perform train/val/test splitting
+    - Downsample samples (optional stratification)
+    - Create PyTorch/NumPy dataloaders
+    - Export datasets to disk
+
+    Parameters:
+            data_file_names (List[str]): List of input filenames to load.
+            data_file_type (Literal['fcs', 'csv'] or None): Type of input files. If None, inferred from extension of the first file.
+            data_file_path (str or None): Directory containing the raw files. Defaults to CWD.
+            save_path (str or None): Output directory for any exported files. Defaults to CWD.
+            verbosity (int): Logging level. 0: silent, 1: warnings, 2+: info/debug.
+
+    Attributes:
+        invalid_files_ (list or None): Filenames skipped due to incompatible type.
+        anndata_list_ (list or None): List of loaded AnnData objects.
+        sample_sizes_ (pd.DataFrame or None): Summary of sample sizes.
+        og_channel_names_ (pd.DataFrame or None): Original channel names per file before alignment.
+        train_data_ (list or None): Train split as a list of AnnData objects.
+        val_data_ (list or None): Validation split as a list of AnnData objects.
+        test_data_ (list or None): Test split as a list of AnnData objects.
+    """
     def __init__(
             self,
             data_file_names: List[str],
@@ -27,6 +59,16 @@ class FlowDataManager:
             save_path: Union[str, None] = None,
             verbosity: int = 1,  # 0 = silent, 1 = warnings, 2 = info
     ):
+        """
+        Initializes the FlowDataManager.
+
+        Parameters:
+            data_file_names (List[str]): List of input filenames to load.
+            data_file_type (Literal['fcs', 'csv'] or None): Type of input files. If None, inferred from extension of the first file.
+            data_file_path (str or None): Directory containing the raw files. Defaults to CWD.
+            save_path (str or None): Output directory for any exported files. Defaults to CWD.
+            verbosity (int): Logging level. 0: silent, 1: warnings, 2+: info/debug.
+        """
         # ### Check input format
         if not isinstance(data_file_names, list) or any(not isinstance(x, str) for x in data_file_names):
             raise TypeError("'data_file_names' must be a list of strings")
@@ -118,7 +160,19 @@ class FlowDataManager:
 
     # ### load_data_files_to_anndata() #################################################################################
     def load_data_files_to_anndata(self) -> None:
+        """
+        Load all provided data files into AnnData objects.
 
+        FCS files are read using `pytometry`, and CSV files are read with pandas
+        before being wrapped into AnnData. Invalid files are skipped and recorded.
+
+        Raises:
+            ValueError: If file type cannot be inferred for the first file.
+            UserWarning: When skipping incompatible file types.
+
+        Returns:
+            None
+        """
         # Note: Fcd data is stored as float32 according to the Flow Cytometry Standard
         # - read_fcs() loads as float32
         # - read in .csv also as float32
@@ -177,6 +231,16 @@ class FlowDataManager:
             self,
             filename_sample_sizes_df: Union[str, None] = None,
     ):
+        """
+        Compute and optionally save a summary table with the number of events
+        per dataset.
+
+        Args:
+            filename_sample_sizes_df (str or None): If provided, the summary dataframe is saved to this filename inside `save_path`.
+
+        Returns:
+            None: Results stored in `sample_sizes_`.
+        """
         self.sample_sizes_ = FlowDataManager.check_sample_sizes_worker(
             data_list=self.anndata_list_,
             save_path=self._save_path,
@@ -229,6 +293,17 @@ class FlowDataManager:
             dpi: int = 100,
             ax: Union[plt.Axes, None] = None,
     ) -> plt.Axes:
+        """
+        Plot a bar chart of sample sizes from a summary dataframe.
+
+        Args:
+            sample_size_df (pd.DataFrame): Output of `check_sample_sizes_worker`.
+            dpi (int): Plot resolution if a new figure is created.
+            ax (matplotlib.axes.Axes or None): Existing axes to plot into, or None to create new axes.
+
+        Returns:
+            matplotlib.axes.Axes: Axes containing the bar plot.
+        """
         if ax is None:
             fig, ax = plt.subplots(dpi=dpi)
 
@@ -265,6 +340,24 @@ class FlowDataManager:
             reference_channel_names: Union[int, dict, None] = None,
             filename_log_df: Union[str, None] = None,
     ) -> None:
+        """
+        Harmonize channel names across all samples by using a reference sample
+        or a user-provided mapping.
+
+        Channel names from each file are aligned so that all datasets have
+        identical `var_names`. A log dataframe is stored to allow inspection of
+        original channel names.
+
+        Args:
+            reference_channel_names (int, dict, or None):
+                • int: index of the reference AnnData in `anndata_list_`.
+                • dict: mapping {old_name: new_name}.
+                • None: use the first sample as reference.
+            filename_log_df (str or None): Filename to save the channel-name log dataframe. If None, no file is saved.
+
+        Returns:
+            None: Log dataframe stored in `og_channel_names_`.
+        """
         log_df = FlowDataManager.align_channel_names_worker(
             data_list=self.anndata_list_,  # Work on anndata_list
             reference=reference_channel_names,  # Int = idx of anndata_list or dict: {og_cn: new_cn}, None = 1st entry of list as reference
@@ -349,6 +442,15 @@ class FlowDataManager:
         return adata, log_df
 
     def check_og_channel_names_df(self) -> None:
+        """
+        Validate consistency of original channel names before alignment.
+
+        Checks whether each channel index had identical names across all samples.
+        If inconsistencies are found, a warning is emitted.
+
+        Returns:
+            None
+        """
         FlowDataManager.check_og_channel_names_df_worker(
             og_channel_names=self.og_channel_names_,
             verbosity=self.verbosity
@@ -382,6 +484,35 @@ class FlowDataManager:
             save_raw_to_layer: Union[str, None] = None,
             **kwargs
     ) -> None:
+        """
+        Applies a per-sample preprocessing transformation to all AnnData objects.
+
+        This method supports common cytometry transformations such as
+        arcsinh, logicle, and biexponential scaling. Log10-based transformations
+        require user-specified cutoffs, and fully custom preprocessing functions
+        may also be supplied. For detailed documentation of the built-in
+        transformation functions and their arguments, see:
+        https://pytometry.netlify.app/api.
+
+        Args:
+            flavour (Literal['logicle', 'arcsinh', 'biexp', 'log10_w_cutoff', 'log10_w_custom_cutoffs', 'custom']):
+                The transformation type to apply. Options:
+                - `'logicle'`, `'arcsinh'`, `'biexp'`: Apply the corresponding
+                  cytometry scaling function. Parameters (e.g. cofactor of arcsinh) can be set via kwargs.
+                - `'log10_w_cutoff'`: Requires a `cutoff` (float) passed via kwargs.
+                - `'log10_w_custom_cutoffs'`: Requires `cutoffs` (dict mapping channel names to cutoff values) passed via kwargs.
+                - `'custom'`: Expects a user-defined preprocessing callable passed as `preprocessing_method` via kwargs. The callable must modify the AnnData object in place.
+
+            save_raw_to_layer (str or None):
+                If provided, the raw (untransformed) data matrix of each AnnData object will be saved under `adata.layers[save_raw_to_layer]` before transformation.
+
+            **kwargs:
+                Additional arguments forwarded to the selected transformation function or to the custom preprocessing callable.
+
+        Returns:
+            None: The transformation is performed in place on each AnnData object.
+        """
+
         FlowDataManager.sample_wise_preprocessing_worker(
             data_list=self.anndata_list_,
             flavour=flavour,
@@ -445,6 +576,16 @@ class FlowDataManager:
 
     @staticmethod
     def log10_w_cutoff(adata: sc.AnnData, cutoff: float = 100):
+        """
+        Apply a log10 transform to values above a cutoff and clamp smaller values.
+
+        Args:
+            adata (AnnData): Input AnnData object. Transformation is applied inplace.
+            cutoff (float): Minimum value for the transform. Values ≤ cutoff are set to log10(cutoff).
+
+        Returns:
+            None
+        """
         x = adata.X
         x = np.log10(x, out=np.full(x.shape, np.log(cutoff), dtype=float), where=(x > cutoff))
         adata.X = x
@@ -454,6 +595,16 @@ class FlowDataManager:
             adata: sc.AnnData,
             cutoffs: Dict[str, int],
     ):
+        """
+        Apply per-channel log10 transforms using custom cutoffs.
+
+        Args:
+            adata (AnnData): Input AnnData object modified inplace.
+            cutoffs (dict): Mapping {channel_name: cutoff}. Values above the cutoff are log10-transformed; values below are clamped to log10(cutoff).
+
+        Returns:
+            None
+        """
         x = adata.X.copy()
         for channel, cutoff in cutoffs.items():
             col_idx = np.where(adata.var_names == channel)[0][0]
@@ -472,6 +623,21 @@ class FlowDataManager:
             filename_data_split: Union[str, None] = None,
             **kwargs,
     ) -> None:
+        """
+        Split the dataset into train-test- or train-validation-test-sets.
+
+        Splitting can be done in two ways:
+            • By providing fractions (e.g., (0.7, 0.2, 0.1))
+            • By passing a saved dataframe specifying each sample's assignment
+
+        Args:
+            data_split (tuple or pd.DataFrame): Fractions for train/(val)/test or a dataframe with columns `'filename'` and `'mode'`.
+            filename_data_split (str or None): If provided, the split assignment is saved to this CSV inside `save_path`.
+            **kwargs: Additional parameters passed to Sklearns's `train_test_split` such as `random_state`, `shuffle`, or `stratify`.
+
+        Returns:
+            None: Results stored in `train_data_`, `val_data_`, and `test_data_`.
+        """
 
         dummy_data_split = FlowDataManager.perform_data_split_worker(
             data_list=self.anndata_list_,
@@ -665,6 +831,23 @@ class FlowDataManager:
             # .obs key or varname or var index, if none is passed -> just data
             label_layer_key: Union[str, None] = None,
     ) -> None:
+        """
+        Downsample each sample in the specified dataset.
+
+        Downsampling may be:
+            • Uniform random (no stratification)
+            • Stratified by class labels (requires `label_key`)
+
+        Args:
+            data_set (Literal['train', 'val', 'test', 'all']): Which subset to downsample.
+            target_num_events (int or float): If ≥1: absolute number of events to retain. If <1: fraction of events to retain.
+            stratified (bool): Whether to preserve class proportions via stratified sampling.
+            label_key (int, str, or None): Label column for stratification (X column index, var name, or obs key).
+            label_layer_key (str or None): Layer name if labels are stored in a layer instead of `.X`.
+
+        Returns:
+            None
+        """
 
         if data_set == 'all':
             data_list = self.anndata_list_
@@ -809,6 +992,18 @@ class FlowDataManager:
             label_layer_key: Union[str, None] = None,
             filename_class_balance_df: Union[str, None] = None,
     ) -> Union[pd.DataFrame, None]:
+        """
+        Compute class frequency and counts for a dataset subset.
+
+        Args:
+            data_set (Literal['train', 'val', 'test', 'all']): Subset to analyze.
+            label_key (int or str): Location of labels (X column index, var name, or obs key).
+            label_layer_key (str or None): Layer key if labels are stored in a layer.
+            filename_class_balance_df (str or None): Optional output file for saving the class-balance dataframe.
+
+        Returns:
+            pd.DataFrame or None: Dataframe with columns 'count' and 'fraction' and labels in index. None if the specified subset does not exist.
+        """
 
         if data_set == 'all':
             data_list = self.anndata_list_
@@ -891,6 +1086,17 @@ class FlowDataManager:
             dpi: int = 100,
             ax: Union[plt.Axes, None] = None,
     ) -> plt.Axes:
+        """
+        Plot absolute and relative class frequencies as a bar chart.
+
+        Args:
+            class_balance_df (pd.DataFrame): Output from `check_class_balance` containing 'count' and 'fraction' and labels in index.
+            dpi (int): Resolution of the figure when creating a new plot.
+            ax (Axes or None): Matplotlib axis to plot into. Creates a new figure if None.
+
+        Returns:
+            matplotlib.axes.Axes: The axis containing the plot.
+        """
         if ax is None:
             fig, ax = plt.subplots(dpi=dpi)
 
@@ -942,6 +1148,29 @@ class FlowDataManager:
             filename_np: Union[str, None] = None,  # Filename of numpy data file if 'on_disk' is True
             **kwargs,
     ) -> Union[DataLoader, None]:
+        """
+        Construct a dataloader for the selected dataset split.
+
+        This method concatenates samples, extracts requested channels, appends labels
+        (optional), and returns a PyTorch dataloader that returns either PyTorch Tensors or Numpy arrays.
+
+        Args:
+            data_set (Literal['train', 'val', 'test', 'all']): Subset from which to load data.
+            channels (list[int] or list[str] or None): Which channels (features) to extract. Defaults to all channels.
+            layer_key (str or None): Layer key if data should come from a layer instead of `.X`.
+            label_key (int, str, or None): Location of labels: X column index, var name, or obs key. If None, no labels are added.
+            label_layer_key (str or None): Layer key if labels are stored in a layer instead of `.X`.
+            batch_size (int): Batch size. -1 loads all data at once.
+            shuffle (bool): Whether to shuffle samples each epoch.
+            return_data_loader (Literal['np_array', 'torch_tensor']): Output format of the dataloader.
+            on_disk (bool): If True, data is first saved to disk as a .npy file and loaded lazily in memory-mapped mode.
+            filename_np (str or None): Filename for on-disk storage when `on_disk=True`.
+            **kwargs: Additional arguments forwarded to `FlowDataLoaders` and in term PyTorch DataLoader.
+
+        Returns:
+            DataLoader or None:
+                The prepared dataloader, or None if the chosen subset is unavailable.
+        """
 
         if data_set == 'all':
             data_list = self.anndata_list_
@@ -1166,6 +1395,27 @@ class FlowDataManager:
             shuffle: bool = True,
             precision: Literal['16bit', '32bit', '64bit'] = '32bit',
     ):
+        """
+        Export data to .npy files in either combined or per-sample format.
+
+        The exported data matrices may optionally include labels and may be stored
+        with user-selected numeric precision. Files are placed in `save_path`.
+
+        Args:
+            data_set (Literal['train', 'val', 'test', 'all']): Which subset to export.
+            sample_wise (bool): If False: save all data as a single matrix. If True: save one file per sample.
+            save_path (str or None): Output directory. Defaults to the manager's `save_path`.
+            filename_suffix (str or None): Optional suffix appended to output filenames.
+            channels (list[int] or list[str] or None): Channels to export; defaults to all.
+            layer_key (str or None): Which layer to export; defaults to `.X`.
+            label_key (int, str, or None): If provided, labels are appended or saved separately.
+            label_layer_key (str or None): Layer containing labels, if not `.X`.
+            shuffle (bool): Whether to shuffle events before saving.
+            precision (Literal['16bit', '32bit', '64bit']): Numeric precision for output arrays.
+
+        Returns:
+            None
+        """
 
         if data_set == 'all':
             data_list = self.anndata_list_
@@ -1318,6 +1568,22 @@ class FlowDataManager:
             label_layer_key: Union[str, None] = None,
             new_label_key: str = 'new_labels',  # New labels always added to .obs, this way no conflict with prepr
     ) -> None:
+        """
+        Apply a mapping from old to new labels for all samples in a dataset.
+
+        The new labels are always written to `.obs[new_label_key]` to avoid
+        interference with existing preprocessing, layers, or var-based labels.
+
+        Args:
+            data_set (Literal['train', 'val', 'test', 'all']): Which data subset to relabel.
+            old_to_new_label_mapping (dict): Dictionary mapping old labels to new labels.
+            label_key (int or str): Location of original labels (X column index, var name, or obs key).
+            label_layer_key (str or None): If labels are stored in a layer instead of `.X`.
+            new_label_key (str): Name of the new label field added to `.obs`.
+
+        Returns:
+            None
+        """
 
         if data_set == 'all':
             data_list = self.anndata_list_
