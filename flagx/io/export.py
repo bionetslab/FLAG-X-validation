@@ -20,6 +20,42 @@ def export_to_fcs(
         save_path: Union[str, None] = None,
         save_filenames: Union[str, List[str], None] = None,
 ):
+    """
+    Export one or multiple AnnData objects to FCS files.
+
+    This function converts the `.X` matrix or a specified layer of each AnnData
+    object into FCS-compatible numeric event tables, optionally adds user-provided
+    columns, scales selected columns to a defined numeric range, and writes the
+    result to FCS 3.1 files using `flowio`.
+
+    Export can be performed **sample-wise** (one FCS per AnnData) or as a single
+    **concatenated** FCS containing all samples.
+
+    Args:
+        data_list (List[AnnData]): List of AnnData objects to export.
+        layer_key (str or None): Name of the AnnData layer to use instead of `adata.X`. If `None`, the `.X` matrix is used.
+        sample_wise (bool): If `True`, each AnnData object is exported to its own FCS file. If `False`, all samples are concatenated into a single FCS file.
+        add_columns (List[List[np.ndarray]] or None): Optional list of lists, where `add_columns[i]` contains one additional column per sample. Each inner list must have the same length as `data_list`. Columns are appended to the exported DataFrame(s). Example shape for sample-wise export: ``add_columns = [[col_for_sample0, col_for_sample1, ...], [...], ...]``
+        add_columns_names (List[str] or None): Names corresponding to each entry in `add_columns`. Must have the same length as `add_columns`.
+        scale_columns (List[str] or None): Column names to rescale into `val_range`. Scaling is either sample-specific (`sample_wise=True`) or global across all samples.
+        val_range (Tuple[float, float]): Minimum and maximum allowed values in the FCS file. Scaled columns are mapped to this numeric range (with a 5% margin removed at both ends to avoid boundary clipping). Defaults to (0.0, 2**20).
+        keep_unscaled (bool): If `True`, a copy of each scaled column is stored with suffix `"_unscaled"` before transformation.
+        save_path (str or None): Directory in which the FCS files will be written.
+        save_filenames (str or List[str] or None): Output filename(s). If sample-wise, list of filenames. If concatenated, a single filename. If `None`, default names are generated.
+
+    Raises:
+        ValueError: If `add_columns` and `add_columns_names` do not match in length, or if `add_columns` is supplied without column names.
+
+    Outputs:
+        - One or multiple `.fcs` files written to `save_path`.
+        - If `sample_wise=False`, also writes `filenames_and_sample_id.csv` containing sample name to ID mapping.
+
+    Notes:
+        - When `sample_wise=False`, a `sample_id` column is automatically added unless already present.
+        - Column scaling is linear, either per sample or global across all samples.
+        - FCS metadata fields `PnR` are set according to `val_range`.
+    """
+
     if add_columns is not None and add_columns_names is None:
         raise ValueError("'add_columns_names' must not be None if 'add_columns' is not None")
 
