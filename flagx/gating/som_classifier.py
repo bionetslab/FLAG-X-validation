@@ -55,10 +55,10 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
         verbosity (int): Logging level. Defaults to 1.
         som_ (Somoclu): Trained SOM object.
         is_fitted_ (bool): Whether the model has been fitted.
-        classes_ (np.ndarray | None): Class labels after re-indexing to integers starting from 0.
-        class_counts_ (np.ndarray | None): Class counts from the training data.
-        og_classes_ (np.ndarray | None): Original class labels before re-indexing.
-        class_priors_ (np.ndarray | None): Empirical class priors.
+        classes_ (np.ndarray or None): Class labels after re-indexing to integers starting from 0.
+        class_counts_ (np.ndarray or None): Class counts from the training data.
+        og_classes_ (np.ndarray or None): Original class labels before re-indexing.
+        class_priors_ (np.ndarray or None): Empirical class priors.
         som_unit_labels_ (np.ndarray): Majority class per SOM unit.
         class_counts_per_unit_ (np.ndarray): Class histogram per SOM unit.
         grid_search_ (GridSearchCV or None): Grid search results if hyperparameter tuning was performed.
@@ -83,7 +83,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             verbosity: int = 1,
     ):
         """
-        Initializes the MLPClassifier.
+        Initializes the SomCit lassifier.
 
         Parameters:
             som_topology (Literal['planar', 'toroid']): SOM grid topology. Defaults to 'planar'.
@@ -470,7 +470,7 @@ class SomClassifier(BaseEstimator, ClassifierMixin):
             y (np.ndarray): Labels.
             param_grid (dict or None): Hyperparameter search space.
             cv (int or CrossValidator): Number of folds or cross-validation strategy. Defaults to 5.
-            scoring (str, callable, or None): Scoring metric. If 'internal', macro-F1 is used. Defaults to 'internal'.
+            scoring (str or callable or None): Scoring metric. If 'internal', macro-F1 is used. Defaults to 'internal'.
             refit (bool or str or callable): Whether to refit using the best model. Defaults to True.
             gridsearchcv_kwargs (dict or None): Additional parameters for GridSearchCV. Defaults to None.
 

@@ -28,21 +28,21 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
     Attributes:
         layer_sizes (Tuple[int, int, int]): Sizes of the hidden layers in the fully connected neural network.
         n_epochs (int): Number of training epochs.
-        data_loader_params (dict[str, Any] | None): Parameters passed to the PyTorch DataLoader. If None, defaults to ``{'batch_size': 128, 'shuffle': True, 'num_workers': 6}``.
-        device (str | None): Device to use for training (e.g., ``'cpu'``, ``'cuda'``, ``'cuda:0'``). If None, CUDA is used when available, otherwise falls back to CPU.
+        data_loader_params (dict[str, Any] or None): Parameters passed to the PyTorch DataLoader. If None, defaults to ``{'batch_size': 128, 'shuffle': True, 'num_workers': 6}``.
+        device (str or None): Device to use for training (e.g., ``'cpu'``, ``'cuda'``, ``'cuda:0'``). If None, CUDA is used when available, otherwise falls back to CPU.
         verbosity (int): Verbosity level for training logs.
-        classes_ (np.ndarray | None): Class labels after re-indexing to integers starting from 0.
-        class_counts_ (np.ndarray | None): Class counts from the training data.
-        og_classes_ (np.ndarray | None): Original class labels before re-indexing.
-        class_priors_ (np.ndarray | None): Empirical class priors.
-        new_to_og_classes_dict_ (dict[int, Any] | None): Mapping from new integer labels back to original labels.
-        data_set_ (TensorDataset | None): PyTorch tensor dataset constructed during fitting.
-        data_loader_ (DataLoader | None): PyTorch DataLoader used for minibatch training.
-        model_ (nn.Module | None): Neural network model.
-        criterion_ (nn.Module | None): Loss function, PyTorch CrossEntropyLoss.
-        optimizer_ (Optimizer | None): PyTorch Adam optimizer with learning rate 0.001.
-        losses_ (list[float] | None): Training loss per epoch.
-        n_corrects_ (list[int] | None): Number of correct predictions on the training data per epoch.
+        classes_ (np.ndarray or None): Class labels after re-indexing to integers starting from 0.
+        class_counts_ (np.ndarray or None): Class counts from the training data.
+        og_classes_ (np.ndarray or None): Original class labels before re-indexing.
+        class_priors_ (np.ndarray or None): Empirical class priors.
+        new_to_og_classes_dict_ (dict[int, Any] or None): Mapping from new integer labels back to original labels.
+        data_set_ (TensorDataset or None): PyTorch tensor dataset constructed during fitting.
+        data_loader_ (DataLoader or None): PyTorch DataLoader used for minibatch training.
+        model_ (nn.Module or None): Neural network model.
+        criterion_ (nn.Module or None): Loss function, PyTorch CrossEntropyLoss.
+        optimizer_ (Optimizer or None): PyTorch Adam optimizer with learning rate 0.001.
+        losses_ (list[float] or None): Training loss per epoch.
+        n_corrects_ (list[int] or None): Number of correct predictions on the training data per epoch.
         is_fitted_ (bool): Whether the classifier has been fitted.
     """
     def __init__(
@@ -59,8 +59,8 @@ class MLPClassifier(BaseEstimator, ClassifierMixin):
         Args:
             layer_sizes (Tuple[int, int, int]): Sizes of the hidden layers in the fully connected neural network.
             n_epochs (int): Number of training epochs.
-            data_loader_params (dict[str, Any] | None): Parameters passed to the PyTorch DataLoader. If None, defaults to ``{'batch_size': 128, 'shuffle': True, 'num_workers': 6}``.
-            device (str | None): Device to use for training (e.g., ``'cpu'``, ``'cuda'``, ``'cuda:0'``). If None, CUDA is used when available, otherwise falls back to CPU.
+            data_loader_params (dict[str, Any] or None): Parameters passed to the PyTorch DataLoader. If None, defaults to ``{'batch_size': 128, 'shuffle': True, 'num_workers': 6}``.
+            device (str or None): Device to use for training (e.g., ``'cpu'``, ``'cuda'``, ``'cuda:0'``). If None, CUDA is used when available, otherwise falls back to CPU.
             verbosity (int): Verbosity level for training logs.
         """
 
