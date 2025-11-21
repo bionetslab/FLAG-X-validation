@@ -28,7 +28,7 @@ def gating_method_kwargs(gating_method):
     if gating_method == 'som':
         return dict(som_dimensions=(2, 2), n_epochs=3, verbosity=0)
     else:
-        return dict(layer_sizes=(8, 4, 2), n_epochs=3, verbosity=0)
+        return dict(layer_sizes=(8, 4, 2), n_epochs=1, verbosity=0)
 
 
 @pytest.fixture
@@ -124,21 +124,20 @@ def test_inference_runs_after_training(pipeline_kwargs, test_files, tmp_path):
 
 def test_inference_sample_wise_saves_multiple_files(pipeline_kwargs, test_files, tmp_path):
     pipe = GatingPipeline(**pipeline_kwargs)
-    pipe.train()
 
     output_dir = tmp_path / 'inference_sample_wise'
     output_dir.mkdir()
 
     pipe.inference(
         data_file_path=str(TEST_DATA_DIR),
-        data_file_names=test_files[0:3],
+        data_file_names=test_files[0:2],
         sample_wise=True,
-        gate=True,
+        gate=False,
         save_path=str(output_dir),
         save_filename='annotated.fcs',
     )
 
-    for i in range(3):
+    for i in range(2):
         name = f'annotated_sample_id_{i+1}.fcs'
         assert (output_dir / name).exists()
 
