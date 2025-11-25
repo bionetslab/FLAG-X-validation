@@ -1,0 +1,33 @@
+
+# python -m flagx.cli load-infer-save --config ./configs/load_infer_save_som_config.yml
+
+# Where to load trained pipeline from
+load_dir_pipeline: "./results/test_cli/som"
+filename_pipeline: "gating_pipeline_som_trained.pkl"
+
+# Where to load data from
+data_file_path: "./data/raw/test"
+data_file_names:
+  - "20150210-1 Facslysing FacsLysing 16-56-3-4-19-14-8-45 00019652 001.fcs"
+  - "ER_000000_H1_150305_ED.fcs"
+
+# Where to save annotated data to
+save_dir_inference: "./results/test_cli/som/inference"
+filename_inference: "annotated_test_data.fcs"
+
+# Parameters of the pipeline's inference() function
+sample_wise: true  # Save back into individual files
+gate: true
+dim_red_methods: ["som", "umap", "pca"]
+dim_red_method_kwargs:
+  - null
+  - n_neighbors: 20
+    n_jobs: 8
+  - null
+
+scale_channels:
+  - population
+  - Time
+val_range: [0.0, 1048576.0]
+keep_unscaled: true
+
