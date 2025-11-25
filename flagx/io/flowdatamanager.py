@@ -24,16 +24,16 @@ class FlowDataManager:
     flow cytometry datasets stored as FCS or CSV files.
 
     The class wraps a complete data-management pipeline for cytometry workflows:
-    - Load raw files into AnnData objects  # Todo: add function references
-    - Inspect sample sizes
-    - Check class balance
-    - Relabel datasets
-    - Align channel names across samples
-    - Normalize/transform channels
-    - Perform train/val/test splitting
-    - Downsample samples (optional stratification)
-    - Create PyTorch/NumPy dataloaders
-    - Export datasets to disk
+    - Load raw files into AnnData objects: load_data_files_to_anndata()
+    - Inspect sample sizes: check_sample_sizes(), plot_sample_size_df()
+    - Check class balance: check_class_balance(), plot_class_balance_df(
+    - Relabel datasets: relabel_data()
+    - Align channel names across samples: align_channel_names(), check_og_channel_names_df()
+    - Normalize/transform channels: sample_wise_preprocessing()
+    - Perform train/val/test splitting: perform_data_split()
+    - Downsample samples (optional stratification): sample_wise_downsampling()
+    - Create PyTorch/NumPy dataloaders: get_data_loader()
+    - Export datasets to disk: save_to_numpy_files()
 
     Parameters:
             data_file_names (List[str]): List of input filenames to load.
