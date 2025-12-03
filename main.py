@@ -3,10 +3,8 @@
 def main_data_processing():
     """
     Script for loading the .fcs files of the datasets, perform data split on sample level,
-    preprocess/apply transformation, subset to selected channels, save resulting data matrices to .npy files.
-    Additionally:
-     - Save data from all samples concatenated in one matrix.
-     - Downsample (stratified per sample) and save sample-wise and concatenated data matrices.
+    apply transformation, subset to channels chosen for model training, save resulting data matrices to .npy files.
+    Additionally, save data from training and test samples respectively concatenated in one matrix.
 
     Returns:
         None
@@ -348,15 +346,14 @@ def main_data_processing():
 
 def main_som_parameter_influence_study():
     """
-    Script for running parameter-wise hyperparameter tuning on the
-    immune status dataset. Its purpose is to determine whether the
-    individual parameters have an influence on the SOM classifier's
-    performance and, if so, get an intuition of the magnitude.
+    Script for running parameter-wise hyperparameter tuning on the immune status dataset.
+    Its purpose is to determine the influence of individual parameters on the SOM classifier's performance
+    and get an intuition of the magnitude.
     The workflow is as follows:
         - Preprocessed data is loaded.
-        - Data is downsampled for faster training.
-        - k-fold cross validation is performed.
-        - Results are printed and plotted.
+        - Training data is downsampled to 10% of all events for faster training.
+        - 3-fold cross validation is performed.
+        - Results are saved and plotted.
 
     Note: Analysis should be run for n_epochs first to set a sensible value for all other analyses.
 
@@ -587,9 +584,9 @@ def main_som_parameter_tuning():
     """
     Script for running hyperparameter tuning on the immune status dataset. The workflow is as follows:
         - Preprocessed data is loaded.
-        - Data is downsampled for faster training.
+        - Data is downsampled to 10% of all events for faster training.
         - Data is split into train and val.
-        - Results are printed.
+        - Results are printed and saved.
 
     The following flags are defined in the header and can be adjusted as needed:
     - inference (bool), whether to do the training or just load and print previously generated results.
@@ -739,17 +736,17 @@ def main_som_parameter_tuning():
 
 def main_som_n_epochs_calibration():
     """
-    Script for finding the optimal number of epochs tp train for given a set of optimized parameters.
+    Script for finding the optimal number of epochs to train for given a set of optimized parameters.
     The workflow is as follows:
         - Preprocessed data is loaded.
         - Data is split into train and val. (No downsampling!)
-        - Results are printed.
+        - Results are printed and saved.
 
     The following flags are defined in the header and can be adjusted as needed:
-    - inference (bool), whether to do the training or just load and print previously generated results.
-    - random_seed (int)
-    - val_frac (float), relative size of the validation set
-    - n_epochs (int)
+        - inference (bool), whether to do the training or just load and print previously generated results.
+        - random_seed (int)
+        - val_frac (float), relative size of the validation set
+        - n_epochs (int)
 
     Returns:
         None
@@ -858,6 +855,22 @@ def main_som_n_epochs_calibration():
 
 
 def main_som_classifier():
+    """
+    Runs training, prediction, and evaluation for the SOM classifier across multiple datasets.
+
+    This script loads preprocessed data, trains the SOM classifier with previously optimized parameters,
+    performs sample-wise and concatenated predictions, computes evaluation metrics,
+    tracks runtime performance, and stores all outputs in the results directory.
+    The function supports HPC and local file paths and handles automatic loading of
+    existing models and predictions when fitting or prediction is disabled.
+
+    Saves:
+        - Trained SOM classifier
+        - Runtime statistics.
+        - Predictions (full test set and sample-wise).
+        - Evaluation metrics (average, class-wise, sample-wise).
+        - Confusion matrices and abstention counts.
+    """
 
     import os
     import numpy as np
@@ -1044,6 +1057,23 @@ def main_som_classifier():
 
 
 def main_gatemeclass():
+    """
+    Runs training, prediction, and evaluation for the GateMeClass classifier across multiple datasets.
+
+    This script loads preprocessed data, trains the GMC classifier,
+    performs both concatenated and sample-wise predictions, computes evaluation metrics,
+    tracks runtime performance, tracks errors at the training or inference stage, and stores all outputs in the results directory.
+    It supports HPC and local file paths and includes error handling for failed fits or predictions,
+    logging all encountered issues for later inspection.
+
+    Saves:
+        - Trained GMC classifier.
+        - Runtime statistics.
+        - Predictions (full test set and sample-wise).
+        - Evaluation metrics (average, class-wise, sample-wise).
+        - Confusion matrices and abstention counts (if enabled).
+        - Error logs for failed fits or predictions.
+    """
 
     import os
     import numpy as np
@@ -1329,6 +1359,23 @@ def main_gatemeclass():
 
 
 def main_dgcytof():
+    """
+    Runs training, prediction, and evaluation for the DGCytof classifier across multiple datasets.
+
+    This script loads preprocessed data, trains the DGCytof classifier,
+    performs sample-wise predictions, computes evaluation metrics, tracks runtime performance, tracks errors,
+    and stores all outputs in the results directory. It supports HPC and local file paths and
+    includes extensive error handling for failed training or prediction steps, logging all issues
+    for later inspection.
+
+    Saves:
+        - Trained DGCytof classifier.
+        - Runtime statistics.
+        - Sample-wise predictions.
+        - Evaluation metrics (average, class-wise, sample-wise).
+        - Confusion matrices and abstention counts.
+        - Error logs for failed fits or predictions.
+    """
 
     import os
     import numpy as np
@@ -1573,6 +1620,24 @@ def main_dgcytof():
 
 
 def main_fcnn():
+    """
+    Runs training, prediction, and evaluation for the MLP classifier across multiple datasets.
+
+    This script loads preprocessed data, trains the MLP-based classifier using predefined
+    parameters, performs both concatenated and sample-wise predictions, computes evaluation
+    metrics, tracks runtime performance, and stores all outputs in the results directory.
+    It supports HPC and local file paths and automatically loads existing models and
+    predictions when fitting or prediction is disabled.
+
+    Saves:
+        - Trained FCNN classifier.
+        - Runtime statistics.
+        - Predictions (full test set and sample-wise).
+        - Evaluation metrics (average, class-wise, sample-wise).
+        - Confusion matrices.
+    """
+
+
     import os
     import numpy as np
     import pandas as pd
@@ -1742,6 +1807,34 @@ def main_fcnn():
 
 
 def main_num_samples_num_events_experiment():
+    """
+    Runs the core num-samples / num-events experiment for a given classifier.
+
+    This helper function trains a classifier on varying numbers of samples and events,
+    evaluates its performance, and stores detailed results for each configuration.
+    For every combination of (n_samples, n_events), the function loads the corresponding
+    training samples, downsamples events per sample, fits a fresh classifier instance,
+    performs predictions, computes evaluation metrics, and tracks runtime performance.
+    Results are structured into a grid of metrics which can later be aggregated or visualized.
+
+    Flags:
+        - data_set: Dataset on which to run the experiment.
+        - classifier: Chooses 'som' or 'fcnn'.
+        - inference: Whether to do the training or just load and print previously generated results.
+        - preprocessing_trafo: Transformation applied to the input features.
+
+    Saves:
+        - Trained classifier for each (n_samples, n_events) setting.
+        - Runtime statistics (fit and prediction).
+        - Predictions (full test set and sample-wise).
+        - Evaluation metrics:
+            * Average, class-wise, and confusion matrices.
+            * Sample-wise precision, recall, F1.
+            * Abstention counts (if enabled).
+        - Summary metric grids (`res_df_*_*.csv`) across all settings.
+        - Confusion matrices for each test sample.
+    """
+
     import os
     import numpy as np
     import pandas as pd
@@ -1869,6 +1962,27 @@ def main_num_samples_num_events_experiment():
 
 
 def main_random_sample_order_trials():
+    """
+    Runs repeated random-sample-order training trials to estimate classifier performance with randomly ordered samples.
+
+    For each trial, a random subset of training samples is drawn, incrementally enlarged, and used
+    to train either a SOM or FCNN classifier. Each model is evaluated sample-wise on the test set,
+    and precision, recall, and F1 metrics (micro, macro, weighted, and binary if applicable) are
+    recorded across all configurations.
+
+    Flags:
+        - data_set: Dataset on which to run the experiment.
+        - classifier: Chooses 'som' or 'fcnn'.
+        - max_n_samples: Maximum number of training samples per trial.
+        - n_trials: Number of random sample-order trials.
+        - preprocessing_trafo: Transformation applied to the input features.
+
+    Saves:
+        - The training samples selected in each trial (`train_samples.csv`).
+        - Performance matrices for all metrics and modes (`res_df_*_*.csv`).
+        - Incremental results for each trial and sample-count setting.
+    """
+
     import os
     import random
     import numpy as np
@@ -2016,6 +2130,28 @@ def main_random_sample_order_trials():
 
 
 def main_local_training():
+    """
+    Runs local training experiments for SOM or FCNN classifiers across datasets.
+
+    This script trains a classifier on a limited number of samples and downsampled number of events per sample.
+    For each dataset, a subset of training samples is selected randomly, downsampled, and used for model training.
+    Evaluation is carried out on the corresponding test sets. Runtime measurements, predictions, and evaluation
+    metrics are stored for further inspection.
+
+    Flags:
+       - data_sets: List of datasets to evaluate.
+       - gating_method: Chooses 'som' or 'fcnn'.
+       - num_samples / num_events: Number of samples and events to use per dataset.
+       - preprocessing_trafo: Preprocessing applied to the data.
+
+    Saves:
+       - Selected training sample names.
+       - Trained classifier and runtime statistics.
+       - Sample-wise predictions and prediction timings.
+       - Evaluation metrics (average and class-wise precision, recall, F1).
+       - Confusion matrices for each test sample.
+       - Abstention counts (if SOM is used).
+    """
     import os
     import random
     import numpy as np
@@ -2033,7 +2169,7 @@ def main_local_training():
     pos_labels = [None, None, None, None, 1, 1]
 
     gating_method = 'som'  # 'som', 'fcnn'
-    som_dims = (25, 25)
+    som_dims = (25, 25)  # (20, 20)
 
     if gating_method == 'som':
         num_samples = [5, 5, 5, 5, 5, 5]
@@ -2194,6 +2330,22 @@ def main_local_training():
 
 
 def main_probabilistic_predictions():
+    """
+    Generates probabilistic predictions for previously trained classifiers.
+
+    This script loads SOM and FCNN models that were trained in the local training experiments and applies them to both
+    concatenated and sample-wise test data for the binary versions of the lymphoma datasets (LT1b, LT2b).
+    For each model, class probabilities and hard predictions are computed and saved for downstream analysis.
+
+    Flags:
+        - data_sets: Datasets for which probabilistic predictions are generated.
+        - methods: Trained model variants to evaluate (e.g., 'som_20', 'fcnn').
+        - trafo: Preprocessing transformation used during training.
+
+    Saves:
+        - Concatenated test-set probabilities and predictions.
+        - Sample-wise probabilities and predictions for each test sample.
+    """
     import os
     import numpy as np
 
@@ -2249,6 +2401,20 @@ def main_probabilistic_predictions():
 
 
 def main_time_table_aggregation():
+    """
+    Aggregates runtime and memory usage statistics across methods and datasets.
+
+    This script collects fit-time, prediction-time, and memory-consumption statistics
+    from the results of different gating methods (GateMeClass, DGCyTOF, FCNN, SOM-classifier)
+    applied to multiple datasets. It parses the output files generated during full-data
+    and local-training experiments, computes summary statistics (means and standard deviations),
+    converts selected fields into human-readable formats, and stores aggregated tables
+    for further analysis.
+
+    Saves:
+        - Table with exact values (for local training and training on all data).
+        - Table with rounded values in human-readable format (for local training and training on all data).
+    """
 
     import os
     import numpy as np
@@ -2441,6 +2607,29 @@ def main_time_table_aggregation():
 
 
 def main_pipeline_workflow():
+    """
+    End-to-end workflow for training and applying FLAG-X gating pipelines on raw FCS data.
+
+    This script:
+        1. Loads predefined training and test FCS files for the selected dataset
+           (Imstat, LT1, or LT2), applies channel alignment, preprocessing, and
+           optional relabeling.
+        2. Trains two gating pipelines (if `train=True`):
+               • SOM-classifier pipeline
+               • FCNN-Softmax pipeline
+           and saves the trained models.
+        3. Runs inference with both pipelines on training data, concatenated
+           test data, and test samples individually. Annotated FCS files
+           are written to disk.
+        4. Generates diagnostic scatter plots for SOM/PCA/UMAP embeddings and
+           predicted gating labels to validate the output.
+
+    Saves:
+        - Trained pipeline `.pkl` files
+        - Annotated FCS files
+        - Auxiliary files
+    """
+
     import os
     import random
     import readfcs
