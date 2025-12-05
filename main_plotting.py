@@ -2682,7 +2682,7 @@ def fig6s_minority_count():
                     pos = (0.375, 0.325)
 
                 ax.annotate(
-                    f'No. of samples: {num_events}\nNo. of events: {num_samples}',
+                    f'No. of samples: {num_samples}\nNo. of events: {num_events}',
                     xy=(minority_count, score),
                     xytext=pos,
                     textcoords='axes fraction',
