@@ -1,7 +1,10 @@
 # FLAG-X-validation
-This repository contains source code, scripts, and instructions to reproduce the results presented in *Towards automated gating of clinical flow cytometry data* ([doi](add doi)).
+This repository contains source code, scripts, and instructions to reproduce the results presented in *Towards automated gating of clinical flow cytometry data* ([doi](https://doi.org/10.64898/2026.01.10.698765)).
 
 For a standalone implementation of FLAG-X, please refer to [https://github.com/bionetslab/FLAG-X](https://github.com/bionetslab/FLAG-X).
+
+## Version
+FLAG-X version 0.2.0 was used to generate the results presented here.
 
 ## Data
 The immune status (Imstat) and lymphoma (Lt1, Lt2) datasets are not publicly available due to data protection regulations and ethical restrictions.
