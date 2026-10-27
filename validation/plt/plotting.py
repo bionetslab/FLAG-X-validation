@@ -505,11 +505,11 @@ def plot_cell_pop_size_pred_vs_gt(
 
         if show_r2:
             r2 = r2_score(x_vals, y_vals)
-            stats_text.append(f"$R^2 = {r2:.4f}$")
+            stats_text.append(f'$R^2 = {r2:.4f}$')
 
         if show_pearson:
             r, p = pearsonr(x_vals, y_vals)
-            stats_text.append("Pearson's " + f"$r = {r:.4f}$")
+            stats_text.append(f'$r = {r:.4f}$')
 
         if stats_text:
             ax.text(

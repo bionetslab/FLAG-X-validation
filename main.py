@@ -3110,6 +3110,110 @@ def main_pipeline_output_downsampling():
             )
 
 
+def main_time_table_aggregation_condensed():
+    """
+    Aggregates runtime and memory usage statistics PER METHOD for the
+    local-training experiments, averaged ACROSS datasets.
+
+    For each gating method (FCNN, SOM-classifier) this collects fit-time (training),
+    prediction-time (inference), and memory-consumption statistics from the local-training
+    result files, then aggregates them across all datasets so that there is a single
+    training value and a single inference value per method. The std columns now capture
+    the variation across datasets.
+
+    Saves:
+        - Table with exact aggregated values per method.
+        - Table with rounded values in human-readable format per method.
+    """
+
+    import os
+    import pandas as pd
+
+    from validation.utils import get_time_str, get_gb_mb_str
+
+    # Convert dataset names to corresponding dir names
+    dataset_to_dir = {
+        'Imstat': 'imstat',
+        'LT1': 'lymphoma_tube1', 'LT1b': 'lymphoma_tube1_binary',
+        'LT2': 'lymphoma_tube2', 'LT2b': 'lymphoma_tube2_binary',
+        'Flowcyt': 'flowcyt'
+    }
+
+    # Convert method names to corresponding dir names
+    method_to_dir = {'FCNN': 'fcnn', 'SOM-classifier': 'som'}
+
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b']
+    methods = ['FCNN', 'SOM-classifier']
+    base_path = 'results/local_training'
+
+    # --- Collect one value per (dataset, method) first
+    rows_fit = []
+    rows_pred = []
+    for dataset in datasets:
+        for method in methods:
+
+            data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
+
+            res_path = os.path.join(
+                base_path,
+                method_to_dir[method] + ('_20' if method == 'SOM-classifier' else ''),
+                dataset_to_dir[dataset],
+                data_trafo,
+            )
+            fit_data_path = os.path.join(res_path, 'fit_time_df.csv')
+            pred_data_path = os.path.join(res_path, 'samples_pred_times_df.csv')
+
+            fit_df = pd.read_csv(fit_data_path, index_col=0)
+            pred_df = pd.read_csv(pred_data_path, index_col=0)
+
+            rows_fit.append({
+                'method': method,
+                'dataset': dataset,
+                'wall_time': fit_df.loc[0, 'wall_time'],
+                'mem_peak_cpu': fit_df.loc[0, 'mem_peak_cpu'],
+                'mem_peak_gpu': fit_df.loc[0, 'mem_peak_gpu'],
+            })
+
+            for _, row in pred_df.iterrows():
+                rows_pred.append({
+                    'method': method,
+                    'dataset': dataset,
+                    'wall_time': row['wall_time'],
+                    'mem_peak_cpu': row['mem_peak_cpu'],
+                    'mem_peak_gpu': row['mem_peak_gpu'],
+                })
+
+    df_fit = pd.DataFrame(rows_fit)
+    df_pred = pd.DataFrame(rows_pred)
+
+    agg_cols = ['wall_time', 'mem_peak_cpu', 'mem_peak_gpu']
+
+    df_fit_agg = df_fit.groupby('method')[agg_cols].agg(['mean', 'std']).reindex(methods)
+    df_pred_agg = df_pred.groupby('method')[agg_cols].agg(['mean', 'std']).reindex(methods)
+
+    res_df = pd.DataFrame({'method': methods})
+    for src, prefix in [(df_fit_agg, 'fit'), (df_pred_agg, 'pred')]:
+        for col in agg_cols:
+            res_df[f'{prefix}_{col}_mean'] = src[(col, 'mean')].values
+            res_df[f'{prefix}_{col}_std'] = src[(col, 'std')].values
+
+    res_df.drop(columns=['pred_mem_peak_gpu_mean', 'pred_mem_peak_gpu_std'], inplace=True)
+
+    # Human-readable version
+    res_df_hr = res_df.copy()
+    for c in res_df_hr.columns:
+        if 'wall_time' in c:
+            res_df_hr[c] = res_df_hr[c].apply(get_time_str)
+        elif 'mem_peak' in c:
+            res_df_hr[c] = res_df_hr[c].apply(get_gb_mb_str)
+
+    print(res_df_hr)
+
+    save_dir = './results/time_table_aggregation_condensed'
+    os.makedirs(save_dir, exist_ok=True)
+    res_df.to_csv(os.path.join(save_dir, 'time_table_local_training_per_method_exact.csv'))
+    res_df_hr.to_csv(os.path.join(save_dir, 'time_table_local_training_per_method_human_readable.csv'))
+
 if __name__ == '__main__':
 
     # main_data_processing()
@@ -3139,5 +3243,7 @@ if __name__ == '__main__':
     # main_time_table_aggregation()
 
     # main_pipeline_workflow()
+
+    main_time_table_aggregation_condensed()
 
     print('done')

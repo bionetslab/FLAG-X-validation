@@ -1,5 +1,8 @@
 
 import os
+import matplotlib
+
+matplotlib.use('Agg')
 
 PLOT_DIR = './results/plots'
 
@@ -29,16 +32,11 @@ DATASET_TO_NUM_SAMPLES = {
 def fig1_gating_performance():
 
     import os
-    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
     import seaborn as sns
 
-    from validation.plt import plot_performance_score_box_plot, plot_cell_pop_size_pred_vs_gt, annotate_mosaic
-
-
     ####################################################################################################################
-    dataset_name_psize = 'Imstat'
     dataset_names_perf = ['Flowcyt', 'Imstat', 'LT1', 'LT2', 'LT1b', 'LT2b']
 
     method_names = ['GateMeClass', 'DGCyTOF', 'MLP', 'SOM classifier']
@@ -48,98 +46,11 @@ def fig1_gating_performance():
     performance_score_mode = 'macro'  # macro, micro, weighted, binary
 
     ####################################################################################################################
-
-    conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
-
-    lm_imstat = {
-        '-1': 'NA',
-        '1': 'B',  # B cell
-        '2': 'Th',  # T helper
-        '3': 'NK',  # NK cell
-        '4': 'M16', # (CD16+)',  # atypical CD16+ Monocytes
-        '5': 'M',  # Other Monocytes
-        '6': 'G',  # Granulocytes
-        '7': 'X',  # Sorted out
-        '8': 'O'  # Unclassified
-    }
-
-    # Define label order for the legend
-    label_order = ['NA', 'B', 'Th', 'NK', 'M', 'M16', 'G', 'X', 'O']
-
-    # Initialize the mosaic
-    figsize = (6.5, 8)  # (8, 10)
-    ratios = [3, 3, 4]  # [1/4, 1/4, 1/2]
-    fig = plt.figure(figsize=figsize, constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        AB
-        CD
-        EE
-        """,
-        gridspec_kw={'height_ratios': ratios}
-    )
-
-    # --- Plot the population percentages
-    # Load the plot data
-    base_path_y_true = './data/np_files'
-    base_path_y_pred = './results/gating_performance'
-
-    # Load the sample-wise data (ground truth and prediction)
-    dataset_dir_psize = DATASET_TO_DIR[dataset_name_psize]
-    y_true_path = os.path.join(base_path_y_true, dataset_dir_psize, 'log10_w_custom_cutoffs', 'sample_wise_test')
-
-    n_samples = len([f for f in os.listdir(y_true_path) if f.startswith('y_')])
-    y_true_filenames = [f'y_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-    y_trues = [np.load(os.path.join(y_true_path, f)).astype(int) for f in y_true_filenames]
-
-    # Define color mapping
-    color_mapping = dict(
-        (str(k), c)
-        for k, c in zip([-1] + list(range(1, 9)), sns.color_palette("Accent", len(lm_imstat)))
-    )
-
-    for key, method in zip(list('ABCD'), method_names):
-
-        # Load the predicted labels
-        data_trafo = 'log10_w_custom_cutoffs' if dataset_name_psize != 'Flowcyt' else 'log10_cutoff100'
-        if method == 'GateMeClass':
-            data_trafo = 'arcsinh_cofactor150'
-
-        method_dir = METHOD_TO_DIR[method]
-
-        y_pred_path = os.path.join(base_path_y_pred, method_dir, dataset_dir_psize, data_trafo, 'samples_y_pred')
-        y_pred_filenames = [f'y_pred_sample_{str(i).zfill(2)}_test.npy' for i in range(n_samples)]
-
-        y_preds = []
-        success_idx = []
-        for i, fn in enumerate(y_pred_filenames):
-            try:
-                y_preds.append(np.load(os.path.join(y_pred_path, fn)).astype(int))
-                success_idx.append(i)
-            except FileNotFoundError:
-                print(f'# No y_pred found for: {method}, {dataset_name_psize}, {data_trafo}, {fn}')
-
-        y_trues_plot = [y_trues[i] for i in success_idx]
-        y_preds_plot = y_preds
-
-        plot_cell_pop_size_pred_vs_gt(
-            y_trues=y_trues_plot,
-            y_preds=y_preds_plot,
-            percentage=True,
-            palette=color_mapping,
-            title=method,
-            point_size=11.0,
-            show_r2=True,
-            show_pearson=False,
-            ax=axd[key],
-        )
-
     # --- Plot the performance scores
     # Load the results dataframes
     base_path = './results/gating_performance'
     res_dfs = []
     for dataset in dataset_names_perf:
-        res_dfs_sub = []
         for method in method_names:
 
             data_trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
@@ -156,54 +67,69 @@ def fig1_gating_performance():
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
-                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
             except FileNotFoundError:
-                res_df = pd.DataFrame()
                 print(f"# No results found for dataset: '{dataset}', method: '{method}', data trafo: '{data_trafo}'")
+                continue
 
-            res_dfs_sub.append(res_df)
-        res_dfs.append(res_dfs_sub)
+            res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
+            res_df['Dataset'] = dataset
+            res_df['Method'] = method
+            res_dfs.append(res_df)
 
-    plot_performance_score_box_plot(
-        sample_wise_res_dfs=res_dfs,
-        method_names=method_names,
-        dataset_names=dataset_names_perf,
-        score_mode=performance_score_mode,
-        y_label=conversion_mapping_y_label[performance_score] + ' score',
-        sns_boxplot_kwargs=None,
-        plot_points=True,
-        point_kwargs=None,
-        boxplot_alpha=0.9,
-        ax=axd['E'],
+    res_df = pd.concat(res_dfs, axis=0, ignore_index=True)
+    fig, ax = plt.subplots(figsize=(6.5, 3.2), dpi=300)
+    sns.boxplot(
+        data=res_df,
+        x='Dataset',
+        y=performance_score_mode,
+        hue='Method',
+        palette='Set2',
+        showfliers=False,
+        ax=ax,
     )
 
-    # Manually adjust axis labels
+    boxplot_alpha = 0.9
+    for patch in ax.patches:
+        patch.set_alpha(boxplot_alpha)
+    for line in ax.lines:
+        line.set_alpha(boxplot_alpha)
+    for col in ax.collections:
+        col.set_alpha(boxplot_alpha)
+
+    point_kwargs = {
+        'alpha': 0.4,
+        'dodge': True,
+        'linewidth': 0.5,
+        'size': 3.0,
+        'jitter': True,
+    }
+
+    sns.stripplot(
+        data=res_df,
+        x='Dataset',
+        y=performance_score_mode,
+        hue='Method',
+        palette='Set2',
+        legend=False,
+        zorder=1,
+        ax=ax,
+        **point_kwargs
+    )
+
+    ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+
+    ax.set_xlabel(None)
+
     ax_label_fontsize = 12
+    ax.set_ylabel('Macro F1 score', fontsize=ax_label_fontsize)
+    ax.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
+    ax.tick_params(axis='x', labelsize=ax_label_fontsize)
 
-    for key in ['A', 'B', 'C', 'D']:
-        ax = axd[key]
-        ax.set_xlabel('Population size (%)', fontsize=ax_label_fontsize)
-        ax.set_ylabel('Pred. population size (%)', fontsize=ax_label_fontsize)
-        ax.tick_params(labelsize=ax_label_fontsize - 2)
 
-        # Manually change the legend labels
-        handles, labels = axd[key].get_legend_handles_labels()
-        labels = [lm_imstat[label] for label in labels]
-
-        # Reorder handles and labels (sort based on predefined order)
-        ordered = sorted(zip(handles, labels), key=lambda x: label_order.index(x[1]))
-        handles, labels = zip(*ordered)
-
-        axd[key].legend(handles, labels, ncol=2, markerscale=1.5, loc='lower right', fontsize=8)
-
-    ax_e = axd['E']
-    ax_e.set_xlabel(None)
-    ax_e.set_ylabel(ax_e.get_ylabel(), fontsize=ax_label_fontsize)
-    ax_e.tick_params(axis='y', labelsize=ax_label_fontsize - 2)
-    ax_e.tick_params(axis='x', labelsize=ax_label_fontsize)
-
-    annotate_mosaic(fig=fig, axd=axd, fontsize=16)
-    plt.savefig(os.path.join(PLOT_DIR, 'fig1_gating_performance.pdf'), dpi=fig.dpi)
+    fig.tight_layout()
+    plt.savefig(os.path.join(PLOT_DIR, 'fig1.eps'), dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig1.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig3_iterative_refinement():
@@ -262,7 +188,7 @@ def fig3_iterative_refinement():
         edgecolors='darkgrey',
         alpha=0.9,
         zorder=2,
-        label='Ground Truth NK Cells'
+        label='Ground truth NK cells'
     )
 
     ax.scatter(
@@ -330,7 +256,7 @@ def fig3_iterative_refinement():
         edgecolors='darkgrey',
         alpha=0.9,
         zorder=2,
-        label='Ground Truth NK Cells'
+        label='Ground truth NK cells'
     )
 
     ax.scatter(
@@ -500,7 +426,9 @@ def fig3_iterative_refinement():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=None)
 
-    fig.savefig(os.path.join(PLOT_DIR, 'fig3_iterative_refinement.png'), dpi=fig.dpi)
+    fig.savefig(os.path.join(PLOT_DIR, 'fig6.tif'), dpi=fig.dpi)
+    fig.savefig(os.path.join(PLOT_DIR, 'fig6.png'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig4_lymphoma_gating():
@@ -771,7 +699,9 @@ def fig4_lymphoma_gating():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ], xy=(-0.08, 0.95))
 
-    fig.savefig('./results/plots/fig4_lymphoma_gating.png', dpi=fig.dpi)
+    fig.savefig('./results/plots/fig5.tif', dpi=fig.dpi)
+    fig.savefig('./results/plots/fig5.png', dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig5_num_samples():
@@ -873,8 +803,6 @@ def fig5_num_samples():
             imstat_full | lt_full | flowcyt_full
     )
     plot_df = res_df[keep_bool].copy()
-
-    print(plot_df)
 
     # --- Plot performance comparison for methods
     # Define a palette
@@ -1014,8 +942,9 @@ def fig5_num_samples():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig5_num_samples.pdf'), dpi=fig.dpi, bbox_inches='tight')
-    plt.close('all')
+    plt.savefig(os.path.join(PLOT_DIR, 'fig3.eps'), dpi=fig.dpi, bbox_inches='tight')
+    plt.savefig(os.path.join(PLOT_DIR, 'fig3.pdf'), dpi=fig.dpi, bbox_inches='tight')
+    plt.close(fig)
 
 
 def fig6_precision_recall():
@@ -1215,11 +1144,12 @@ def fig6_precision_recall():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig6_precision_recall.pdf'), dpi=fig.dpi)
-    plt.close('all')
+    plt.savefig(os.path.join(PLOT_DIR, 'fig4.eps'), dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'fig4.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
-def fig1s_population_sizes():
+def fig2s_population_sizes():
     import os
     import random
     import numpy as np
@@ -1229,13 +1159,23 @@ def fig1s_population_sizes():
     from itertools import chain
     from validation.plt import plot_cell_pop_size_pred_vs_gt, annotate_mosaic
 
-    random.seed(43)
-
-    datasets = ['Flowcyt', 'LT1', 'LT1b', 'LT2', 'LT2b']
+    datasets = ['Flowcyt', 'Imstat', 'LT1', 'LT1b', 'LT2', 'LT2b']
 
     methods = ['GateMeClass', 'DGCyTOF', 'MLP', 'SOM classifier']
 
     # Define mappings from integer to letter labels
+    lm_imstat = {
+        '-1': 'NA',
+        '1': 'B',  # B cell
+        '2': 'Th',  # T helper
+        '3': 'NK',  # NK cell
+        '4': 'M16',  # (CD16+)',  # atypical CD16+ Monocytes
+        '5': 'M',  # Other Monocytes
+        '6': 'G',  # Granulocytes
+        '7': 'X',  # Sorted out
+        '8': 'O'  # Unclassified
+    }
+
     lm_lt1 = {
         '1': 'B',  # B cells
         '9': 'dyB',  # Dying B
@@ -1259,36 +1199,39 @@ def fig1s_population_sizes():
         '5': 'O'  # Others
     }
 
-    label_display_order = ['HSPC', 'M', 'Ma', 'T', 'B', 'dyB', 'X', 'O']
+    # Define label order for the legend
+    label_display_order = ['NA', 'HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'X', 'O']
 
     # Build global colormap
     dataset_name_to_label_mapping = {
-        'LT1': lm_lt1, 'LT1b': lm_lt1b, 'LT2': lm_lt2, 'LT2b': lm_lt2b, 'Flowcyt': lm_flowcyt
+        'Imstat': lm_imstat, 'LT1': lm_lt1, 'LT1b': lm_lt1b, 'LT2': lm_lt2, 'LT2b': lm_lt2b, 'Flowcyt': lm_flowcyt
     }
-    all_letter_labels = set(chain.from_iterable(m.values() for m in dataset_name_to_label_mapping.values()))
-    all_letter_labels = list(sorted(all_letter_labels))
+    all_letter_labels = list(set(chain.from_iterable(m.values() for m in dataset_name_to_label_mapping.values())))
+    all_letter_labels = sorted(all_letter_labels)
+    random.seed(46)
     random.shuffle(all_letter_labels)
 
-    # global_palette = sns.color_palette("hls", len(all_letter_labels))
-    global_palette = sns.color_palette('Set1')
+    global_palette = sns.color_palette('husl', len(all_letter_labels))
     global_color_mapping = dict(zip(all_letter_labels, global_palette))
 
+
     # Initialize the mosaic
-    figsize = (9.5, 10)
-    mosaic_str = '''
-        ABCDE
-        FGHIJ
-        KLMNO
-        PQRST
-        UVWXY
-    '''
+    figsize = (9.5, 11)
+    mosaic = [
+        ['A1', 'A2', 'A3', 'A4', 'A5'],  # Flowcyt
+        ['B1', 'B2', 'B3', 'B4', 'B5'],  # Imstat
+        ['C1', 'C2', 'C3', 'C4', 'C5'],  # LT1
+        ['D1', 'D2', 'D3', 'D4', 'D5'],  # LT1b
+        ['E1', 'E2', 'E3', 'E4', 'E5'],  # LT2
+        ['F1', 'F2', 'F3', 'F4', 'F5'],  # LT2b
+    ]
 
     fig = plt.figure(figsize=figsize, constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(mosaic_str)
+    axd = fig.subplot_mosaic(mosaic)
 
-    legend_subplots = list('AFKPU')
-    plot_subplots = list('BCDEGHIJLMNOQRSTVWXY')
-    legend_reference_subplots = list('EJOTY')
+    legend_subplots = [f'{l}1' for l in list('ABCDEF')]
+    plot_subplots = [f'{l}{i}' for l in list('ABCDEF') for i in range(2, 6)]
+    legend_reference_subplots = [f'{l}5' for l in list('ABCDEF')]
 
     count = 0
     for dataset in datasets:
@@ -1337,8 +1280,8 @@ def fig1s_population_sizes():
                 palette=color_mapping,
                 title=method,
                 point_size=22.0,
-                # show_r2=True,
-                # show_pearson=True,
+                show_r2=True,
+                show_pearson=False,
                 ax=ax,
             )
 
@@ -1396,14 +1339,14 @@ def fig1s_population_sizes():
             markerscale=1.75,
         )
         axd[legend_subplot_key].axis('off')
-        axd[legend_subplot_key].set_title(f'Dataset: {dataset_name}')
+        axd[legend_subplot_key].set_title(f'{dataset_name}')
 
-    annotate_mosaic(fig=fig, axd=axd, fontsize=14)
-    plt.savefig(os.path.join(PLOT_DIR, 'fig1s_population_sizes.pdf'), dpi=fig.dpi)
-    plt.close('all')
+    annotate_mosaic(fig=fig, axd=axd, fontsize=12)
+    plt.savefig(os.path.join(PLOT_DIR, 'figs4.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
-def fig2s_gating_performance_class_wise():
+def fig1s_gating_performance_class_wise():
 
     import os
     import pandas as pd
@@ -1420,8 +1363,6 @@ def fig2s_gating_performance_class_wise():
     performance_score = 'f1'  # f1, prec, rec
 
     ####################################################################################################################
-
-    conversion_mapping_y_label = {'f1': 'F1', 'prec': 'Precision', 'rec': 'Recall'}
 
     # Define mappings from integer to letter labels
     lm_imstat = {
@@ -1464,26 +1405,14 @@ def fig2s_gating_performance_class_wise():
 
     label_display_order = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'X', 'O']
 
-    # Initialize the mosaic
-    fig = plt.figure(figsize=(8, 10), constrained_layout=True, dpi=300)
-    axd = fig.subplot_mosaic(
-        """
-        AB
-        CD
-        EF
-        LL
-        """,
-        gridspec_kw={'height_ratios': [1, 1, 1, 0.2]},
-    )
-
     # Define a palette
     palette = dict(zip(methods, sns.color_palette('Set2', len(methods))))
 
-    # ### Plot the performance scores
-
-    res_dfs = []
+    # Load the results data
+    dataset_to_res_df = dict()
     for dataset in datasets:
-        res_dfs_sub = []
+
+        res_dfs = []
         for method in methods:
 
             trafo = 'log10_w_custom_cutoffs' if dataset != 'Flowcyt' else 'log10_cutoff100'
@@ -1500,44 +1429,117 @@ def fig2s_gating_performance_class_wise():
 
             try:
                 res_df = pd.read_csv(res_df_path, index_col=0)
-                res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
-
-                # Change the column names to letter labels
-                label_mapping = label_mappings[dataset]
-                res_df = res_df.rename(columns=label_mapping)
 
             except FileNotFoundError:
-                res_df = pd.DataFrame()
                 print(f"# ### No results found for '{dataset}', '{method}', '{trafo}'")
+                continue
 
-            res_dfs_sub.append(res_df)
-        res_dfs.append(res_dfs_sub)
+            # Drop mean and std rows
+            res_df = res_df.drop(index=['mean', 'std'], errors='ignore')
 
-    for res_df, dataset, label in zip(res_dfs, datasets, ['A', 'B', 'C', 'D', 'E', 'F']):
+            # Change the column names to letter labels
+            label_mapping = label_mappings[dataset]
+            res_df = res_df.rename(columns=label_mapping)
+
+            # Remove the -1 col
+            if '-1' in res_df.columns:
+                res_df = res_df.drop(columns=['-1'])
+
+            # Add id cols
+            res_df['method'] = method
+
+            res_dfs.append(res_df)
+
+        # Concatenate
+        res_df = pd.concat(res_dfs, axis=0, ignore_index=True)
+
+        # Turn into long format
+        res_df = res_df.melt(
+            id_vars=['method', ],
+            var_name='Cell type',
+            value_name=f'{performance_score.capitalize()} score'
+        )
+
+        # Set as ordered categorical
+        res_df['Cell type'] = pd.Categorical(
+            res_df['Cell type'],
+            categories=label_display_order,
+            ordered=True
+        )
+
+        # Sort
+        res_df = res_df.sort_values(by=['Cell type', ])
+
+        # Remove unused categories
+        res_df['Cell type'] = res_df['Cell type'].cat.remove_unused_categories()
+
+        # Update dict
+        dataset_to_res_df[dataset] = res_df
+
+    # Initialize the mosaic
+    fig = plt.figure(figsize=(8, 9), constrained_layout=True, dpi=300)
+    axd = fig.subplot_mosaic(
+        """
+        AB
+        CD
+        EF
+        LL
+        """,
+        gridspec_kw={'height_ratios': [1, 1, 1, 0.2]},
+    )
+
+    for dataset, label in zip(datasets, list('ABCDEF')):
+
+        plot_df = dataset_to_res_df[dataset]
 
         ax = axd[label]
 
-        plot_performance_score_box_plot_cw(
-            sample_wise_res_dfs=res_df,
-            method_names=methods,
-            y_label=conversion_mapping_y_label[performance_score] + ' score',
-            title=dataset,
+        sns.boxplot(
+            data=plot_df,
+            x='Cell type',
+            y=f'{performance_score.capitalize()} score',
+            hue='method',
+            hue_order=methods,
             palette=palette,
-            label_order=label_display_order,
-            sns_boxplot_kwargs=None,
-            plot_points=True,
-            point_kwargs=None,
-            boxplot_alpha=0.9,
+            showfliers=False,
             ax=ax,
         )
 
-        legend = ax.get_legend()
-        legend.set_title(None)
+        boxplot_alpha = 0.9
+        for patch in ax.patches:
+            patch.set_alpha(boxplot_alpha)
+        for line in ax.lines:
+            line.set_alpha(boxplot_alpha)
+        for col in ax.collections:
+            col.set_alpha(boxplot_alpha)
 
-        ax.set_xlabel('Cell type')
+        point_kwargs = {
+            'alpha': 0.4,
+            'dodge': True,
+            'linewidth': 0.5,
+            'size': 3.0,
+            'jitter': True,
+        }
+
+        sns.stripplot(
+            data=plot_df,
+            x='Cell type',
+            y=f'{performance_score.capitalize()} score',
+            hue='method',
+            hue_order=methods,
+            palette=palette,
+            legend=False,
+            zorder=1,
+            ax=ax,
+            **point_kwargs
+        )
+
+        ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+
+        ax.set_title(dataset)
 
     # Remove legend in subplots and add in separate panel
-    handles, labels = axd['B'].get_legend_handles_labels()
+    handles, labels = axd['A'].get_legend_handles_labels()
     for ax in axd.values():
         if ax.get_legend():
             ax.get_legend().remove()
@@ -1549,14 +1551,12 @@ def fig2s_gating_performance_class_wise():
         ncol=4,
         frameon=True,
         fontsize=11,
-        # title='Gating Method'
-        # handlelength=2, handleheight=1.5
     )
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ])
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig2s_gating_performance_class_wise.pdf'), dpi=fig.dpi)
-    plt.close('all')
+    plt.savefig(os.path.join(PLOT_DIR, 'figs3.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig3s_lymphoma_scatter_plots():
@@ -1691,7 +1691,8 @@ def fig3s_lymphoma_scatter_plots():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L', ], xy=(-0.15, 0.95))
 
-    fig.savefig('./results/plots/fig3s_lymphoma_scatter_plots.png', dpi=fig.dpi)
+    fig.savefig('./results/plots/figs5.png', dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig5s_num_samples_num_events():
@@ -2026,8 +2027,8 @@ def fig5s_num_samples_num_events():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['Z', ])
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig5s_num_samples_num_events.pdf'), dpi=fig.dpi)
-    plt.close('all')
+    plt.savefig(os.path.join(PLOT_DIR, 'figs7.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig4s_sample_order():
@@ -2272,8 +2273,8 @@ def fig4s_sample_order():
     axd['L'].axis('off')
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L'])
-    plt.savefig(os.path.join(PLOT_DIR, 'fig4s_sample_order.pdf'), dpi=fig.dpi)
-    plt.close('all')
+    plt.savefig(os.path.join(PLOT_DIR, 'figs6.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig6s_minority_count():
@@ -2307,7 +2308,7 @@ def fig6s_minority_count():
 
     plot_num_events = False
 
-    generate_res_df = False
+    generate_res_df = True
 
     ####################################################################################################################
 
@@ -2813,7 +2814,8 @@ def fig6s_minority_count():
 
         annotate_mosaic(fig, axd, fontsize=16, excluded=['X', 'Y', 'Z'])
 
-        fig.savefig(os.path.join(PLOT_DIR, f'fig6s_minority_count_{mc_mode}.pdf'), dpi=fig.dpi)
+        fig.savefig(os.path.join(PLOT_DIR, f'figs8_{mc_mode}.pdf'), dpi=fig.dpi)
+        plt.close(fig)
 
 
 def fig7s_gating_performance_local():
@@ -2996,7 +2998,8 @@ def fig7s_gating_performance_local():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16, excluded=['L'])
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig7s_gating_performance_local.pdf'), dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'figs9.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig8s_dataset_size():
@@ -3056,7 +3059,8 @@ def fig8s_dataset_size():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig8s_dataset_size.pdf'), dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'figs1.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def fig9s_class_balance():
@@ -3177,7 +3181,8 @@ def fig9s_class_balance():
 
     annotate_mosaic(fig=fig, axd=axd, fontsize=16)
 
-    plt.savefig(os.path.join(PLOT_DIR, 'fig9s_class_balance.pdf'), dpi=fig.dpi)
+    plt.savefig(os.path.join(PLOT_DIR, 'figs2.pdf'), dpi=fig.dpi)
+    plt.close(fig)
 
 
 def _to_column_major(handles, ncol):
@@ -3198,39 +3203,37 @@ if __name__ == '__main__':
 
     os.makedirs(PLOT_DIR, exist_ok=True)
 
-    import matplotlib
-
-    matplotlib.use('Agg')
-
     # fig1_gating_performance()
-
+    #
     # fig3_iterative_refinement()
-
+    #
     # fig4_lymphoma_gating()
-
+    #
     # fig5_num_samples()
-
-    # fig6_precision_recall()
-
-    # fig1s_population_sizes()
-
-    # fig2s_gating_performance_class_wise()
-
+    #
+    # fig1s_gating_performance_class_wise()
+    #
+    # fig2s_population_sizes()
+    #
     # fig3s_lymphoma_scatter_plots()
-
+    #
     # fig4s_sample_order()
-
+    #
     # fig5s_num_samples_num_events()
-
+    #
     # fig6s_minority_count()
-
-    # fig7s_gating_performance_local()
-
+    #
     # fig8s_dataset_size()
-
+    #
     # fig9s_class_balance()
 
+    # fig6_precision_recall()
+    #
+    # fig7s_gating_performance_local()
 
+    # import cairosvg
+    # cairosvg.svg2eps(url='./results/plots/fig2.svg', write_to='./results/plots/fig2.eps')
+    #
     # from statistics import median, mean
     #
     # mcs_mlp = [459, 1864, 5808, 12197, 1801, 1660]
