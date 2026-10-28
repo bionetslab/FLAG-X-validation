@@ -25,6 +25,8 @@
     - Score computation/analysis -> save score tables/analysis results
     - Plot -> save Figures
 
+- Num sample-num events per sample analysis for each train-test split for each chosen method with different orderings
+- In general set up such that scripts can be run sequentially or each grid point is a single job in an arrayjob on woody (doc: https://doc.nhr.fau.de/clusters/woody/) except for local benchmarks of course.
 
 
 
