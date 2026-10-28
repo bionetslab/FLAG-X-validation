@@ -17,7 +17,7 @@ from torch.autograd import Variable
 from scipy.stats import spearmanr
 
 
-class DgcytofClassifier(BaseEstimator, ClassifierMixin):
+class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
             self,
             val_size: float = 0.2,
