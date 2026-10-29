@@ -41,7 +41,9 @@ The [``./validation``](./validation) package contains all modules that provide f
     - [``gatemeclass.py``](./validation/gating/gatemeclass.py) implements ``GateMeClassClassifier``, which wraps the GateMeClass method (Caligola *et al.*, 2024, [https://doi.org/10.1093/bioinformatics/btae322](https://doi.org/10.1093/bioinformatics/btae322)).
     -  [``dgcytof.py``](./validation/gating/dgcytof.py) implements `DGCyTOFClassifier`, which wrap the DGCyTOF method (Cheng *et al.*, 2022, [https://doi.org/10.1371/journal.pcbi.1008885](https://doi.org/10.1371/journal.pcbi.1008885).
 
+## AI usage disclosure
 
+Claude Opus 5.5 (Anthropic) was used as a coding assistant during the development of this repository. The authors reviewed and validated the resulting code.
 
 
 
