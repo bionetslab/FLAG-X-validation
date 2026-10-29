@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: draft (2026-10-28). Built from `NOTES.md`. Open decisions are marked **[D#]** and collected at the end. Small decisions (k, seeds, grids, ...) are made when we reach the step.
+Status: steps 0–1 done (2026-10-29). Built from `NOTES.md`. Open decisions are marked **[D#]** and collected at the end. Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
 ---
 
@@ -33,40 +33,33 @@ Status: draft (2026-10-28). Built from `NOTES.md`. Open decisions are marked **[
 - Method-specific details stay in the wrapper and in a small per-method runner. The benchmark core knows nothing about individual methods.
 
 **Extensibility**
-- Adding a dataset = adding one curation entry (raw path, file format, label mapping, channel list, grouping key). Everything downstream picks it up from the curated files.
-- Adding a method = adding a wrapper, an env file and a runner entry (name, env, default/tuned hyperparameters). Nothing else changes.
+- Adding a dataset = adding one `curate_<dataset>` function (raw path, channel and label maps as constants above it) plus its entries in `config.DATASETS` and `config.CHANNELS`. Everything downstream picks it up from the curated files.
+- Adding a method = adding a wrapper, an env file, and a branch in the run script that builds the wrapper with its hyperparameters. Nothing else changes.
 
 ---
 
 ## 2. Steps (chronological)
 
-### Step 0: Repository scaffolding
-- Directory layout, e.g.:
-  - `data/raw/` (inputs, gitignored), `data/curated/<dataset>/` (step 1), `data/splits/` (step 2)
-  - `bench/` shared core (numpy-only, Py3.5-compatible): data/split loading, task enumeration, seeding, output writing
-  - one script per step at the repo root, numbered in execution order (`01_curate_data.py`, `02_make_splits.py`, ...). Root placement keeps `bench`/`validation` importable without installing anything and keeps paths short.
-  - Scripts resolve paths from their own location (`ROOT = os.path.dirname(os.path.abspath(__file__))`), not from the working directory, so they behave the same locally and on SLURM. No hard-coded machine-specific paths.
-  - `results/<step>/...`, `figures/`
-- Global config: global seed, dataset registry, method registry.
-- **[D5]** Config format: Python constants (as in `NOTES.md`) vs one YAML/JSON registry that every env can read.
+### Step 0: Repository scaffolding -- DONE
+- Scripts at the repo root with descriptive names, no numbering; figure scripts start with `plot_`. Each script has its parameters as constants at the top and an `OVERWRITE` flag.
+- `config.py` (stdlib-only, Py3.5-compatible): `ROOT` (via `__file__`), `DATA_RAW`, `DATA_CURATED`, `RESULTS`, `FIGURES`, `DATASETS`, `CHANNELS`. No registries. **[D5]**
+- Layout: `data/raw/` (gitignored), `data/curated/<dataset>/` (gitignored), `results/<script>/`, `figures/<script>/`.
+- Envs: `fx_flagx_cpu` (`envs/flagx_cpu.yml`, curation + FLAG-X runs), `fx_plot` (`envs/plot.yml`), one env per method. All with `channel_priority: strict`.
+- Still to add when first needed: the shared core `bench/` (numpy-only, Py3.5-compatible: data/split loading, task enumeration, seeding, output writing), `data/splits/` (step 2), the global seed in `config.py`.
 
-### Step 1: Data curation
-For each dataset: load raw FCS/CSV → (apply compensation) → harmonize channel names → map labels to integers (keep a label-name table) → drop non-marker channels (`Time`, `event_ID`, ...) → save.
-- Output per dataset:
-  - one `X` (float32, events × channels) and one `y` (int) file per sample,
-  - `samples.csv`: sample id, group id (patient), tube/panel, number of events, original file name,
-  - `channels.csv` (harmonized names, original names, marker/scatter type), `labels.csv` (int ↔ cell type).
-- Data is stored **untransformed** (raw, compensated). Transformation is part of step 3, so it can be varied per experiment without re-curating.
-- QC report per dataset: events per sample, class frequencies per sample, channel overview.
-- Datasets: Imstat, Lt1, Lt2, Lt1b, Lt2b, Flowcyt, BLAST110. Imstat is part of the benchmark and is also the tuning dataset (stated as such in the paper). FlowCAP-I is not used. **[D1, decided]**
-- **[D2]** Storage format: per-sample `.npy` (recommended: fast, numpy-only, works in Py3.5) vs CSV with label column (human-readable, slower, larger).
-- **[D7]** Compensation: apply the FCS spillover matrix during curation, or take the data as is (the legacy pipeline did not compensate explicitly; to be checked per dataset).
+### Step 1: Data curation -- DONE
+- `curate_data.py` (env `fx_flagx_cpu`): one function per dataset. Load with flagx (one `FlowDataManager` per file) → compensate if the FCS file has a spillover matrix → rename channels (per-dataset map in the script) → keep/order as in `config.CHANNELS` → map labels (per-dataset map in the script, contiguous from 0) → save. Raises on unmapped channels/labels.
+- Output in `data/curated/<dataset>/`: `sample_<NNN>_X.npy` (float32) and `sample_<NNN>_y.npy` (int32), `meta_samples.csv` (sample, original filename, extra info such as `patient_id`, `subtype`, `sample_type`), `meta_labels.csv` (label, original label, name, description). Data is stored untransformed. **[D2]**
+- Datasets (10): `imstat`, `lt1`, `lt2`, `lt1b`, `lt2b`, `flowcyt`, `blast110_p1`–`p4`. **[D1]**
+- Compensation only for BLAST110 (only dataset with `$SPILL`). **[D7]**
+- BLAST110: one dataset per tube, blast vs other, FSC-A/SSC-A only, channels named by antibody (`$PnS`).
+- Overview figures: `plot_dataset_overview.py` (env `fx_plot`) → `results/dataset_overview/*.csv`, `figures/dataset_overview/` (sample sizes, pooled and per-sample class balance, optional hue by meta column, e.g. `sample_type`).
 
 ### Step 2: Splits
-- Per dataset: outer k-fold CV on the **group** level (patient, not file), e.g. BLAST110 patients with up to 4 tubes, so no patient appears in both train and test. Optionally stratified on sample-level class composition.
+- Per dataset: outer k-fold CV on the **group** level (patient, not file), e.g. BLAST110 patients with up to 4 tubes, so no patient appears in both train and test. Optionally stratified on sample-level class composition (e.g. BLAST110 `sample_type`: Dx/FU/NBM differ strongly in size and blast fraction).
 - Imstat (tuning dataset): additionally nested inner train/val splits for every outer training fold.
 - Saved as `data/splits/<dataset>.json` (fold → train/test sample ids; inner splits for Imstat).
-- Small decisions later: k, number of repetitions, stratification. The existing `data/raw/imstat_data_split_development.csv` is the legacy single train/test split; it is not used for the CV, only for comparison with the published results if needed.
+- Small decisions later: k, number of repetitions, stratification.
 
 ### Step 3: Preprocessing definition
 - Shared preprocessing per dataset: channel selection, transformation (arcsinh with cofactor / log10 with cutoffs), optional scaling (fit on training data only).
@@ -116,11 +109,11 @@ Reuse the same splits, curated data and runners; only the task list changes. Can
 | ID | Decision | Options | Recommendation | Status |
 |---|---|---|---|---|
 | D1 | Datasets in the benchmark | Imstat, Lt1, Lt2, Lt1b, Lt2b, Flowcyt, BLAST110, FlowCAP-I | | **decided:** Imstat (also used for tuning), Lt1, Lt2, Lt1b, Lt2b, Flowcyt, BLAST110 |
-| D2 | Storage format of curated data | per-sample `.npy` / CSV | `.npy` + CSV metadata tables | open |
+| D2 | Storage format of curated data | per-sample `.npy` / CSV | | **decided:** per-sample `.npy` (X, y) + `meta_samples.csv`, `meta_labels.csv` |
 | D3 | Preprocessing ownership | shared / method-native / both | | **decided:** shared transformation + normalization for all; GateMeClass exception only if needed; post hoc ablation |
 | D3a | Shared transformation | arcsinh / log10 with cutoffs | | open |
 | D3b | Shared normalization | z-score / min-max / none | | open |
 | D4 | Prior-knowledge methods (ACDC, Bayesian trees) | expert tables / label-derived tables / separate category / drop | | open |
-| D5 | Config format | Python constants / YAML/JSON registry | | open |
+| D5 | Config format | Python constants / YAML/JSON registry | | **decided:** small shared `config.py` at root, per-script constants otherwise, no registries |
 | D6 | Use of tuned parameters | per-fold / consensus / both | | open |
-| D7 | Compensation | during curation / as is | check per dataset | open |
+| D7 | Compensation | during curation / as is | | **decided:** with flagx if the FCS file has a spillover matrix (only BLAST110) |
