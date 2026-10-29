@@ -15,7 +15,9 @@ RESULTS = os.path.join(ROOT, 'results')
 FIGURES = os.path.join(ROOT, 'figures')
 
 # ### Datasets
-DATASETS = ['imstat', 'lt1', 'lt2', 'lt1b', 'lt2b', 'flowcyt']
+DATASETS = [
+    'imstat', 'lt1', 'lt2', 'lt1b', 'lt2b', 'flowcyt', 'blast110_p1', 'blast110_p2', 'blast110_p3', 'blast110_p4',
+]
 
 # Channels kept per dataset, in the column order of the curated X matrices (harmonized names, see curate_data.py)
 CHANNELS = {
@@ -34,6 +36,18 @@ CHANNELS = {
     'flowcyt': [
         'FS_INT', 'SS_INT', 'CD14_FITC', 'CD19_PE', 'CD13_ECD', 'CD33_PC5.5', 'CD34_PC7', 'CD117_APC', 'CD7_APC700',
         'CD16_APC750', 'HLA_PB', 'CD45_KO',
+    ],
+    'blast110_p1': [
+        'FSC_A', 'SSC_A', 'CD7', 'CD56', 'CD34', 'CD117', 'CD33', 'HLA-DR', 'CD13', 'CD45',
+    ],
+    'blast110_p2': [
+        'FSC_A', 'SSC_A', 'CD15', 'CD22', 'CD34', 'CD117', 'CD19', 'HLA-DR', 'CD13', 'CD45',
+    ],
+    'blast110_p3': [
+        'FSC_A', 'SSC_A', 'CD36', 'CD14', 'CD34', 'CD117', 'CD11b', 'HLA-DR', 'CD13', 'CD45',
+    ],
+    'blast110_p4': [
+        'FSC_A', 'SSC_A', 'CD2', 'CD133', 'CD34', 'CD117', 'CD33', 'HLA-DR', 'CD13', 'CD45',
     ],
 }
 CHANNELS['lt1b'] = CHANNELS['lt1']

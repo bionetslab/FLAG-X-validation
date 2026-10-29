@@ -1,5 +1,5 @@
 """
-Data curation: raw FCS/CSV files -> one untransformed X (float32, events x channels) and y (int64) .npy file per sample.
+Data curation: raw FCS/CSV files -> one untransformed X (float32, events x channels) and y (int32) .npy file per sample.
 
 Output per dataset in data/curated/<dataset>/:
 - sample_<NNN>_X.npy, sample_<NNN>_y.npy: channels in the order of config.CHANNELS[<dataset>], labels as new integers
@@ -8,7 +8,7 @@ Output per dataset in data/curated/<dataset>/:
 
 Files are loaded with flagx (one FlowDataManager per file). If an FCS file contains a spillover matrix, the sample is
 compensated with flagx; no other transformation is applied. Channels are renamed with the per-dataset channel name
-mapping below (keys: $PnN); config.CHANNELS decides which channels are kept and their order.
+mapping below (keys: $PnN, for BLAST110 $PnS); config.CHANNELS decides which channels are kept and their order.
 
 Env: fx_flagx_cpu (envs/flagx_cpu.yml)
 """
@@ -17,6 +17,7 @@ import os
 import re
 import numpy as np
 import pandas as pd
+from typing import Any
 from flagx.io import FlowDataManager
 
 from config import DATA_RAW, DATA_CURATED, CHANNELS
@@ -28,7 +29,6 @@ OVERWRITE = False  # If False, datasets whose meta_samples.csv already exists ar
 # ### Imstat ###########################################################################################################
 
 IMSTAT_RAW = os.path.join(DATA_RAW, 'imstat')
-IMSTAT_SPLIT_DEVELOPMENT = os.path.join(DATA_RAW, 'imstat_data_split_development.csv')  # Legacy train/test split
 
 # Two channel name variants exist in the raw files ('-PC5.5' vs 'FL4 INT' for the unused 4th fluorescence channel)
 IMSTAT_CHANNEL_MAP = {
@@ -54,7 +54,6 @@ IMSTAT_LABEL_NAMES = {  # New -> (short name, description)
 def curate_imstat():
     dataset = 'imstat'
     filenames = sorted(f for f in os.listdir(IMSTAT_RAW) if f.endswith('.fcs'))
-    legacy_split = pd.read_csv(IMSTAT_SPLIT_DEVELOPMENT).set_index('filename')['mode']
 
     meta = []
     for i, fn in enumerate(filenames):
@@ -62,15 +61,9 @@ def curate_imstat():
         X, y = to_X_y(df, IMSTAT_CHANNEL_MAP, CHANNELS[dataset], IMSTAT_LABEL_KEY, IMSTAT_LABEL_MAP)
         sample = save_sample(dataset, i, X, y)
 
-        # Filenames: '<date>-<run> <lysis method> ...' or 'ER_<id>_H1_<date>_ED'
-        m = re.match(r'^(\d{8}-\d) (\S+) ', fn)
         meta.append({
-            'sample': sample,
-            'filename_original': fn,
-            'n_events': X.shape[0],
-            'run_id': m.group(1) if m else None,
-            'lysis_method': m.group(2) if m else None,
-            'legacy_split': legacy_split[fn[:-len('.fcs')]],
+            'sample': sample,  # New filename
+            'filename_original': fn,  # Original filename
         })
 
     save_meta(dataset, meta, IMSTAT_LABEL_MAP, IMSTAT_LABEL_NAMES)
@@ -137,7 +130,6 @@ def curate_lymphoma(dataset):
         meta.append({
             'sample': sample,
             'filename_original': fn,
-            'n_events': X.shape[0],
             'patient_id': m.group(1),
             'subtype': m.group(2),
         })
@@ -184,19 +176,77 @@ def curate_flowcyt():
         meta.append({
             'sample': sample,
             'filename_original': fn,
-            'n_events': X.shape[0],
             'case_id': int(re.match(r'^Case_(\d+)\.csv$', fn).group(1)),
         })
 
     save_meta(dataset, meta, FLOWCYT_LABEL_MAP, FLOWCYT_LABEL_NAMES)
 
 
+# ### BLAST110 (one dataset per tube P1-P4) ############################################################################
+
+BLAST110_RAW = os.path.join(DATA_RAW, 'BLAST110')
+BLAST110_TUBE = {'blast110_p1': 'P1', 'blast110_p2': 'P2', 'blast110_p3': 'P3', 'blast110_p4': 'P4'}
+
+# Files are loaded with reindex=True: channels are named by the antibody ($PnS) where set, otherwise by $PnN (scatter,
+# Time, event_ID). Spelling variants of $PnS between files (e.g. 'CD34' vs 'CD34 Cy55', 'CD13' vs 'CD13 BV421') map to the
+# same name. One mapping for all tubes (marker names are unique across the panels). FSC-W / SSC-W are missing in some files.
+BLAST110_CHANNEL_MAP = {
+    'FSC-A': 'FSC_A', 'FSC-H': 'FSC_H', 'FSC-W': 'FSC_W', 'SSC-A': 'SSC_A', 'SSC-H': 'SSC_H', 'SSC-W': 'SSC_W',
+    'CD34': 'CD34', 'CD34 Cy55': 'CD34', 'CD117': 'CD117', 'HLA-DR': 'HLA-DR', 'CD13': 'CD13', 'CD13 BV421': 'CD13',
+    'CD45 KO': 'CD45',
+    'CD7': 'CD7', 'CD56': 'CD56', 'CD33': 'CD33',  # P1 (and CD33 in P4)
+    'CD15': 'CD15', 'CD22': 'CD22', 'CD19': 'CD19',  # P2
+    'CD36': 'CD36', 'CD14': 'CD14', 'CD11b': 'CD11b',  # P3
+    'CD2': 'CD2', 'CD133': 'CD133',  # P4
+    'Time': 'TIME', 'event_ID': 'event_ID',
+}
+
+# Labels: binary gate columns in labels/<file>.csv, rows joined to the FCS events via event_ID; only 'Blast' is used
+BLAST110_LABEL_KEY = 'Blast'
+BLAST110_LABEL_MAP = {0: 0, 1: 1}
+BLAST110_LABEL_NAMES = {0: ('O', 'other events'), 1: ('Blast', 'blasts')}
+
+
+def curate_blast110(dataset):
+    tube = BLAST110_TUBE[dataset]
+    sample_info = pd.read_csv(os.path.join(BLAST110_RAW, 'sample_info.csv')).set_index('BLAST110_ID')
+
+    # Filenames: 'BLAST110_<patient id>_<tube>.fcs', sorted by patient id
+    fcs_dir = os.path.join(BLAST110_RAW, 'FCS')
+    filenames = sorted(
+        (f for f in os.listdir(fcs_dir) if f.endswith('_{}.fcs'.format(tube))),  # Only keep selected tube
+        key=lambda f: int(re.match(r'^BLAST110_(\d+)_P\d\.fcs$', f).group(1)),
+    )
+
+    meta = []
+    for i, fn in enumerate(filenames):
+        file_id = fn[:-len('.fcs')]
+        df = load_sample(fcs_dir, fn, reindex=True)  # Load with reindexing -> PnS becomes col index
+
+        # Join the labels via event_ID
+        labels = pd.read_csv(os.path.join(BLAST110_RAW, 'labels', file_id + '.csv'), index_col=0)  # Load label file
+        if not np.array_equal(labels['event_ID'].to_numpy(), df['event_ID'].to_numpy().astype(np.int64)):  # Check if event IDs of labels and events match
+            raise ValueError('event_ID of labels and events do not match for {}'.format(fn))
+        df[BLAST110_LABEL_KEY] = labels[BLAST110_LABEL_KEY].to_numpy()  # Concatenate
+
+        X, y = to_X_y(df, BLAST110_CHANNEL_MAP, CHANNELS[dataset], BLAST110_LABEL_KEY, BLAST110_LABEL_MAP)
+        sample = save_sample(dataset, i, X, y)
+        meta.append({
+            'sample': sample,
+            'filename_original': fn,
+            'patient_id': int(re.match(r'^BLAST110_(\d+)_P\d\.fcs$', fn).group(1)),
+            'sample_type': sample_info.loc[file_id, 'sample_type'],
+        })
+
+    save_meta(dataset, meta, BLAST110_LABEL_MAP, BLAST110_LABEL_NAMES)
+
+
 # ### Helpers ##########################################################################################################
 
-def load_sample(raw_dir, fn):
-    # Load one FCS/CSV file with flagx; FCS columns are named by $PnN (reindex=False)
-    fdm = FlowDataManager(data_file_names=[fn], data_file_path=raw_dir, save_path=raw_dir, verbosity=0)
-    fdm.load_data_files_to_anndata(reindex=False)
+def load_sample(raw_dir: str, fn: str, reindex: bool = False) -> pd.DataFrame:
+    # Load one FCS/CSV file with flagx; FCS columns are named by $PnN, or by $PnS where set if reindex=True
+    fdm = FlowDataManager(data_file_names=[fn], data_file_path=raw_dir, verbosity=0)
+    fdm.load_data_files_to_anndata(reindex=reindex)
     adata = fdm.anndata_list_[0]
 
     # Compensate if the FCS file contains a spillover matrix. flagx only logs compensation errors, so check the log.
@@ -209,27 +259,36 @@ def load_sample(raw_dir, fn):
     return adata.to_df()
 
 
-def to_X_y(df, channel_map, channels, label_key, label_map):
+def to_X_y(
+        df: pd.DataFrame,
+        channel_map: dict[str, str],
+        channels: list[str],
+        label_key: str,
+        label_map: dict[int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    # Check if any of the channels of the sample are not included in the mapping; apply mapping
     unmapped = set(df.columns) - set(channel_map) - {label_key}
     if unmapped:
         raise ValueError('Channels without a name mapping: {}'.format(sorted(unmapped)))
     df = df.rename(columns=channel_map)
 
+    # Extract data data matrix of selected channels as float32
     X = df[channels].to_numpy(dtype=np.float32)
 
+    # Extract label vector; check all int; check all mapped; map to consecutive integers
     y_orig = df[label_key].to_numpy()
     if not np.all(y_orig == np.round(y_orig)):
         raise ValueError('Non-integer labels found')
-    y_orig = y_orig.astype(np.int64)
+    y_orig = y_orig.astype(np.int32)
     unknown = set(np.unique(y_orig).tolist()) - set(label_map)
     if unknown:
         raise ValueError('Labels without a mapping: {}'.format(sorted(unknown)))
-    y = np.vectorize(label_map.get, otypes=[np.int64])(y_orig)
+    y = np.vectorize(label_map.get, otypes=[np.int32])(y_orig)
 
     return X, y
 
 
-def save_sample(dataset, i, X, y):
+def save_sample(dataset: str, i: int, X: np.ndarray, y: np.ndarray) -> str:
     sample = 'sample_{:03d}'.format(i + 1)
     out_dir = os.path.join(DATA_CURATED, dataset)
     os.makedirs(out_dir, exist_ok=True)
@@ -238,7 +297,12 @@ def save_sample(dataset, i, X, y):
     return sample
 
 
-def save_meta(dataset, meta, label_map, label_names):
+def save_meta(
+        dataset: str,
+        meta: list[dict[str, Any]],
+        label_map: dict[int, int],
+        label_names: dict[int, tuple[str, str]],
+) -> None:
     out_dir = os.path.join(DATA_CURATED, dataset)
     meta_labels = pd.DataFrame([
         {
@@ -267,6 +331,10 @@ if __name__ == '__main__':
         'lt1b': lambda: curate_lymphoma('lt1b'),
         'lt2b': lambda: curate_lymphoma('lt2b'),
         'flowcyt': curate_flowcyt,
+        'blast110_p1': lambda: curate_blast110('blast110_p1'),
+        'blast110_p2': lambda: curate_blast110('blast110_p2'),
+        'blast110_p3': lambda: curate_blast110('blast110_p3'),
+        'blast110_p4': lambda: curate_blast110('blast110_p4'),
     }
 
     for dataset, curate in curate_functions.items():
