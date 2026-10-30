@@ -11,8 +11,12 @@ import os
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_RAW = os.path.join(ROOT, 'data', 'raw')
 DATA_CURATED = os.path.join(ROOT, 'data', 'curated')
+DATA_SPLITS = os.path.join(ROOT, 'data', 'splits')
 RESULTS = os.path.join(ROOT, 'results')
 FIGURES = os.path.join(ROOT, 'figures')
+
+# ### Randomness
+SEED = 42
 
 # ### Datasets
 DATASETS = [
