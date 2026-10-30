@@ -4,6 +4,7 @@ Data curation: raw FCS/CSV files -> one untransformed X (float32, events x chann
 Output per dataset in data/curated/<dataset>/:
 - sample_<NNN>_X.npy, sample_<NNN>_y.npy: channels in the order of config.CHANNELS[<dataset>], labels as new integers
 - meta_samples.csv: new sample name, original filename, number of events, additional sample info from the filename
+  (Imstat: donor and lysis reagent from IMSTAT_SAMPLE_INFO)
 - meta_labels.csv: new integer label, original label(s), short name, description
 
 Files are loaded with flagx (one FlowDataManager per file). If an FCS file contains a spillover matrix, the sample is
@@ -29,6 +30,8 @@ OVERWRITE = False  # If False, datasets whose meta_samples.csv already exists ar
 # ### Imstat ###########################################################################################################
 
 IMSTAT_RAW = os.path.join(DATA_RAW, 'imstat')
+# Donor and lysis reagent per file (cleaned from the data provider's table, see PLAN.md step 2)
+IMSTAT_SAMPLE_INFO = os.path.join(IMSTAT_RAW, 'Imstat_samples_2026-10-29_clean.csv')
 
 # Two channel name variants exist in the raw files ('-PC5.5' vs 'FL4 INT' for the unused 4th fluorescence channel)
 IMSTAT_CHANNEL_MAP = {
@@ -54,6 +57,8 @@ IMSTAT_LABEL_NAMES = {  # New -> (short name, description)
 def curate_imstat():
     dataset = 'imstat'
     filenames = sorted(f for f in os.listdir(IMSTAT_RAW) if f.endswith('.fcs'))
+    info = pd.read_csv(IMSTAT_SAMPLE_INFO).set_index('filename_original')
+    assert sorted(info.index) == filenames, 'IMSTAT_SAMPLE_INFO does not match the raw files'
 
     meta = []
     for i, fn in enumerate(filenames):
@@ -64,6 +69,8 @@ def curate_imstat():
         meta.append({
             'sample': sample,  # New filename
             'filename_original': fn,  # Original filename
+            'donor_id': info.loc[fn, 'donor_id'],
+            'lysis': info.loc[fn, 'lysis'],
         })
 
     save_meta(dataset, meta, IMSTAT_LABEL_MAP, IMSTAT_LABEL_NAMES)
