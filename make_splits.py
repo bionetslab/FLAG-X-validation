@@ -40,48 +40,47 @@ INNER_DATASET = 'imstat'
 
 
 def make_outer_splits(group: str):
-    # Get datasets included in group, patient ID key, stratification key
+    # Datasets of the group, patient column, stratum column
     datasets, patient_key, stratum = SPLIT_GROUPS[group]
 
     # Union of patients (and their stratum) over all datasets of the group
     meta = {}
-    for dataset in datasets:  # Iterate over datasets of the group
+    for dataset in datasets:
         # Load meta_samples.csv
         meta[dataset] = pd.read_csv(os.path.join(DATA_CURATED, dataset, 'meta_samples.csv'), dtype=str)
-        # Rename patient_key col to patient_id -> uniform naming
+        # Rename the patient column to patient_id -> uniform naming
         meta[dataset] = meta[dataset].rename(columns={patient_key: 'patient_id'})
-    # Iterate over datasets, combine patient_ID cols and stratum cols into joint df
+    # Combine the patient_id (and stratum) columns of all datasets into one DataFrame
     patients = pd.concat([m[['patient_id'] + ([stratum] if stratum else [])] for m in meta.values()])
-    # Remove duplicate rows -> Unique (patient_id, stratum) value combinations
+    # Remove duplicate rows -> unique (patient_id, stratum) combinations
     patients = patients.drop_duplicates()
     # A patient remains more than once only if its stratum differs between datasets of the group
     assert patients['patient_id'].is_unique, '{}: a patient has different strata across datasets'.format(group)
 
-    # Create pandas series of strata indexed by patient_id
+    # Strata as Series -> index: patient_id, value: stratum
     strata = patients.set_index('patient_id')[stratum] if stratum else None
-    # Split patients into (stratified) folds -> Pandas Series, index=patient id, value=fold number
+    # Split patients into (stratified) folds -> Series, index: patient_id, value: fold number
     folds = assign_folds(patients['patient_id'], K_OUTER, SEED, strata)
 
     for dataset in datasets:
-        # Define path to CSV file with split
+        # Path of the split CSV, skip if it exists
         path = os.path.join(DATA_SPLITS, dataset + '.csv')
-        # Check if split CSV already exists
         if is_done(path):
             print('{}: splits exist, skipped'.format(dataset))
             continue
 
-        # Get meta_samples df (contains patient_id columns)
+        # meta_samples of the dataset (with patient_id column)
         m = meta[dataset]
-        # folds[m['patient_id']].values = fold number for patients in dataset; m['sample'].values = new filename
-        # -> Pandas Series with Index: new filename, Value: fold number
+        # Fold of each sample's patient -> Series, index: sample (new filename), value: fold number
+        # folds[m['patient_id']].values = fold number for patients in dataset; m['sample'].values = sample (new filename)
         sample_folds = pd.Series(folds[m['patient_id']].values, index=m['sample'].values)
 
-        # Generate the joint dataframe storing the k train-test splits -> cols: new filename (index), split_i
+        # One column per split -> DataFrame, index: sample, columns: split_i (train/test)
         roles = fold_roles(sample_folds, ('train', 'test'), 'split')
-        # Check if each sample is in test exactly once
+        # Each sample is test exactly once
         assert ((roles == 'test').sum(axis=1) == 1).all()
 
-        # Merge selected cols of meta_samples with roles df; save
+        # Merge selected meta_samples columns with the roles; save
         columns = ['sample', 'patient_id'] + ([stratum] if stratum else [])
         out = pd.concat([m[columns].reset_index(drop=True), roles.reset_index(drop=True)], axis=1)
         out.to_csv(path, index=False)
@@ -89,37 +88,35 @@ def make_outer_splits(group: str):
 
 
 def make_inner_splits():
-    # Define path to CSV file with split
+    # Path of the split CSV, skip if it exists
     path = os.path.join(DATA_SPLITS, INNER_DATASET + '_inner.csv')
-    # Check if split CSV already exists
     if is_done(path):
         print('{}: inner splits exist, skipped'.format(INNER_DATASET))
         return
 
-    # Read in the df with the outer splits, set sample/new filename as index
+    # Outer splits -> DataFrame, index: sample (new filename)
     outer = pd.read_csv(os.path.join(DATA_SPLITS, INNER_DATASET + '.csv'), dtype=str).set_index('sample')
-    # Initialize the df for the inner split
+    # Inner splits of all outer splits, same index
     inner = pd.DataFrame(index=outer.index)
-    # Iterate over the outer splits
     for i in range(K_OUTER):
-        # Select patient ids of the train samples of the current split
+        # patient_id of the train samples of outer split i -> Series, index: sample
         train = outer.loc[outer['split_{}'.format(i)] == 'train', 'patient_id']
-        # Split patients into k_inner folds -> Pandas Series with Index: patient id, Value: fold number
+        # Split patients into K_INNER folds -> Series, index: patient_id, value: fold number
         patient_folds = assign_folds(pd.Series(train.unique()), K_INNER, SEED + i)
-        # Expand back to full traiining set (some patients ids appear multiple times), index with sample/new filename
+        # Fold of each train sample's patient (a patient can have several samples) -> Series, index: sample
         sample_folds = pd.Series(patient_folds[train].values, index=train.index)
-        # Generate the joint dataframe storing the k_inner train-val splits
+        # One column per inner split -> DataFrame, index: sample, columns: split_i_inner_j (train/val)
         roles = fold_roles(sample_folds, ('train', 'val'), 'split_{}_inner'.format(i))
-        # Check if each sample is in val exactly once
+        # Each train sample is val exactly once
         assert ((roles == 'val').sum(axis=1) == 1).all()
 
-        # Iterate over columns; add to global df; reindex adds back test samples
+        # Add the columns to inner; reindex adds back the outer test samples as test
         for column in roles:
             inner[column] = roles[column].reindex(inner.index).fillna('test')
         print('{} split {}: {} train samples, val fold sizes {}'.format(
             INNER_DATASET, i, len(roles), (roles == 'val').sum(axis=0).tolist()))
 
-    # Move sample/new filename from index to col; save
+    # Move sample from the index to a column; save
     inner.reset_index().to_csv(path, index=False)
 
 
@@ -151,16 +148,16 @@ def make_summaries():
 
 def assign_folds(patients: pd.Series, k: int, seed: int, strata: pd.Series | None = None) -> pd.Series:
     """Returns the test fold (0 ... k-1) per patient, indexed by patient. Stratified if strata are given."""
-    patients = patients.sort_values().reset_index(drop=True)  # Sort patients, input order does not matter
-    folds = pd.Series(-1, index=patients.values)  # Initialize fold Pandas series with fold assignments
-    # Do the k-fold split, scikit-learn splitters return iterators of (train_idx, test_idx)
+    patients = patients.sort_values().reset_index(drop=True)  # Sorted, so the input order does not matter
+    folds = pd.Series(-1, index=patients.values)  # Fold number per patient, filled below
+    # k-fold split; sklearn splitters yield (train_idx, test_idx) per fold
     if strata is None:
         splits = KFold(n_splits=k, shuffle=True, random_state=seed).split(patients)
     else:
-        # Strata with fewer patients than k raise a sklearn warning; they are still
-        # assigned, they just do not occur in every fold
+        # Strata with fewer patients than k raise a sklearn warning; they are still assigned, they just do not occur
+        # in every fold
         splits = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed).split(patients, strata[patients].values)
-    # Assign fold numbers
+    # Test fold of each patient = its fold number
     for fold, (_, test_idx) in enumerate(splits):
         folds.iloc[test_idx] = fold
     return folds
@@ -169,16 +166,16 @@ def assign_folds(patients: pd.Series, k: int, seed: int, strata: pd.Series | Non
 def fold_roles(folds: pd.Series, names: tuple[str, str], prefix: str) -> pd.DataFrame:
     """One column per split (<prefix>_<i>) with names[1] for samples in fold i and names[0] otherwise."""
     k = folds.max() + 1
-    # Generate DataFrame from Dict 
+    # DataFrame from a dict, one column per fold i: fold i -> names[1] (test/val), all other folds -> names[0] (train)
     return pd.DataFrame({
-        '{}_{}'.format(prefix, i):  # Col name 'prefix_i', e.g. 'split_0'
-        folds.map(lambda f: names[1] if f == i else names[0]).values  # names: train, test/val -> current fold is test/val, rest is train
-        for i in range(k)  # Iterate over folds numbers
-    }, index=folds.index)  # Use new filenames as index
+        '{}_{}'.format(prefix, i):  # Column name, e.g. split_0
+        folds.map(lambda f: names[1] if f == i else names[0]).values
+        for i in range(k)
+    }, index=folds.index)  # Index: sample
 
 
 def is_done(path: str) -> bool:
-    """Returns False if csv storing the split is not on disk or OVERWRITE True, oterwise returns True"""
+    """Returns True if the split CSV exists and OVERWRITE is False, otherwise False."""
     return os.path.exists(path) and not OVERWRITE
 
 
