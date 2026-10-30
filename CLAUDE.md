@@ -6,18 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Reproduction code for the FLAG-X paper (*FLAG-X: Hybrid machine learning workflows for automated gating of clinical flow cytometry data*). FLAG-X itself is **not** in this repo; it is the separate `flagx` package (github.com/bionetslab/FLAG-X, v0.2.1 used for the paper). This repo benchmarks FLAG-X against competing cell-type classification methods.
 
-The repo is mid-restructure (Oct 2026). The new benchmark pipeline is being built step by step following `PLAN.md`; steps 0 (scaffolding) and 1 (data curation) are done. The pre-revision code is frozen in `legacy/`.
+The repo is mid-restructure (Oct 2026). The new benchmark pipeline is being built step by step following `PLAN.md`; steps 0 (scaffolding), 1 (data curation) and 2 (splits) are done. The pre-revision code is frozen in `legacy/`.
 
-- `PLAN.md`: **the authoritative plan**: general rules, chronological steps (completed ones marked `-- DONE`), and the decision table (D1–D7). Read it before starting a new step. Open decisions (D3a, D3b, D4, D6) are settled only when the step needs them; don't decide them unasked.
+- `PLAN.md`: **the authoritative plan**: general rules, chronological steps (completed ones marked `-- DONE`), and the decision table (D1–D7). Read it before starting a new step. Open decisions (D3a, D3b, D4) are settled only when the step needs them; don't decide them unasked.
 - `config.py`: constants shared by several scripts (`ROOT`, `DATA_RAW`, `DATA_CURATED`, `RESULTS`, `FIGURES`, `DATASETS`, `CHANNELS`). Stdlib-only and Python 3.5-compatible, since every env imports it.
 - `curate_data.py` (env `fx_flagx_cpu`): raw FCS/CSV → `data/curated/<dataset>/` (`sample_<NNN>_X.npy` float32, `sample_<NNN>_y.npy` int32, `meta_samples.csv`, `meta_labels.csv`). Untransformed; compensated with flagx only if the file has a spillover matrix (BLAST110).
+- `make_splits.py` (env `fx_flagx_cpu`): patient-level (stratified) k-fold splits → `data/splits/<dataset>.csv` (`split_<i>` = train/test) and `imstat_inner.csv` (`split_<i>_inner_<j>` = train/val/test, for tuning), plus `summary.csv` / `summary_inner.csv`. Same patient → same fold across lt1/lt1b/lt2/lt2b and across the BLAST110 tubes. The split CSVs are versioned; they are the single source of truth.
 - `plot_dataset_overview.py` (env `fx_plot`): sample size and class balance figures → `results/dataset_overview/`, `figures/dataset_overview/`.
 - `validation/gating/`: sklearn-compatible wrappers around competing methods.
 - `envs/`: one conda env file per step or method: `flagx_cpu.yml` (`fx_flagx_cpu`, flagx 0.2.1 from bioconda + CPU torch; curation and FLAG-X runs), `plot.yml` (`fx_plot`), and the method envs below. Create with strict channel priority (`CONDA_CHANNEL_PRIORITY=strict conda env create -f envs/<name>.yml`); otherwise flagx resolves to ancient scanpy/anndata.
 - `legacy/`: the old `main.py` / `main_plotting.py` / `run_experiments.py` drivers, slurm scripts, old envs (`flowcy`), the old `validation` package (incl. `utils/val_utils.py` with abstention-aware metrics and `plt/`), and old results. It is reference material; don't modify it.
 - `NOTES.md`: the original design notes that `PLAN.md` was built from.
 - `working_notes/additional_methods.md`: the task spec and detailed findings for the newer wrappers (supervision status, sources, env versions, smoke-test results, open decisions). Read it before touching those wrappers.
-- `data/raw/` and `data/curated/` are gitignored, as are `results/`, `*.csv` and `*.pdf`. Datasets (`config.DATASETS`): `imstat` (also the tuning dataset), `lt1`, `lt2`, `lt1b`, `lt2b`, `flowcyt`, `blast110_p1`–`p4` (one dataset per BLAST110 tube; group CV splits by `patient_id`).
+- Git: `data/raw/` and the curated `.npy` files are ignored; CSVs under `data/` (curated meta files, splits) are tracked. Elsewhere `results/`, `*.csv` and `*.pdf` are ignored. Datasets (`config.DATASETS`): `imstat` (also the tuning dataset), `lt1`, `lt2`, `lt1b`, `lt2b`, `flowcyt`, `blast110_p1`–`p4` (one dataset per BLAST110 tube; group CV splits by `patient_id`).
 
 There is no test suite, linter, or build step.
 
