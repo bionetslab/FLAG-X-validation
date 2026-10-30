@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–1 done (2026-10-29). Built from `NOTES.md`. Open decisions are marked **[D#]** and collected at the end. Small decisions (k, seeds, grids, ...) are made when we reach the step.
+Status: steps 0–2 done (2026-10-30). Built from `NOTES.md`. Open decisions are marked **[D#]** and collected at the end. Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
 ---
 
@@ -43,7 +43,7 @@ Status: steps 0–1 done (2026-10-29). Built from `NOTES.md`. Open decisions are
 ### Step 0: Repository scaffolding -- DONE
 - Scripts at the repo root with descriptive names, no numbering; figure scripts start with `plot_`. Each script has its parameters as constants at the top and an `OVERWRITE` flag.
 - `config.py` (stdlib-only, Py3.5-compatible): `ROOT` (via `__file__`), `DATA_RAW`, `DATA_CURATED`, `RESULTS`, `FIGURES`, `DATASETS`, `CHANNELS`. No registries. **[D5]**
-- Layout: `data/raw/` (gitignored), `data/curated/<dataset>/` (gitignored), `results/<script>/`, `figures/<script>/`.
+- Layout: `data/raw/` (gitignored), `data/curated/<dataset>/` (`.npy` gitignored, meta CSVs tracked), `data/splits/` (tracked), `results/<script>/`, `figures/<script>/`.
 - Envs: `fx_flagx_cpu` (`envs/flagx_cpu.yml`, curation + FLAG-X runs), `fx_plot` (`envs/plot.yml`), one env per method. All with `channel_priority: strict`.
 - Still to add when first needed: the shared core `bench/` (numpy-only, Py3.5-compatible: data/split loading, task enumeration, seeding, output writing), `data/splits/` (step 2), the global seed in `config.py`.
 
@@ -51,15 +51,16 @@ Status: steps 0–1 done (2026-10-29). Built from `NOTES.md`. Open decisions are
 - `curate_data.py` (env `fx_flagx_cpu`): one function per dataset. Load with flagx (one `FlowDataManager` per file) → compensate if the FCS file has a spillover matrix → rename channels (per-dataset map in the script) → keep/order as in `config.CHANNELS` → map labels (per-dataset map in the script, contiguous from 0) → save. Raises on unmapped channels/labels.
 - Output in `data/curated/<dataset>/`: `sample_<NNN>_X.npy` (float32) and `sample_<NNN>_y.npy` (int32), `meta_samples.csv` (sample, original filename, extra info such as `patient_id`, `subtype`, `sample_type`), `meta_labels.csv` (label, original label, name, description). Data is stored untransformed. **[D2]**
 - Datasets (10): `imstat`, `lt1`, `lt2`, `lt1b`, `lt2b`, `flowcyt`, `blast110_p1`–`p4`. **[D1]**
+- Imstat sample meta (`donor_id`, `lysis`) comes from `data/raw/imstat/Imstat_samples_2026-10-29_clean.csv`, cleaned from the data provider's table (donors `a`–`l` for the `ER_` files; for the named files the `YYYYMMDD-n` token as written). 26 donors with up to 5 lysis reagents each (R4.4, R4.6).
 - Compensation only for BLAST110 (only dataset with `$SPILL`). **[D7]**
 - BLAST110: one dataset per tube, blast vs other, FSC-A/SSC-A only, channels named by antibody (`$PnS`).
 - Overview figures: `plot_dataset_overview.py` (env `fx_plot`) → `results/dataset_overview/*.csv`, `figures/dataset_overview/` (sample sizes, pooled and per-sample class balance, optional hue by meta column, e.g. `sample_type`).
 
-### Step 2: Splits
-- Per dataset: outer k-fold CV on the **group** level (patient, not file), e.g. BLAST110 patients with up to 4 tubes, so no patient appears in both train and test. Optionally stratified on sample-level class composition (e.g. BLAST110 `sample_type`: Dx/FU/NBM differ strongly in size and blast fraction).
-- Imstat (tuning dataset): additionally nested inner train/val splits for every outer training fold.
-- Saved as `data/splits/<dataset>.json` (fold → train/test sample ids; inner splits for Imstat).
-- Small decisions later: k, number of repetitions, stratification.
+### Step 2: Splits -- DONE
+- `make_splits.py` (env `fx_flagx_cpu`): patient-level k-fold with scikit-learn (`StratifiedKFold` / `KFold`, `config.SEED`).
+- Folds are assigned once per split group on the union of its patients, so a patient is in the same fold in every dataset of the group: `lymphoma` (lt1, lt1b, lt2, lt2b; stratified by `subtype`), `blast110` (p1–p4; stratified by `sample_type`), `imstat` (by `donor_id`), `flowcyt` (unstratified). Rare strata (BL: 2 patients) do not occur in every fold.
+- Output in `data/splits/` (versioned in git): `<dataset>.csv` (sample, patient_id, [stratum], `split_<i>` = train/test), `imstat_inner.csv` (all samples, `split_<i>_inner_<j>` = train/val/test) for tuning, `summary.csv` and `summary_inner.csv` (sample counts per split).
+- `K_OUTER = 5`, `K_INNER = 3` (fixed; more inner folds are computationally infeasible for tuning). One CV repetition; variability is covered by model seeds (step 6) and an optional repeated CV for the FLAG-X methods.
 
 ### Step 3: Preprocessing definition
 - Shared preprocessing per dataset: channel selection, transformation (arcsinh with cofactor / log10 with cutoffs), optional scaling (fit on training data only).
@@ -75,12 +76,18 @@ Status: steps 0–1 done (2026-10-29). Built from `NOTES.md`. Open decisions are
 - Smoke test of every runner on a tiny subsample of one dataset before any real run.
 
 ### Step 5: Hyperparameter tuning (Imstat)
-- For each method and each outer Imstat fold: grid/random search on the inner splits → best parameters per outer fold.
-- **[D6]** How tuned parameters are used: per-fold best (only for Imstat's own outer folds) and/or one consensus parameter set (e.g. best mean inner score across all outer folds) that is then used for all other datasets.
-- Grids per method: decided at this step, documented next to the method registry.
+- For each method, parameter set and outer Imstat split i: fit on the inner train and score on the inner val samples of every inner split of i (`imstat_inner.csv`) → mean inner score per (method, parameter set, outer split).
+- **[D6, decided] Both uses, from the same tuning runs:**
+  - **Per fold (Imstat):** for outer split i, use the parameter set with the best mean inner score of split i. This is clean nested CV: the outer test samples of split i play no part in choosing its parameters.
+  - **Consensus (all other datasets):** one parameter set per method, with the best mean inner score over all outer splits (K_OUTER × K_INNER inner splits). It is used unchanged for Lt1/Lt2/Lt1b/Lt2b, Flowcyt and BLAST110 ("tuned once on Imstat"). There is no leakage, since tuning uses a different dataset. It is not used for the Imstat benchmark scores, which would be slightly optimistic.
+- Output: the inner scores of all parameter sets, plus the selected per-fold and consensus parameter sets per method.
+- Grids per method: decided at this step, kept small for the slow methods (Bayesian trees, GateMeClass). Grid sizes are chosen from the runtimes of the step 4 smoke tests (cost: K_OUTER × K_INNER = 15 fits per parameter set).
 
 ### Step 6: Main benchmark
-- Tasks: method × dataset × outer fold (× repetition). Each task trains on the training samples and predicts every test sample.
+- Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.
+- Model seeds (R4.4, R4.m3 seed variability): 3 seeds per fold for stochastic methods (FLAG-X MLP/SOM, DGCyTOF, DeepCyTOF; initialization and on-the-fly downsampling), 1 for deterministic ones (e.g. LDA). Seeds are derived from `config.SEED` + task identity. Report the mean and SD over seeds. If BLAST110 is too expensive, reduce its seeds or downsample harder and state this. The splits stay unchanged (1 CV repetition); tuning uses a single seed (stated as a limitation).
+- Optional robustness check: a repeated CV with a different partition seed, for the FLAG-X methods only.
+- Hyperparameters (D6): Imstat tasks use the per-fold parameters of their outer split; all other datasets use the consensus parameters.
 - Run sequentially or as a SLURM array job; GPU only where it helps (FLAG-X MLP, DGCyTOF).
 
 ### Step 7: Follow-up experiments
@@ -115,5 +122,5 @@ Reuse the same splits, curated data and runners; only the task list changes. Can
 | D3b | Shared normalization | z-score / min-max / none | | open |
 | D4 | Prior-knowledge methods (ACDC, Bayesian trees) | expert tables / label-derived tables / separate category / drop | | open |
 | D5 | Config format | Python constants / YAML/JSON registry | | **decided:** small shared `config.py` at root, per-script constants otherwise, no registries |
-| D6 | Use of tuned parameters | per-fold / consensus / both | | open |
+| D6 | Use of tuned parameters | per-fold / consensus / both | | **decided:** both. Per-fold best for Imstat (nested CV); one consensus set (best mean inner score over all outer splits) for all other datasets |
 | D7 | Compensation | during curation / as is | | **decided:** with flagx if the FCS file has a spillover matrix (only BLAST110) |
