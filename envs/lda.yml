@@ -1,0 +1,20 @@
+# Env for the LDA classifier of Abdelaal et al. 2019 (Cytometry A, doi:10.1002/cyto.a.23738)
+# Official code: https://github.com/tabdelaal/CyTOF-Linear-Classifier (R + MATLAB, MIT), commit 19c2f8f524ab01d99a46e32989be385f5de20a8c
+# The official R implementation only depends on MASS (MASS::lda); flowCore is only needed for its FCS file reader,
+# which the wrapper (validation/gating/lda.py) does not use (data is passed as numpy arrays via rpy2).
+# Create with: conda env create -f envs/lda.yml
+# Use with an ACTIVATED env (conda activate fx_lda / conda run -n fx_lda ...): r-base sets R_HOME on activation;
+# calling the env python directly without activation lets rpy2 pick up the system R (fails with undefined symbols).
+# Tested versions (2026-10-27): python 3.12.16, numpy 2.5.4, pandas 3.1.0, scikit-learn 1.9.1, rpy2 3.6.6, R 4.4.3, MASS 7.3-66
+name: fx_lda
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - scikit-learn
+  - rpy2
+  - r-base=4.4
+  - r-mass

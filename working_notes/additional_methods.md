@@ -237,7 +237,6 @@ Sources:
 - Calls the official R code through rpy2.
 - The R model is stored as serialized bytes so the object can be pickled; save/load was tested in a fresh process.
 - `predict_proba` returns the native posteriors.
-- Predictions agree 100% with sklearn's `LinearDiscriminantAnalysis`.
 
 **Hyperparameters** (the originals have no defaults, so these are the wrapper's choices):
 
