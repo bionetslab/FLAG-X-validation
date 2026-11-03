@@ -1,4 +1,41 @@
+"""
+sklearn-like wrapper for DGCyTOF (Cheng et al. 2022, "DGCyTOF: Deep learning with graphic cluster visualization to
+predict cell types of single cell mass cytometry data", PLoS Comput Biol 18(4): e1008885,
+https://doi.org/10.1371/journal.pcbi.1008885).
 
+Official code: https://github.com/lijcheng12/DGCyTOF, checked against commit 6ff36677e8b341e8f0c7154e13d740062861cbb6
+(2021-07-19, last commit). The functions below are adapted from DGCyTOF_Package/DGCyTOF/__init__.py and utils.py;
+changes are marked with '# ###### Start, My addition ###### #' ... '# ###### End, My addition ###### #'.
+
+Method: a fully connected softmax classifier (FCNNModel, 3 ReLU hidden layers 128-64-32) trained with cross entropy
+(Adam, lr 1e-3), followed by DGCyTOF's calibration step on new data: predictions with a softmax confidence <= the
+minimum confidence of the correctly classified validation cells are rejected; rejected cells whose mean Spearman
+correlation (across channels) with the confidently predicted cells of a class exceeds that class's mean internal
+correlation are reassigned to the class with the highest such correlation; the rest stay unassigned (-1).
+The graphic cluster visualization part of DGCyTOF (UMAP + HDBSCAN on the rejected cells) is not used.
+
+Contents:
+    DGCyTOFClassifier:
+        fit: maps labels to 0..K-1, stratified train/validation split (val_size), trains FCNNModel
+            (train_model), stores the validation results (validate_model) for the calibration threshold.
+        random_state (not in the original): seeds torch (weight initialization, batch shuffling) and the
+            train/validation split; default 42 (= the split seed used before), None = unseeded. GPU training is not
+            guaranteed to be bit-reproducible.
+        predict: forward pass + calibration (_calibrate_data), returns the original labels, -1 = unassigned.
+        predict_proba: softmax output of FCNNModel (without calibration).
+        score: macro F1 with unassigned cells (-1) given weight 0. save / load: torch.save / torch.load.
+        train_model: __init__.py L94-140 (adds moving the batches to the device).
+        validate_model: __init__.py L32-91 (unchanged; note: returns the results of the LAST validation batch only,
+            batch size 10000, as in the original).
+        _calibrate_data: __init__.py L171-270 (returns the calibrated labels in addition; the correlation matrices
+            use at most the last 12000 confidently predicted cells per class to limit memory, the original does this
+            for class 1 only; .loc instead of a chained assignment, same result).
+        _active_learning_index: utils.py L10-24 (unchanged). get_num_correct: utils.py L6-7 (unchanged).
+    FCNNModel: architecture as in the paper and Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb.
+
+Env: fx_flagx_cpu (envs/flagx_cpu.yml; Python 3.12, CPU torch). Uses typing.Self, hence Python >= 3.11. Trains on
+CUDA if available (torch.cuda.is_available()), otherwise on CPU, so the same code runs in a GPU env.
+"""
 import os
 import warnings
 import numpy as np
@@ -24,6 +61,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
             layer_sizes: Tuple[int, int, int] = (128, 64, 32),
             n_epochs: int = 20,
             train_params: Union[dict, None] = None,
+            random_state: Union[int, None] = 42,
             verbosity: int = 0,
     ):
         super().__init__()
@@ -32,6 +70,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
         self.n_epochs = n_epochs
         self.verbosity = verbosity
         self.train_params = train_params
+        self.random_state = random_state
         if self.train_params is None:
             self.train_params = {'batch_size': 128, 'shuffle': True, 'num_workers': 6}
 
@@ -54,12 +93,19 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
 
         # Rename classes to integers starting from 0
         y, self.classes_, self.class_priors_, self.new_to_og_classes_dict_, self.og_classes_ = \
-            DgcytofClassifier._process_class_labels(y=y)
+            DGCyTOFClassifier._process_class_labels(y=y)
         # Add label for unclassifiable cells to dict
         self.new_to_og_classes_dict_[-1] = -1
 
+        # Seed torch (weight initialization, batch shuffling) and the train/validation split
+        # (not in the original; None = unseeded)
+        if self.random_state is not None:
+            torch.manual_seed(self.random_state)
+
         # Split data into train and validation set
-        x_train, x_val, y_train, y_val = train_test_split(X, y, stratify=y, test_size=self.val_size, random_state=42)
+        x_train, x_val, y_train, y_val = train_test_split(
+            X, y, stratify=y, test_size=self.val_size, random_state=self.random_state
+        )
 
         # Define device on which to train
         self.device_ = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -75,12 +121,13 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
 
         # ### Model training
         # Instantiate the softmax classifier
-        self.fcnn_model_ = FCNNModel(in_size=x_train.shape[1], out_size=np.unique(y_train).shape[0])
+        self.fcnn_model_ = FCNNModel(in_size=x_train.shape[1], out_size=np.unique(y_train).shape[0],
+                                     layer_sizes=self.layer_sizes)
         # Move model and tensors to device
         self.fcnn_model_.to(device=self.device_)
         # Use the function provided by dgcytof for training
         # (https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py)
-        DgcytofClassifier.train_model(
+        DGCyTOFClassifier.train_model(
             model_fc=self.fcnn_model_,
             X_train=dataset_train,
             max_epochs=self.n_epochs,
@@ -96,7 +143,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
         # (for later correction of the predictions)
         # Use the function provided by dgcytof for the validation step
         # (https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py)
-        self.validation_results_ = DgcytofClassifier.validate_model(
+        self.validation_results_ = DGCyTOFClassifier.validate_model(
             model_fc=self.fcnn_model_,
             val_tensor=dataset_val,
             classes=np.unique(y_train).tolist(),
@@ -121,7 +168,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
         # Predict and correct the prediction according to the Dgcytof method
         # Adopted the function provided by dgcytof for the calibration step
         # (https://github.com/lijcheng12/DGCyTOF/blob/main/DGCyTOF_Package/DGCyTOF/__init__.py)
-        _, y_pred = DgcytofClassifier._calibrate_data(
+        _, y_pred = DGCyTOFClassifier._calibrate_data(
             model_fc=self.fcnn_model_,
             X_test=x_tensor,
             classes=self.classes_.tolist(),
@@ -280,7 +327,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
 
                 # loss_outputs.append(outputs)
                 total_loss += loss.item()
-                total_correct += DgcytofClassifier.get_num_correct(preds, labels)
+                total_correct += DGCyTOFClassifier.get_num_correct(preds, labels)
 
             print("epoch", epoch, "total_correct:", total_correct, "loss:", loss.item(), "total_loss:", total_loss)
         model_fc.eval()
@@ -448,16 +495,16 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
 
             # ###### Start, My addition ###### #
             wrongly_incorrect_index[subtype_no], wrongly_incorrect_corr[subtype_no], _ = \
-                DgcytofClassifier._active_learning_index(
+                DGCyTOFClassifier._active_learning_index(
                     test_correct_list[subtype_no][-corr_mtrx_dim_limit:], rho_dict[subtype_no]
                 )
             # if subtype_no == 1:
             #     wrongly_incorrect_index[subtype_no], wrongly_incorrect_corr[subtype_no], _ = \
-            #         DgcytofClassifier._active_learning_index(
+            #         DGCyTOFClassifier._active_learning_index(
             #             test_correct_list[subtype_no][-12000:], rho_dict[subtype_no])
             # else:
             #     wrongly_incorrect_index[subtype_no], wrongly_incorrect_corr[subtype_no], _ = \
-            #         DgcytofClassifier._active_learning_index(test_correct_list[subtype_no], rho_dict[subtype_no])
+            #         DGCyTOFClassifier._active_learning_index(test_correct_list[subtype_no], rho_dict[subtype_no])
             # ###### End, My addition ###### #
 
         ###################
@@ -467,7 +514,12 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
         # Iterate over the classes in the training set
         for subtype_no in range(0, len(classes)):
             # For each class enter the previously computed average correlation value into the df
-            temp[subtype_no][wrongly_incorrect_index[subtype_no]] = wrongly_incorrect_corr[subtype_no]
+            # ###### Start, My addition ###### #
+            # .loc instead of the original chained assignment
+            # 'temp[subtype_no][wrongly_incorrect_index[subtype_no]] = ...', same result; the chained assignment raises a
+            # FutureWarning in pandas 2.x and has no effect under copy-on-write (pandas >= 3)
+            temp.loc[wrongly_incorrect_index[subtype_no], subtype_no] = wrongly_incorrect_corr[subtype_no]
+            # ###### End, My addition ###### #
         # => Df with average correlations values for each wrongly classified event,
         #    they indicate the most probable class they actually belong to
 

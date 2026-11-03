@@ -43,7 +43,7 @@ Every wrapper follows the same contract. Keep new ones consistent with `dgcytof.
 
 | Wrapper | Method | Env | Notes |
 |---|---|---|---|
-| `dgcytof.py` (`DgcytofClassifier`) | DGCyTOF, torch | legacy `flowcy` | uses `typing.Self` → Python ≥3.11 |
+| `dgcytof.py` (`DGCyTOFClassifier`) | DGCyTOF, torch | `fx_flagx_cpu` (GPU env to follow) | uses `typing.Self` → Python ≥3.11; uses CUDA if available |
 | `gatemeclass.py` (`GateMeClassClassifier`) | GateMeClass, R via rpy2 | legacy (`legacy/gmc_install.txt`) | known issues: `legacy/gatemeclass_bug_report.md` |
 | `lda.py` (`LDAClassifier`) | Abdelaal et al. LDA, official R code via rpy2 | `fx_lda` (`envs/lda.yml`) | **The env must be activated** (`conda activate fx_lda` / `conda run -n fx_lda`). Otherwise rpy2 picks up the system R and crashes. |
 | `deepcytof.py` (`DeepCyTOFClassifier`) | DeepCyTOF, Keras 1.2.2 / TF 1.0.1 | `fx_deepcytof` (Python 3.5) | must stay Python 3.5 syntax (no f-strings); CPU only |
