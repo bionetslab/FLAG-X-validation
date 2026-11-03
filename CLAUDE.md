@@ -13,7 +13,7 @@ The repo is mid-restructure (Oct 2026). The new benchmark pipeline is being buil
 - `curate_data.py` (env `fx_flagx_cpu`): raw FCS/CSV → `data/curated/<dataset>/` (`sample_<NNN>_X.npy` float32, `sample_<NNN>_y.npy` int32, `meta_samples.csv`, `meta_labels.csv`). Untransformed; compensated with flagx only if the file has a spillover matrix (BLAST110).
 - `make_splits.py` (env `fx_flagx_cpu`): patient-level (stratified) k-fold splits → `data/splits/<dataset>.csv` (`split_<i>` = train/test) and `imstat_inner.csv` (`split_<i>_inner_<j>` = train/val/test, for tuning), plus `summary.csv` / `summary_inner.csv`. Same patient → same fold across lt1/lt1b/lt2/lt2b and across the BLAST110 tubes. The split CSVs are versioned; they are the single source of truth.
 - `plot_dataset_overview.py` (env `fx_plot`): sample size and class balance figures → `results/dataset_overview/`, `figures/dataset_overview/`.
-- `validation/core/preprocessing.py`: `Preprocessor` (transformation `log10_cutoff` / `arcsinh` / `none` + scaling `zscore` / `minmax` / `none`), numpy-only, Py3.5-compatible, fitted on the fly per task. Cut-offs in `config.LOG10_CUTOFFS`. Main benchmark: `log10_cutoff` + no scaling (D3a/D3b); the rest only in the ablation.
+- `validation/core/preprocessing.py`: `Preprocessor` (transformation `log10_cutoff` / `arcsinh` / `none` + scaling `zscore` / `minmax` / `none`), numpy-only, Py3.5-compatible, fitted on the fly per task. Cut-offs in `config.LOG10_CUTOFFS`. Main benchmark default: `log10_cutoff` + no scaling (D3a/D3b); the rest only in the ablation.
 - `validation/gating/`: sklearn-compatible wrappers around competing methods.
 - `envs/`: one conda env file per step or method: `flagx_cpu.yml` (`fx_flagx_cpu`, flagx 0.2.1 from bioconda + CPU torch; curation and FLAG-X runs), `plot.yml` (`fx_plot`), and the method envs below. Create with strict channel priority (`CONDA_CHANNEL_PRIORITY=strict conda env create -f envs/<name>.yml`); otherwise flagx resolves to ancient scanpy/anndata.
 - `legacy/`: the old `main.py` / `main_plotting.py` / `run_experiments.py` drivers, slurm scripts, old envs (`flowcy`), the old `validation` package (incl. `utils/val_utils.py` with abstention-aware metrics and `plt/`), and old results. It is reference material; don't modify it.
@@ -58,7 +58,7 @@ R-based methods get `r-base` and all R packages inside their own conda env. Neve
 
 - Pipeline: curated data → splits → preprocessing → tuning (Imstat) → fit/predict → scores → figures. Each step saves its outputs and the next reads them.
 - Splits are generated once (group-level k-fold CV, nested inner splits for Imstat) and are the single source of truth.
-- One shared transformation + normalization for all methods, applied on the fly and fitted on training data only. Downsampling is also on the fly, with fixed seeds.
+- One shared transformation + normalization as the default input for all methods, applied on the fly and fitted on training data only. Deviations only by tuning (shared vs native input for methods with their own preprocessing: LDA, DeepCyTOF) or for stability (GateMeClass, if needed), see D3. Downsampling is also on the fly, with fixed seeds.
 - Package-like code goes into `validation/`. The shared core `validation/core/` (preprocessing; later data/split loading, task enumeration, seeding) must be numpy-only and Python 3.5-compatible, so it runs in every method env.
 - Every experiment must be runnable sequentially or as a SLURM array job (task index → method × dataset × fold).
 

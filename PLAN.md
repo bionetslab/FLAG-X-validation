@@ -63,15 +63,17 @@ Status: steps 0–3 done (2026-11-03). Built from `NOTES.md`. Open decisions are
 - `K_OUTER = 5`, `K_INNER = 3` (fixed; more inner folds are computationally infeasible for tuning). One CV repetition; variability is covered by model seeds (step 6) and an optional repeated CV for the FLAG-X methods.
 
 ### Step 3: Preprocessing definition -- DONE
-- `validation/core/preprocessing.py`: `Preprocessor(channels, trafo, trafo_params, scaling, scaling_params)` with `fit` / `transform`. Transformations `log10_cutoff` (`{'cutoff': value or {channel: value}}`), `arcsinh` (`{'cofactor': value}`), `none`; scalings `zscore`, `minmax` (`{'quantiles': (low, high)}`), `none`.
+- `validation/core/preprocessing.py`: `Preprocessor(channels, trafo, trafo_params, scaling, scaling_params)` with `fit` / `transform`. Transformations `log10_cutoff` (`{'cutoff': value or {channel: value}}`), `arcsinh` (`{'cofactor': value}`), `none`; scalings `zscore`, `minmax` (`{'feature_range': (a, b)}`, default (0, 1)), `none`.
 - Numpy-only, Python 3.5-compatible reimplementation (no sklearn/flagx), so it runs in every method env. Checked against flagx `log10_w_custom_cutoffs`, pytometry `normalize_arcsinh` and the sklearn scalers.
 - Fitted on the fly inside each task on the task's (possibly downsampled) training data; the transformed data is never stored. Each experiment states its preprocessing as constants. A fitted preprocessor can be saved next to the model with `save(path)` / `Preprocessor.load(path)` (JSON, loadable in every env).
 - Cut-offs: `config.LOG10_CUTOFFS` (per dataset; a dict per channel or one uniform value).
 - flagx 0.2.1 `log10_w_cutoff` (uniform cut-off, used for Flowcyt in the paper) sets values <= cutoff to ln(cutoff) instead of log10(cutoff) (4.61 instead of 2 for cut-off 100). This affects up to 5 % of the values per Flowcyt channel (HLA_PB 4.8 %, CD14_FITC 1.9 %). Our implementation uses log10(cutoff); the paper's Flowcyt numbers will change slightly. To fix in the flagx package.
-- **[D3, decided]** Same treatment for all methods: one shared transformation + normalization. GateMeClass is the only allowed exception, and only if it cannot handle the shared transformation (in the legacy runs it crashed on log10 with cutoffs, see `legacy/gatemeclass_bug_report.md`). The effect of preprocessing is checked post hoc with a small ablation (step 7).
+- **[D3, decided]** Default: the same input for every method, i.e. the shared preprocessing (D3a, D3b). Deviations are allowed only for two reasons, and each one is stated with the results:
+  - **Tuning:** for methods with their own preprocessing (LDA, DeepCyTOF), shared vs native input is a grid parameter, and the tuning may select native (step 5).
+  - **Stability:** a method that cannot handle the shared input gets the input it can handle (GateMeClass: in the legacy runs it crashed on log10 with cut-offs, see `legacy/gatemeclass_bug_report.md`; to be rechecked in step 4).
+  - The effect of the shared preprocessing itself is checked post hoc with a small ablation (step 7).
 - **[D3a, decided]** log10 with lower cut-offs, as in the paper: per-channel cut-offs for Imstat and LT1/LT2 (incl. binary versions; values from `legacy/main.py`), uniform cut-off 100 for Flowcyt and BLAST110. Alternatives (uniform cut-off 100 everywhere, R4.m1; arcsinh with cofactor 150) only in the ablation (step 7).
 - **[D3b, decided]** No scaling (as in the paper): log10 with cut-offs only. z-score / min-max only in the ablation (step 7).
-- Method-internal preprocessing (DeepCyTOF `preprocess_log`/`denoise`/internal scaler, LDA `transformation`): to be decided per method in step 4.
 
 ### Step 4: Method integration
 - Per method: env file, wrapper, runner. The runner does: load fold data → preprocess → (downsample) → `fit` → `predict`/`predict_proba` on each test sample → save model, predictions, probabilities, runtime.
@@ -80,7 +82,11 @@ Status: steps 0–3 done (2026-11-03). Built from `NOTES.md`. Open decisions are
 - Smoke test of every runner on a tiny subsample of one dataset before any real run.
 
 ### Step 5: Hyperparameter tuning (Imstat)
-- Preprocessing as decided in step 3 (log10 with cut-offs, no scaling [D3b]); tuning and benchmark use the same preprocessing.
+- Input as decided in step 3 (D3): the shared preprocessing (log10 with cut-offs, no scaling) by default. Tuning and benchmark use the same input per method (for LDA / DeepCyTOF the selected arm, see below).
+- Method-internal preprocessing (D3, deviation by tuning): for methods with their own preprocessing (LDA, DeepCyTOF), the input pipeline is a grid parameter with two arms, selected like any other parameter (D6):
+  - **shared:** shared preprocessing (log10 with cut-offs, no scaling), the method's own preprocessing switched off (LDA `transformation=False`, DeepCyTOF `preprocess_log=False`);
+  - **native:** curated (untransformed) data + the method's own preprocessing as in the original (LDA `transformation='log'` as in the official flow example `Examples/FCMexample.ipynb` @ `19c2f8f`, DeepCyTOF `preprocess_log=True`). LDA `'log'` gives NaN on negative values (e.g. compensated BLAST110) and `MASS::lda` fails; such a failure is a result of the native arm, not worked around.
+  - Steps that are part of the model stay in both arms (DeepCyTOF internal z-scoring on the reference sample). DeepCyTOF `denoise=False` in both arms (not used by the authors on flow data, see `working_notes/deepcytof.md`).
 - For each method, parameter set and outer Imstat split i: fit on the inner train and score on the inner val samples of every inner split of i (`imstat_inner.csv`) → mean inner score per (method, parameter set, outer split).
 - **[D6, decided] Both uses, from the same tuning runs:**
   - **Per fold (Imstat):** for outer split i, use the parameter set with the best mean inner score of split i. This is clean nested CV: the outer test samples of split i play no part in choosing its parameters.
@@ -123,7 +129,7 @@ Reuse the same splits, curated data and runners; only the task list changes. Can
 |---|---|---|---|---|
 | D1 | Datasets in the benchmark | Imstat, Lt1, Lt2, Lt1b, Lt2b, Flowcyt, BLAST110, FlowCAP-I | | **decided:** Imstat (also used for tuning), Lt1, Lt2, Lt1b, Lt2b, Flowcyt, BLAST110 |
 | D2 | Storage format of curated data | per-sample `.npy` / CSV | | **decided:** per-sample `.npy` (X, y) + `meta_samples.csv`, `meta_labels.csv` |
-| D3 | Preprocessing ownership | shared / method-native / both | | **decided:** shared transformation + normalization for all; GateMeClass exception only if needed; post hoc ablation |
+| D3 | Preprocessing ownership | shared / method-native / both | | **decided:** default the same shared input for all; deviations only by tuning (shared vs native for LDA, DeepCyTOF; step 5) or for stability (GateMeClass, if needed); post hoc ablation |
 | D3a | Shared transformation | arcsinh / log10 with cutoffs | | **decided:** log10 with cut-offs as in the paper (per-channel for Imstat/LT, 100 for Flowcyt/BLAST110); alternatives in the ablation |
 | D3b | Shared normalization | z-score / min-max / none | | **decided:** none; z-score / min-max in the ablation |
 | D4 | Prior-knowledge methods (ACDC, Bayesian trees) | expert tables / label-derived tables / separate category / drop | | **decided:** dropped; both need an expert marker table and cannot derive it from labelled data |
