@@ -44,7 +44,7 @@ Every wrapper follows the same contract. Keep new ones consistent with `dgcytof.
 | Wrapper | Method | Env | Notes |
 |---|---|---|---|
 | `dgcytof.py` (`DGCyTOFClassifier`) | DGCyTOF, torch | `fx_flagx_cpu` (GPU env to follow) | uses `typing.Self` → Python ≥3.11; uses CUDA if available |
-| `gatemeclass.py` (`GateMeClassClassifier`) | GateMeClass, R via rpy2 | legacy (`legacy/gmc_install.txt`) | known issues: `legacy/gatemeclass_bug_report.md` |
+| `gatemeclass.py` (`GateMeClassClassifier`) | GateMeClass, R via rpy2 | `fx_gatemeclass` (`envs/gatemeclass.yml`) | **The env must be activated**; GateMeClass is installed from the pinned commit after creating the env (see the yml header). Known issues: `legacy/gatemeclass_bug_report.md` |
 | `lda.py` (`LDAClassifier`) | Abdelaal et al. LDA, official R code via rpy2 | `fx_lda` (`envs/lda.yml`) | **The env must be activated** (`conda activate fx_lda` / `conda run -n fx_lda`). Otherwise rpy2 picks up the system R and crashes. |
 | `deepcytof.py` (`DeepCyTOFClassifier`) | DeepCyTOF, Keras 1.2.2 / TF 1.0.1 | `fx_deepcytof` (Python 3.5) | must stay Python 3.5 syntax (no f-strings); CPU only |
 | `acdc.py` (`ACDCClassifier`) | ACDC + PhenoGraph | `fx_acdc` (Python 3.5) | must stay Python 3.5 syntax; needs a cell-type × marker table, so it is not truly supervised; **not in the benchmark (D4)** |
@@ -58,7 +58,7 @@ R-based methods get `r-base` and all R packages inside their own conda env. Neve
 
 - Pipeline: curated data → splits → preprocessing → tuning (Imstat) → fit/predict → scores → figures. Each step saves its outputs and the next reads them.
 - Splits are generated once (group-level k-fold CV, nested inner splits for Imstat) and are the single source of truth.
-- One shared transformation + normalization as the default input for all methods, applied on the fly and fitted on training data only. Deviations only by tuning (shared vs native input for methods with their own preprocessing: LDA, DeepCyTOF) or for stability (GateMeClass, if needed), see D3. Downsampling is also on the fly, with fixed seeds.
+- One shared transformation + normalization as the default input for all methods, applied on the fly and fitted on training data only. Deviations only by tuning (shared vs native input for methods with their own preprocessing: LDA, DeepCyTOF) or for stability (if needed), see D3. Downsampling is also on the fly, with fixed seeds.
 - Package-like code goes into `validation/`. The shared core `validation/core/` (preprocessing; later data/split loading, task enumeration, seeding) must be numpy-only and Python 3.5-compatible, so it runs in every method env.
 - Every experiment must be runnable sequentially or as a SLURM array job (task index → method × dataset × fold).
 

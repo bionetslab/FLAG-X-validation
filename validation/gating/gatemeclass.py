@@ -1,4 +1,41 @@
+"""
+sklearn-like wrapper for GateMeClass (Caligola et al. 2024, "GateMeClass: Gate Mining and Classification of
+cytometry data", Bioinformatics 40(5): btae322, https://doi.org/10.1093/bioinformatics/btae322), calling the official
+R package via rpy2.
 
+Official code: https://github.com/simo1c/GateMeClass (R, MIT), commit a93e0202336f7048324c7c8b9b60ee965104f4d5
+(R/GateMeClass.R last changed in 21105f9, 2024-03-19). The package is installed in the env; nothing is copied.
+
+Method: GateMeClass_train learns a marker table (cell type x marker, +/-) from the labelled reference: per-marker
+2-component GMMs (mclust) give each cell a +/- signature, decision trees (caret rpart) select the informative markers
+per pair of cell types. GateMeClass_annotate matches the GMM signatures of a random subset of the new cells
+(`sampling`) to the marker table and labels the remaining / ambiguous cells by kNN (`k`); with `reject_option` cells
+without mutual nearest neighbours among the annotated cells (batchelor::findMutualNN) stay 'Unclassified' (-1).
+No transformation or scaling inside the package; the input is used as given.
+
+Contents:
+    GateMeClassClassifier:
+        fit: maps labels to 0..K-1 (passed to R as strings), formats the marker names, calls GateMeClass_train,
+            stores the marker table as a pandas DataFrame.
+        predict: calls GateMeClass_annotate with the stored marker table, returns the original labels,
+            'Unclassified' -> -1.
+        score: macro F1 with unassigned cells (-1) given weight 0. save / load: pickle.
+    No predict_proba (GateMeClass yields no probabilities).
+
+Notes:
+    - GMM_parameterization: "E" (equal variance) is the package default and the wrapper default (used by the authors
+      on flow data), "V" the value in all README examples; the package couples it to ranked set sampling (RSS on for
+      "V", off for "E", R/GateMeClass.R L605, L892).
+    - With "V", two upstream crash paths exist: Mclust returns NULL on an almost constant RSS sample (e.g. many values
+      at a log10 cut-off; legacy/gatemeclass_bug_report.md), and 'index_sel' is undefined if a marker subset has
+      2-99 cells (R/GateMeClass.R L189 vs L235).
+    - GateMeClass infers 3-level markers ("mid"/"hi") from the label names; the wrapper passes integer labels, so all
+      markers are modelled with 2 levels (+/-).
+
+Env: fx_gatemeclass (envs/gatemeclass.yml; GateMeClass installed from the pinned commit after creating the env, see
+the header of the yml). The env must be activated (conda activate fx_gatemeclass / conda run -n fx_gatemeclass ...),
+otherwise rpy2 picks up the system R.
+"""
 import os
 import pickle
 import warnings
@@ -22,7 +59,8 @@ class GateMeClassClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
             self,
             marker_names: Union[List[str], None],
-            gmc_gmm_parameterization: Literal["V", "E"] = "V",
+            gmc_gmm_parameterization: Literal["V", "E"] = "E",
+            gmc_sampling_imp_vars: float = 0.05,
             gmc_k: int = 20,
             gmc_sampling: float = 0.1,
             gmc_reject_option: bool = False,
@@ -34,11 +72,11 @@ class GateMeClassClassifier(BaseEstimator, ClassifierMixin):
 
         self.marker_names = marker_names
         self.gmc_gmm_parameterization = gmc_gmm_parameterization
+        self.gmc_sampling_imp_vars = gmc_sampling_imp_vars
         self.gmc_k = gmc_k
         self.gmc_sampling = gmc_sampling
         self.gmc_reject_option = gmc_reject_option
         self.gmc_seed = gmc_seed
-        self.gmc_verbose = True if verbosity >= 1 else False
         self.time_fit_pred = time_fit_pred
         self.verbosity = verbosity
 
@@ -84,7 +122,8 @@ class GateMeClassClassifier(BaseEstimator, ClassifierMixin):
 
         # Define the R function for GateMeClass training
         ro.r('''
-            gmc_fit <- function(exp_matrix, labels, marker_names, GMM_parameterization, verbose, seed) {
+            gmc_fit <- function(exp_matrix, labels, marker_names, GMM_parameterization, sampling_imp_vars, verbose,
+                                seed) {
 
                 # print(exp_matrix[,1:20])            
                 # print(type(exp_matrix))  # double
@@ -115,14 +154,16 @@ class GateMeClassClassifier(BaseEstimator, ClassifierMixin):
                 gate <- GateMeClass_train(
                     reference = exp_matrix,
                     labels = labels,
-                    GMM_parameterization = "V",
-                    verbose = TRUE,
-                    seed = 1
+                    GMM_parameterization = GMM_parameterization,
+                    sampling_imp_vars = sampling_imp_vars,
+                    verbose = verbose,
+                    seed = seed
                 )
 
                 # reference             : The expression matrix of the reference annotated dataset.
                 # labels                : A character vector with the labels of the reference dataset.
                 # GMM_parameterization  : A character vector with the GMM (Gaussian-Mixture-Model) variance parameter: "V" (Variable) or "E" (Equal).
+                # sampling_imp_vars     : Fraction of the cells per cell type sampled to determine the important markers.
                 # verbose               : TRUE to show output information.
                 # seed                  : Seed for randomization.
 
@@ -136,39 +177,37 @@ class GateMeClassClassifier(BaseEstimator, ClassifierMixin):
 
         r_gmc_fit = ro.globalenv['gmc_fit']
 
-        # Activate the numpy-/pandas-to-R-bridge
-        numpy2ri.activate()
-        pandas2ri.activate()
+        # numpy-/pandas-to-R conversion inside a local converter context
+        # (numpy2ri/pandas2ri.activate() raise an error in rpy2 >= 3.6)
+        with (ro.default_converter + numpy2ri.converter + pandas2ri.converter).context():
 
-        # ### Convert the Python train data into R objects
-        # r_x_df = pandas2ri.py2rpy(x_df.copy())  # Do not use pandas2ri here, leads to memory error
-        r_x = numpy2ri.py2rpy(X.T)
-        marker_names = StrVector(self.marker_names_correct_format_)
-        r_y = numpy2ri.py2rpy(y.astype(str).copy())  # GMC needs character vector as label input
+            # ### Convert the Python train data into R objects
+            # r_x_df = pandas2ri.py2rpy(x_df.copy())  # Do not use pandas2ri here, leads to memory error
+            r_x = numpy2ri.py2rpy(X.T)
+            marker_names = StrVector(self.marker_names_correct_format_)
+            r_y = numpy2ri.py2rpy(y.astype(str).copy())  # GMC needs character vector as label input
 
-        # Define a dict with the GMC hyperparameters
-        fit_params = {
-            "GMM_parameterization": self.gmc_gmm_parameterization,
-            "verbose": self.gmc_verbose,
-            "seed": self.gmc_seed,
-        }
+            # Define a dict with the GMC hyperparameters
+            fit_params = {
+                "GMM_parameterization": self.gmc_gmm_parameterization,
+                "sampling_imp_vars": self.gmc_sampling_imp_vars,
+                "verbose": self.verbosity >= 1,
+                "seed": self.gmc_seed,
+            }
 
-        # Call the R fit function => marker table, store as class attribute (Pandas dataframe)
-        if self.time_fit_pred:
-            st = time.time()
+            # Call the R fit function => marker table, store as class attribute (Pandas dataframe)
+            if self.time_fit_pred:
+                st = time.time()
 
-        r_marker_table_ = r_gmc_fit(r_x, r_y, marker_names, **fit_params)
-        self.marker_table_ = pandas2ri.py2rpy(r_marker_table_)
+            # The converter context returns the R data.frame as a pandas DataFrame (picklable)
+            self.marker_table_ = r_gmc_fit(r_x, r_y, marker_names, **fit_params)
 
-        if self.time_fit_pred:
-            et = time.time()
-            if self.time_df_ is None:
-                self.time_df_ = pd.DataFrame(index=['times', ])
-            self.time_df_[f'fit_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'] = et - st
+            if self.time_fit_pred:
+                et = time.time()
+                if self.time_df_ is None:
+                    self.time_df_ = pd.DataFrame(index=['times', ])
+                self.time_df_[f'fit_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'] = et - st
 
-        # Deactivate the numpy-/pandas-to-R-bridge
-        numpy2ri.deactivate()
-        pandas2ri.deactivate()
 
         self.is_fitted_ = True
 
@@ -268,57 +307,53 @@ class GateMeClassClassifier(BaseEstimator, ClassifierMixin):
 
         gmc_predict = ro.globalenv['gmc_predict']
 
-        # Activate the numpy-/pandas-to-R-bridge
-        numpy2ri.activate()
-        pandas2ri.activate()
+        # numpy-/pandas-to-R conversion inside a local converter context
+        # (numpy2ri/pandas2ri.activate() raise an error in rpy2 >= 3.6)
+        with (ro.default_converter + numpy2ri.converter + pandas2ri.converter).context():
 
-        # Convert the Python train data into R objects
-        # r_x_df = pandas2ri.py2rpy(x_df.copy())
-        r_x = numpy2ri.py2rpy(X.T)
-        marker_names = StrVector(self.marker_names_correct_format_)
+            # Convert the Python train data into R objects
+            # r_x_df = pandas2ri.py2rpy(x_df.copy())
+            r_x = numpy2ri.py2rpy(X.T)
+            marker_names = StrVector(self.marker_names_correct_format_)
 
-        # Get the previously inferred marker_table and convert it into an R dataframe
-        r_marker_table = pandas2ri.py2rpy(self.marker_table_)
+            # Get the previously inferred marker_table and convert it into an R dataframe
+            r_marker_table = pandas2ri.py2rpy(self.marker_table_)
 
-        # Define a dict with the GMC hyperparameters
-        predict_params = {
-            "reject_option": self.gmc_reject_option,
-            "GMM_parameterization": self.gmc_gmm_parameterization,
-            "k": self.gmc_k,
-            "sampling": self.gmc_sampling,
-            "verbose": self.gmc_verbose,
-            "seed": self.gmc_seed,
-        }
+            # Define a dict with the GMC hyperparameters
+            predict_params = {
+                "reject_option": self.gmc_reject_option,
+                "GMM_parameterization": self.gmc_gmm_parameterization,
+                "k": self.gmc_k,
+                "sampling": self.gmc_sampling,
+                "verbose": self.verbosity >= 1,
+                "seed": self.gmc_seed,
+            }
 
-        # Call the R predict function => (y_pred, marker_table, cell signatures)
-        if self.time_fit_pred:
-            st = time.time()
+            # Call the R predict function => (y_pred, marker_table, cell signatures)
+            if self.time_fit_pred:
+                st = time.time()
 
-        r_y_pred, _, r_cell_signatures = gmc_predict(r_x, marker_names, r_marker_table, **predict_params)
+            r_y_pred, _, _ = gmc_predict(r_x, marker_names, r_marker_table, **predict_params)
 
-        if self.time_fit_pred:
-            et = time.time()
-            self.time_df_[f'pred_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'] = et - st
+            if self.time_fit_pred:
+                et = time.time()
+                if self.time_df_ is None:
+                    self.time_df_ = pd.DataFrame(index=['times', ])
+                self.time_df_[f'pred_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'] = et - st
 
-        y_pred = r_y_pred  # numpy2ri automatically converts back to numpy array
-        y_pred[y_pred == 'Unclassified'] = '-1.0'
-        y_pred = y_pred.astype(float).astype(int)
+            y_pred = r_y_pred  # numpy2ri automatically converts back to numpy array
+            y_pred[y_pred == 'Unclassified'] = '-1.0'
+            y_pred = y_pred.astype(float).astype(int)
 
-        # Get vector with the original labels
-        y_pred = np.array([self.new_to_og_classes_dict_[key] for key in y_pred])
+            # Get vector with the original labels
+            y_pred = np.array([self.new_to_og_classes_dict_[key] for key in y_pred])
 
-        if np.any(y_pred == -1):
-            warnings.warn(
-                f"The events:\n{np.argwhere(y_pred == -1).flatten().tolist()}\nwere not classifiable with the "
-                f"inferred marker table. They are classified as label -1 ~= 'new cell type'",
-                UserWarning)
+            if np.any(y_pred == -1) and self.verbosity >= 1:
+                warnings.warn(
+                    f"{int(np.sum(y_pred == -1))} events were not classifiable with the inferred marker table. "
+                    f"They are classified as label -1 ~= 'new cell type'",
+                    UserWarning)
 
-        # What are those???
-        cell_signatures = pandas2ri.rpy2py(r_cell_signatures)
-
-        # Deactivate the numpy-/pandas-to-R-bridge
-        numpy2ri.deactivate()
-        pandas2ri.deactivate()
 
         return y_pred
 
