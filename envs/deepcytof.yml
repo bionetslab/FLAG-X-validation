@@ -1,0 +1,22 @@
+# Conda env for the DeepCyTOF wrapper (validation/gating/deepcytof.py)
+# Original code (https://github.com/KlugerLab/deepcytof, commit ac924b1, 2017) is written for
+# Python 3.5 + Keras 1.x (+ TensorFlow 1.0 / Theano backend) + scikit-learn < 0.20.
+# This env pins those original-era versions (CPU build of TensorFlow).
+# Create with: conda env create -f envs/deepcytof.yml
+# GPU: TF 1.0.1 GPU builds (tensorflow-gpu==1.0.1) need CUDA 8.0 + cuDNN 5.1, which do not support recent GPUs;
+# the DeepCyTOF nets are tiny (12-6-3 MLP, 25-unit DAE/ResNet), so running this env on CPU is recommended.
+name: fx_deepcytof
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.5
+  - numpy=1.12
+  - scipy=0.19
+  - scikit-learn=0.18
+  - h5py=2.7
+  - pip
+  - pip:
+      - tensorflow==1.0.1
+      - keras==1.2.2
+      - protobuf==3.19.6  # resolved by pip at creation time, works with TF 1.0.1

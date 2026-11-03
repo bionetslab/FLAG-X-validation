@@ -170,6 +170,8 @@ Sources:
 
 ## DeepCyTOF (Li et al. 2017, doi:10.1093/bioinformatics/btx448): wrapped
 
+**Benchmark settings, flow-data findings and caveats: see `deepcytof.md` (2026-11-03).**
+
 **Supervised? Yes, at its core.**
 - A softmax MLP (12-6-3, softplus, L2) is trained on the labelled cells of **one reference sample**. Cells labelled 0 are left out of training.
 - Unsupervised parts:
