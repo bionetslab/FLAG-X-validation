@@ -75,7 +75,8 @@ Status: steps 0–3 done (2026-11-03). Built from `NOTES.md`. Open decisions are
 
 ### Step 4: Method integration
 - Per method: env file, wrapper, runner. The runner does: load fold data → preprocess → (downsample) → `fit` → `predict`/`predict_proba` on each test sample → save model, predictions, probabilities, runtime.
-- Methods: FLAG-X SOM, FLAG-X MLP (`flagx` 0.2.1 in its own env), DGCyTOF, GateMeClass (needs a new isolated env with its own R, replacing the legacy setup), LDA, DeepCyTOF, ACDC, Bayesian trees. **[D4]**
+- Methods: FLAG-X SOM, FLAG-X MLP (`flagx` 0.2.1 in its own env), DGCyTOF, GateMeClass (needs a new isolated env with its own R, replacing the legacy setup), LDA, DeepCyTOF.
+- **[D4, decided]** ACDC and Bayesian trees are not included in the benchmark. Both need an expert cell-type × marker table as input, and neither the original code nor the tutorials provide a way to derive it from labelled data (checked: ACDC archived core @ `b6e9821` + `howchihlee/ACDC_tutorial` @ `b76e01e`, `disiji/fc_mondrian` @ `97420ff`; all tables are hand-written CSVs). Writing tables ourselves or deriving them from labels would not be the published method. GateMeClass stays, since it learns its marker table from labelled data (`GateMeClass_train`). The exclusion is justified in the paper's method selection criteria.
 - Smoke test of every runner on a tiny subsample of one dataset before any real run.
 
 ### Step 5: Hyperparameter tuning (Imstat)
@@ -85,7 +86,7 @@ Status: steps 0–3 done (2026-11-03). Built from `NOTES.md`. Open decisions are
   - **Per fold (Imstat):** for outer split i, use the parameter set with the best mean inner score of split i. This is clean nested CV: the outer test samples of split i play no part in choosing its parameters.
   - **Consensus (all other datasets):** one parameter set per method, with the best mean inner score over all outer splits (K_OUTER × K_INNER inner splits). It is used unchanged for Lt1/Lt2/Lt1b/Lt2b, Flowcyt and BLAST110 ("tuned once on Imstat"). There is no leakage, since tuning uses a different dataset. It is not used for the Imstat benchmark scores, which would be slightly optimistic.
 - Output: the inner scores of all parameter sets, plus the selected per-fold and consensus parameter sets per method.
-- Grids per method: decided at this step, kept small for the slow methods (Bayesian trees, GateMeClass). Grid sizes are chosen from the runtimes of the step 4 smoke tests (cost: K_OUTER × K_INNER = 15 fits per parameter set).
+- Grids per method: decided at this step, kept small for the slow methods (e.g. GateMeClass). Grid sizes are chosen from the runtimes of the step 4 smoke tests (cost: K_OUTER × K_INNER = 15 fits per parameter set).
 
 ### Step 6: Main benchmark
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.
@@ -125,7 +126,7 @@ Reuse the same splits, curated data and runners; only the task list changes. Can
 | D3 | Preprocessing ownership | shared / method-native / both | | **decided:** shared transformation + normalization for all; GateMeClass exception only if needed; post hoc ablation |
 | D3a | Shared transformation | arcsinh / log10 with cutoffs | | **decided:** log10 with cut-offs as in the paper (per-channel for Imstat/LT, 100 for Flowcyt/BLAST110); alternatives in the ablation |
 | D3b | Shared normalization | z-score / min-max / none | | **decided:** none; z-score / min-max in the ablation |
-| D4 | Prior-knowledge methods (ACDC, Bayesian trees) | expert tables / label-derived tables / separate category / drop | | open |
+| D4 | Prior-knowledge methods (ACDC, Bayesian trees) | expert tables / label-derived tables / separate category / drop | | **decided:** dropped; both need an expert marker table and cannot derive it from labelled data |
 | D5 | Config format | Python constants / YAML/JSON registry | | **decided:** small shared `config.py` at root, per-script constants otherwise, no registries |
 | D6 | Use of tuned parameters | per-fold / consensus / both | | **decided:** both. Per-fold best for Imstat (nested CV); one consensus set (best mean inner score over all outer splits) for all other datasets |
 | D7 | Compensation | during curation / as is | | **decided:** with flagx if the FCS file has a spillover matrix (only BLAST110) |

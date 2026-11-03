@@ -8,7 +8,7 @@ Reproduction code for the FLAG-X paper (*FLAG-X: Hybrid machine learning workflo
 
 The repo is mid-restructure (Oct 2026). The new benchmark pipeline is being built step by step following `PLAN.md`; steps 0 (scaffolding), 1 (data curation), 2 (splits) and 3 (preprocessing) are done. The pre-revision code is frozen in `legacy/`.
 
-- `PLAN.md`: **the authoritative plan**: general rules, chronological steps (completed ones marked `-- DONE`), and the decision table (D1–D7). Read it before starting a new step. Open decisions (D4) are settled only when the step needs them; don't decide them unasked.
+- `PLAN.md`: **the authoritative plan**: general rules, chronological steps (completed ones marked `-- DONE`), and the decision table (D1–D7). Read it before starting a new step. Open decisions are settled only when the step needs them; don't decide them unasked.
 - `config.py`: constants shared by several scripts (`ROOT`, `DATA_RAW`, `DATA_CURATED`, `DATA_SPLITS`, `RESULTS`, `FIGURES`, `SEED`, `DATASETS`, `CHANNELS`, `LOG10_CUTOFFS`). Stdlib-only and Python 3.5-compatible, since every env imports it.
 - `curate_data.py` (env `fx_flagx_cpu`): raw FCS/CSV → `data/curated/<dataset>/` (`sample_<NNN>_X.npy` float32, `sample_<NNN>_y.npy` int32, `meta_samples.csv`, `meta_labels.csv`). Untransformed; compensated with flagx only if the file has a spillover matrix (BLAST110).
 - `make_splits.py` (env `fx_flagx_cpu`): patient-level (stratified) k-fold splits → `data/splits/<dataset>.csv` (`split_<i>` = train/test) and `imstat_inner.csv` (`split_<i>_inner_<j>` = train/val/test, for tuning), plus `summary.csv` / `summary_inner.csv`. Same patient → same fold across lt1/lt1b/lt2/lt2b and across the BLAST110 tubes. The split CSVs are versioned; they are the single source of truth.
@@ -47,8 +47,8 @@ Every wrapper follows the same contract. Keep new ones consistent with `dgcytof.
 | `gatemeclass.py` (`GateMeClassClassifier`) | GateMeClass, R via rpy2 | legacy (`legacy/gmc_install.txt`) | known issues: `legacy/gatemeclass_bug_report.md` |
 | `lda.py` (`LDAClassifier`) | Abdelaal et al. LDA, official R code via rpy2 | `fx_lda` (`envs/lda.yml`) | **The env must be activated** (`conda activate fx_lda` / `conda run -n fx_lda`). Otherwise rpy2 picks up the system R and crashes. |
 | `deepcytof.py` (`DeepCyTOFClassifier`) | DeepCyTOF, Keras 1.2.2 / TF 1.0.1 | `fx_deepcytof` (Python 3.5) | must stay Python 3.5 syntax (no f-strings); CPU only |
-| `acdc.py` (`ACDCClassifier`) | ACDC + PhenoGraph | `fx_acdc` (Python 3.5) | must stay Python 3.5 syntax; needs a cell-type × marker table, so it is not truly supervised |
-| `bayesian_trees.py` (`BayesianTreesClassifier`) | Mondrian-process Bayesian trees | `fx_bayesian_trees` | needs `prior_table`, so it is not truly supervised; expensive at paper defaults |
+| `acdc.py` (`ACDCClassifier`) | ACDC + PhenoGraph | `fx_acdc` (Python 3.5) | must stay Python 3.5 syntax; needs a cell-type × marker table, so it is not truly supervised; **not in the benchmark (D4)** |
+| `bayesian_trees.py` (`BayesianTreesClassifier`) | Mondrian-process Bayesian trees | `fx_bayesian_trees` | needs `prior_table`, so it is not truly supervised; **not in the benchmark (D4)** |
 
 The envs are mutually incompatible (Python 3.5 vs 3.12, different R/TF stacks). A benchmark must run each method in its own process/env rather than importing all wrappers together. Create an env with `conda env create -f envs/<method>.yml`. Every env includes numpy.
 
