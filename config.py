@@ -56,3 +56,27 @@ CHANNELS = {
 }
 CHANNELS['lt1b'] = CHANNELS['lt1']
 CHANNELS['lt2b'] = CHANNELS['lt2']
+
+# ### Preprocessing
+# Lower cutoffs for the log10 transformation (validation.core.preprocessing, trafo 'log10_cutoff'): one value per channel
+# (biologically informed, from the paper, legacy/main.py) or one uniform value
+LOG10_CUTOFFS = {
+    'imstat': {
+        'FS_INT': 100000, 'SS_INT': 20000, 'CD16_FITC': 250, 'CD56_PE': 450, 'CD3_ECD': 700, 'CD4_PC7': 1200,
+        'CD19_APC': 1700, 'CD14_APC700': 900, 'CD8_PB': 450, 'CD45_CO': 500,
+    },
+    'lt1': {
+        'FS': 100000, 'SS': 20000, 'kappavCD8_FITC': 500, 'lambdavCD7_PE': 400, 'CD23_ECD': 500,
+        'CD79bvCD4_PC5.5': 1200, 'CD5_PC7': 300, 'CD38_APC': 700, 'CD19_APC_A700': 150, 'CD20vCD3_APC_A750': 500,
+        'FMC7vCD2_PB': 500, 'CD45_KrOr': 1000,
+    },
+    'lt2': {
+        'FS': 100000, 'SS': 20000, 'CD103_FITC': 300, 'CD43_PE': 1500, 'CD25_ECD': 1000, 'CD10_PC5.5': 1000,
+        'CD200_PC7': 1000, 'CD52_APC': 150, 'CD11c_APC_A700': 200, 'CD20_APC_A750': 300, 'IgM_PB': 400,
+        'CD19_KrOr': 200,
+    },
+    'flowcyt': 100,
+    'blast110_p1': 100, 'blast110_p2': 100, 'blast110_p3': 100, 'blast110_p4': 100,
+}
+LOG10_CUTOFFS['lt1b'] = LOG10_CUTOFFS['lt1']
+LOG10_CUTOFFS['lt2b'] = LOG10_CUTOFFS['lt2']
