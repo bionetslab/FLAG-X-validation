@@ -1,0 +1,19 @@
+# Conda env for the Bayesian trees (Mondrian process) wrapper
+#   validation/gating/bayesian_trees.py  ->  BayesianTreesClassifier
+# Original code: https://github.com/disiji/fc_mondrian (commit 97420ff311242afe103c45130ada509e1e60a0ac, MIT)
+# The original repo has no requirements file and pins no versions (developed under Python 2.7, src/ later
+# ported to Python 3). Its src/ modules need numpy, scipy, pandas (+ matplotlib for flowMP_visualize,
+# scikit-learn for flowMP_diagnosis, joblib for parallel chains in the notebooks). The wrapper copies the
+# required functions, so matplotlib is not needed. Versions below are simply recent working versions.
+# Create: conda env create -f envs/bayesian_trees.yml
+name: fx_bayesian_trees
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - joblib

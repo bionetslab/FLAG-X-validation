@@ -1,0 +1,26 @@
+# Conda env for the ACDC wrapper (validation/gating/acdc.py -> ACDCClassifier)
+# ACDC: Lee et al. 2017, Bioinformatics, doi:10.1093/bioinformatics/btx054
+# Original code: https://bitbucket.org/dudleylab/acdc (workspace deactivated on Bitbucket; archived by
+#   Software Heritage, master @ b6e98212cab060261f13760daf581ac299fc2fa3, 2017-02-08, no license file)
+#   README: "tested in Python 3.5, scikit-learn >0.18.0, scipy, third-party package Phenograph"
+# PhenoGraph: https://github.com/jacoblevine/PhenoGraph pinned to commit 7f4bc18699adb513a983ba183fdc7c989c219b85
+#   (v1.5.2, 2016-10-13 = the version available when ACDC was published; MIT license)
+# pandas is needed by ACDC (cell-type x marker table); versions below are original-era (Python 3.5).
+# The ACDC functions are copied into the wrapper (no ACDC install needed); the wrapper is Python-3.5 compatible.
+# Create with: conda env create -f envs/acdc.yml
+name: fx_acdc
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.5
+  - numpy=1.13
+  - scipy=1.0
+  - scikit-learn=0.19
+  - pandas=0.22
+  - libgfortran=3.0  # numpy 1.13 openblas build links libgfortran.so.3
+  - psutil
+  - git
+  - pip
+  - pip:
+      - git+https://github.com/jacoblevine/PhenoGraph.git@7f4bc18699adb513a983ba183fdc7c989c219b85

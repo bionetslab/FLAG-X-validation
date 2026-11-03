@@ -49,7 +49,7 @@ Implement:
 | OpenCyto | **No.** Expert gating template; the paper says it "doesn't rely on a training data set". | Yes (Bioconductor / RGLab GitHub, AGPL-3.0) | No (report only, per rules) | none | – |
 | DeepCyTOF | **Yes** (classifier trained on labelled cells), with unsupervised parts (DAE, MMD-ResNet calibration per test sample) | Yes (KlugerLab/deepcytof, Apache-2.0) | Yes: `validation/gating/deepcytof.py` | `fx_deepcytof` (`envs/deepcytof.yml`), original 2017 stack, works on CPU | 0.456 with original defaults; 0.753 with `denoise=False`; 0.708 with `preprocess_log=False` |
 | LDA (Abdelaal et al.) | **Yes**, fully | Yes (tabdelaal/CyTOF-Linear-Classifier, R + MATLAB, MIT) | Yes: `validation/gating/lda.py` (official R code via rpy2) | `fx_lda` (`envs/lda.yml`) | 0.959 |
-| ACDC | **No.** Uses a cell-type × marker table (+1/−1/0) and unlabelled cells; labels are used only for evaluation. | Partly. The official Bitbucket repo is deactivated; there is an archived copy on Software Heritage. **No license.** | Yes: `validation/gating/acdc.py` (+ optional, clearly marked, non-original derivation of the table from labels) | `fx_acdc` (`envs/acdc.yml`), original-era stack | 0.850 (with the label-derived table) |
+| ACDC | **No.** Uses a cell-type × marker table (+1/−1/0) and unlabelled cells; labels are used only for evaluation. | Partly. The official Bitbucket repo is deactivated; there is an archived copy on Software Heritage. **No license.** | Yes: `validation/gating/acdc.py` (`marker_table` is required) | `fx_acdc` (`envs/acdc.yml`), original-era stack | 0.850 (with a label-derived table; this derivation was removed from the wrapper on 2026-11-03) |
 | Bayesian trees (Ji et al.) | **No.** Expert prior table + unlabelled cells; the paper lists it under "Methods without Cell-Level Labels". | Yes (disiji/fc_mondrian, MIT) | Yes: `validation/gating/bayesian_trees.py` (`prior_table` is a required hyperparameter) | `fx_bayesian_trees` (`envs/bayesian_trees.yml`) | 0.543 (4 chains × 20 iterations instead of 50 × 3000; heuristic table built for the test only) |
 
 **Smoke-test setup:**
@@ -87,7 +87,8 @@ No extra tooling env was created. Create each env with `conda env create -f envs
    - ACDC and Bayesian trees need an expert marker/prior table. We have no expert tables for our datasets.
    - Options:
      - (a) Write expert tables per dataset from the marker panels and gating strategies.
-     - (b) Derive tables from the training labels. This is not part of either original method; ACDC has an optional, clearly marked derivation in the wrapper, while for Bayesian trees the only derivation is a heuristic in the smoke-test script, not in the wrapper.
+     - (b) Derive tables from the training labels. This is not part of either original method; Neither wrapper derives a table (ACDC's optional derivation was removed on 2026-11-03).
+   - **Decided (D4, 2026-11-03):** neither method is included in the benchmark; both wrappers strictly require a table.
      - (c) Report them in a separate "prior-knowledge" category or drop them.
 2. **DeepCyTOF preprocessing defaults for arcsinh input.**
    - The original `log(1+|x|)` step and the DAE hurt badly on the smoke data: 0.456 with the defaults vs 0.753 with `denoise=False`.
@@ -98,8 +99,7 @@ No extra tooling env was created. Create each env with `conda env create -f envs
 4. **Bayesian trees compute.** At the paper defaults (50 chains × 3000 iterations), fitting takes about 2 CPU-hours per 5k cells, growing roughly linearly with N. Use subsampling and/or `n_jobs`.
 5. **Inductive vs transductive.**
    - The papers apply ACDC, Bayesian trees and DeepCyTOF's calibration to the data being classified.
-   - The wrappers fit on training data and predict on test data by default.
-   - `BayesianTreesClassifier(transductive=True)` reproduces the paper setting.
+   - Since 2026-11-03 the ACDC and Bayesian-trees wrappers are transductive only: `fit` learns nothing, `predict(X)` runs the whole method on X (checked in the original notebooks: both fit and classify on the same, pooled data).
    - DeepCyTOF trains one MMD calibration network per test sample at predict time; pass `sample_ids`.
    - ACDC's random-walk graph is built over the test batch.
 6. **ACDC license.** There is no license file in the original repo or the tutorial repo. The code is copied with attribution, but redistribution rights are unclear.
@@ -279,16 +279,16 @@ Sources:
 - Python 3.5, scikit-learn > 0.18, scipy, pandas, PhenoGraph (MIT).
 
 **Wrapper:** `ACDCClassifier` in `validation/gating/acdc.py`.
-- `fit(X, y=None)` builds the landmarks from the training data. This follows the paper's Sec. 2.2.2: shared landmarks from pooled data, then classify each sample.
-- `predict` runs the original random walk on new data; unknown cells get `-1`.
-- `predict_proba` returns the random-walk probabilities, with **an extra last column for unknown (−1)**.
-- **Non-original glue:** if `marker_table=None`, the table is derived from the labels. For each class and marker, the mean of ACDC's own per-marker positivity score is computed: ≥0.75 → +1, ≤0.25 → −1, otherwise 0.
+- Transductive, as in the tutorial notebooks (marker GMMs, landmarks and random walk all on the classified data). `fit(X=None, y=None)` learns nothing: it validates the table and sets up the label space (the table rows).
+- `predict(X, sample_ids=None)` runs the full pipeline on X; unknown cells get `-1`. Without `sample_ids` all events are pooled (as in the tutorials). With `sample_ids` the landmarks come from the pooled X and the random walk runs per sample (paper Sec. 2.2.2). For fully separate samples, call `predict` per sample.
+- `predict_proba(X, sample_ids=None)` reruns the pipeline and returns the random-walk probabilities, with **an extra last column for unknown (−1)**.
+- `marker_table` is required; `fit` raises without it. (Until 2026-11-03 the wrapper had an optional, non-original derivation of the table from labels: class-wise mean of ACDC's positivity score, ≥0.75 → +1, ≤0.25 → −1. It was removed with D4.)
 
 **Exposed hyperparameters (original defaults):**
 - `marker_table`, `marker_names`, `n_neighbor=10`, `thres=0.5`, `marker_model_thres=0.0`, `gmm_n_init=10`, `min_events_landmark_clustering=60`, `rw_tol=1e-6`.
 - PhenoGraph settings ACDC hard-codes: `pg_k=30`, `pg_directed=False`, `pg_prune=False`, `pg_min_cluster_size=10`, `pg_jaccard=True`, `pg_primary_metric='euclidean'`, `pg_n_jobs=-1`, `pg_q_tol=1e-3`.
 - PhenoGraph defaults ACDC doesn't set: `pg_louvain_time_limit=2000`, `pg_nn_method='kdtree'`.
-- Wrapper-only, not in the method: `table_pos_thres=0.75`, `table_neg_thres=0.25`, `random_state`, `time_fit_pred`, `verbosity`.
+- Wrapper-only, not in the method: `random_state`, `time_fit_pred`, `verbosity`.
 
 **Copied code** (each block is marked in the wrapper with URL, commit, file and lines):
 - `ACDC/cell_type_annotation.py` L26-37, 39-43, 45-64, 66-71, 75-85, 87-107, 111-127, 129-145, 154-159, 183-205.
@@ -299,11 +299,11 @@ Sources:
 - Hard-coded constants became arguments with the same defaults.
 - Changes that don't affect behaviour: `.as_matrix()`→`.values`, `np.float`→`np.float64`, bicg `tol`→`rtol` on scipy ≥1.12, an explicit `scipy.sparse.linalg` import.
 - "unknown" is stored internally as the integer −1 instead of the string.
-- Landmarks are built on the training data and the random walk runs on the test data.
-- The label-derived table and `random_state` seeding are additions.
+- The per-sample random walk with shared landmarks (`sample_ids`) is glue following Sec. 2.2.2; the tutorials only show the pooled case.
+- `random_state` seeding is an addition.
 
 **Open issues:**
-- Only the label-derived table was tested, because the smoke data has no column-to-marker mapping. The fair input would be an expert table.
+- The original smoke test used a label-derived table (since removed). After the removal, only a synthetic 3-class check with a hand-written table was run (2026-11-03).
 - PhenoGraph's Louvain step is a bundled binary that can't be seeded, so results are not deterministic.
 - Set `pg_n_jobs` explicitly on shared machines; the default −1 uses every CPU.
 - PhenoGraph writes temporary files into the working directory.
@@ -327,18 +327,18 @@ Sources:
 - No requirements file. Imports numpy, scipy, pandas, matplotlib, scikit-learn, joblib.
 
 **Wrapper:** `BayesianTreesClassifier` in `validation/gating/bayesian_trees.py`.
-- `prior_table` is **required**. `y` is only used to set up and check the label space.
-- `fit` runs the MCMC chains in parallel with joblib; `predict` returns the majority vote.
-- `predict_proba` returns the normalised vote matrix.
+- `prior_table` is **required**.
+- Transductive, as in the original notebooks (MCMC and classification on the same, pooled data). `fit(X=None, y=None)` learns nothing: it validates the table and sets up the label space (labels of `y` if given, else the table rows).
+- `predict(X)` runs the MCMC chains on X in parallel with joblib and returns the majority vote. Samples passed jointly are pooled; for separate samples, call `predict` per sample.
+- `predict_proba` reruns the MCMC (same seeds) and returns the normalised vote matrix.
 - It never abstains, and labels without a table row can never be predicted.
-- `transductive=True` reproduces the paper's setting (MCMC on the data being classified); the default is `False`.
 
 **Exposed hyperparameters (original defaults):**
 - `prior_table` (required), `n_mcmc_chains=50`, `n_mcmc_samples=3000`, `mcmc_gaussian_std=0.1` (halved every n/10 iterations, as in the original), `n_burnt_samples=20`.
 - `cut_beta_params`: the original Beta table (paper φ0=5, φ1=2).
 - `dim_priority`: 0/1/100/1000 (paper γ).
 - `cov_reg=0.001`, `random_state=0` (chain i uses seed `random_state+i`).
-- Wrapper-only: `transductive=False`, `n_jobs=1`, `time_fit_pred`, `verbosity`.
+- Wrapper-only: `n_jobs=1`, `time_fit_pred`, `verbosity`.
 - The original `budget` argument is not exposed because it has no effect for this variant.
 
 **Copied code** (base URL `https://github.com/disiji/fc_mondrian/blob/97420ff311242afe103c45130ada509e1e60a0ac/`):
@@ -358,7 +358,6 @@ Sources:
 **Fidelity:** one chain and the majority vote give exactly the same result as the original repo code at the same seed.
 
 **Deviations from the original:**
-- The default mode is inductive rather than the paper's transductive setting.
 - `predict_proba` is an addition.
 - `predict` seeds the global numpy RNG so random tie-breaks are reproducible.
 - Original quirks are kept: the likelihood can underflow to −inf, the annealing schedule is odd when `n_mcmc_samples < 10`, and the table splits in classification differ from those in sampling.
