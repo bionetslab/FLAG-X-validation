@@ -11,6 +11,20 @@ replaces this file I/O by passing in-memory matrices (via rpy2); the method itse
 transformation, MASS::lda training with default arguments, prediction, max-posterior rejection) is copied
 verbatim from the official R code, see the marked blocks in the R code strings below.
 
+Contents:
+    _R_LDA_FIT (R): CyTOF_LDAtrain without the file reading: marker selection, optional transformation,
+        MASS::lda on all training events (the original pools all training files the same way), returns the Model
+        list of the original (LDAclassifier, Transformation, markers).
+    _R_LDA_PREDICT (R): CyTOF_LDApredict without the file reading, for one matrix of events: optional
+        transformation, predict.lda, labels with max posterior < RejectionThreshold set to 'unknown'. Returns the
+        labels and the posterior matrix instead of a per-file list of labels.
+    LDAClassifier (Python):
+        fit: maps the labels to 0..K-1, copies X / y to R, calls lda_fit and stores the R model serialized to
+            bytes (R objects cannot be pickled).
+        predict / predict_proba: unserialize the model, call lda_predict, map the labels back ('unknown' -> -1)
+            and reorder the posterior columns to the order of the classes (R sorts factor levels as strings).
+        score: macro F1 with abstentions (-1) given weight 0. save / load: pickle.
+
 Env: fx_lda (envs/lda.yml). The env must be activated (conda activate fx_lda / conda run -n fx_lda ...),
 otherwise rpy2 picks up the system R and crashes.
 """
