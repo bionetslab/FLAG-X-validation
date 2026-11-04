@@ -147,7 +147,9 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
             model_fc=self.fcnn_model_,
             val_tensor=dataset_val,
             classes=np.unique(y_train).tolist(),
-            params_val={'batch_size': 10000, 'shuffle': False, 'num_workers': 6}
+            # num_workers as for training (train_params; default 6 = the upstream default of validate_model). More
+            # workers only add process copies (memory) for this small in-memory tensor data set.
+            params_val={'batch_size': 10000, 'shuffle': False, 'num_workers': self.train_params.get('num_workers', 6)}
         )
 
         self.is_fitted_ = True
