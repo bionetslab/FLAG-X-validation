@@ -79,3 +79,23 @@ Plan, grids and atom format in detail: `working_notes/tuning_plan.md`.
   - One array per (env, cpu/gpu): `sklearn_cpu`, `flagx_cpu`, `gatemeclass_cpu`, `lda_cpu`, `deepcytof_cpu` (Woody), `flagx_gpu` (TinyGPU); scripts and usage in `slurm_scripts/`. `MaxArraySize` 10000 on both clusters.
   - Failure rule: an atom writes `status: started` first and overwrites it with `ok` / `failed`; an atom that is not `ok` (Python error, 24 h timeout, OOM) puts its config out (per fold for its outer split; consensus needs all 15 atoms).
 - Smoke test (2026-11-04, 1 % of 3 train / 2 val samples): every method runs in its env and writes complete atoms; the counts files concatenate. Expected failures confirmed: GateMeClass "V" (`predict.Mclust ... object not of class 'Mclust'`) and LDA-Abdelaal native `log` (NaN from negative values, also on Imstat).
+- **Timing run** (2026-11-04): the default config of every method on split 0 / inner 0, `TRAIN_FRAC = 0.1` (249,527 training events), `VAL_FRAC = 1.0` (35 full val samples, 1,392,592 events), 4 threads each on the development server (AMD EPYC 7402, 12 atoms in parallel), all on CPU (MLP and DGCyTOF in `fx_flagx_cpu`, no GPU available). Atoms in the session scratchpad, not kept. F1 = macro F1 per val sample (classes in true ∪ pred, D8 rule), mean over val samples; a sanity check of the default configs, not a tuning result.
+
+  | Method | Fit (min) | Predict per sample (s) | Predict total (min) | Atom total (min) | Peak RAM (GB) | Abstained (%) | F1 |
+  |---|---|---|---|---|---|---|---|
+  | DeepCyTOF (native, calibrate) | 0.1 | 156.5 | 91.3 | 91.3 | 1.8 | 0 | 0.75 |
+  | DGCyTOF (CPU) | 1.1 | 82.3 | 48.0 | 49.1 | 8.8¹ | 0.05 | 0.94 |
+  | SOM (25², 1000 epochs) | 14.7 | 0.8 | 0.5 | 15.1 | 1.8 | 0 | 0.93 |
+  | GateMeClass (E) | 1.5 | 4.9 | 2.9 | 4.3 | 2.2 | 0 | 0.81 |
+  | kNN | <0.1 | 6.7 | 3.9 | 3.9 | 0.2 | 0 | 0.95 |
+  | MLP (CPU) | 1.5¹ | <0.1 | <0.1 | 1.5 | 2.4¹ | 0 | 0.94 |
+  | RF | 0.6 | 0.1 | 0.1 | 0.7 | 0.4 | 0 | 0.96 |
+  | LogReg | 0.5 | <0.1 | <0.1 | 0.5 | 0.2 | 0 | 0.94 |
+  | LDA-Abdelaal (shared) | <0.1 | 0.7 | 0.4 | 0.4 | 0.5 | 0 | 0.90 |
+  | HGB | 0.1 | 0.3 | 0.1 | 0.2 | 0.3 | 0 | 0.92 |
+  | GMM-Mocking | <0.1 | <0.1 | <0.1 | <0.1 | 0.2 | 0 | 0.92 |
+  | LDA-sklearn | <0.1 | <0.1 | <0.1 | <0.1 | 0.2 | 0 | 0.90 |
+
+  ¹ Caveat: in this run the PyTorch data loaders used more than 1 worker process: MLP 3 (training) + 1 (flagx validation loader); DGCyTOF 3 (training) + 6 (validation step in `fit`, hard-coded upstream default in the wrapper). The workers bring no speed-up for in-memory tensors, but each is a separate process, so the peak RSS of the process tree is inflated (copy-on-write pages are counted per process). Fixed afterwards (2026-11-04): both runners use 1 worker, and the DGCyTOF wrapper's validation step takes `num_workers` from `train_params`. Fit time and memory of MLP / DGCyTOF are to be remeasured (on the GPU).
+  - Every default atom finishes in well under the 24 h limit; peak RAM ≤ 9 GB everywhere.
+  - The slow parts are prediction-side calibrations that run once per val sample: DeepCyTOF's MMD-ResNet (`calibrate=True`, about 2.6 min per sample) and DGCyTOF's calibration step (about 1.4 min per sample on CPU). SOM is dominated by the fit (1000 epochs).
