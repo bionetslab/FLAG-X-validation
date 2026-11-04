@@ -6,16 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Reproduction code for the FLAG-X paper (*FLAG-X: Hybrid machine learning workflows for automated gating of clinical flow cytometry data*). FLAG-X itself is **not** in this repo; it is the separate `flagx` package (github.com/bionetslab/FLAG-X, v0.2.1 used for the paper). This repo benchmarks FLAG-X against competing cell-type classification methods.
 
-The repo is mid-restructure (Oct 2026). The new benchmark pipeline is being built step by step following `PLAN.md`; steps 0 (scaffolding), 1 (data curation), 2 (splits) and 3 (preprocessing) are done. The pre-revision code is frozen in `legacy/`.
+The repo is mid-restructure (Oct 2026). The new benchmark pipeline is being built step by step following `PLAN.md`; steps 0 (scaffolding), 1 (data curation), 2 (splits) and 3 (preprocessing) are done; 4 (method integration: wrappers, envs, runners), 5 (shared helpers in `validation/core/`) and 6 (tuning on Imstat: code written, runs pending on the HPC) are in progress. The pre-revision code is frozen in `legacy/`.
 
-- `PLAN.md`: **the authoritative plan**: general rules, chronological steps (completed ones marked `-- DONE`), and the decision table (D1–D7). Read it before starting a new step. Open decisions are settled only when the step needs them; don't decide them unasked.
+- `PLAN.md`: **the authoritative plan**: general rules, the open todos per step, and the decision table (D1–D8, one line each). Read it before starting a new step. Open decisions are settled only when the step needs them; don't decide them unasked.
+- `DONE.md`: append-only log of completed work per step: what was implemented, outputs, checks, findings, and the reasoning and sources behind each decision. Look up the background of earlier steps there; when a todo is finished, move its details here and leave a one-line status in `PLAN.md`.
 - `config.py`: constants shared by several scripts (`ROOT`, `DATA_RAW`, `DATA_CURATED`, `DATA_SPLITS`, `RESULTS`, `FIGURES`, `SEED`, `DATASETS`, `CHANNELS`, `LOG10_CUTOFFS`). Stdlib-only and Python 3.5-compatible, since every env imports it.
 - `curate_data.py` (env `fx_flagx_cpu`): raw FCS/CSV → `data/curated/<dataset>/` (`sample_<NNN>_X.npy` float32, `sample_<NNN>_y.npy` int32, `meta_samples.csv`, `meta_labels.csv`). Untransformed; compensated with flagx only if the file has a spillover matrix (BLAST110).
 - `make_splits.py` (env `fx_flagx_cpu`): patient-level (stratified) k-fold splits → `data/splits/<dataset>.csv` (`split_<i>` = train/test) and `imstat_inner.csv` (`split_<i>_inner_<j>` = train/val/test, for tuning), plus `summary.csv` / `summary_inner.csv`. Same patient → same fold across lt1/lt1b/lt2/lt2b and across the BLAST110 tubes. The split CSVs are versioned; they are the single source of truth.
 - `plot_dataset_overview.py` (env `fx_plot`): sample size and class balance figures → `results/dataset_overview/`, `figures/dataset_overview/`.
 - `validation/core/preprocessing.py`: `Preprocessor` (transformation `log10_cutoff` / `arcsinh` / `none` + scaling `zscore` / `minmax` / `none`), numpy-only, Py3.5-compatible, fitted on the fly per task. Cut-offs in `config.LOG10_CUTOFFS`. Main benchmark default: `log10_cutoff` + no scaling (D3a/D3b); the rest only in the ablation.
+- `validation/core/` (step 5): `data.py` (curated samples, meta tables, splits), `sampling.py` (`downsample_indices`, `join_samples`), `seeding.py` (`derive_seed(*keys)`), `evaluation.py` (`confusion_counts` incl. abstention column, `class_counts`), `resources.py` (`track_resources` context manager: wall time, peak CPU RSS / GPU memory), `runs.py` (atomic `save_json` / `save_csv`, `run_metadata`, `n_threads`). Same constraints as the preprocessing (numpy + stdlib, Py3.5).
 - `validation/gating/`: sklearn-compatible wrappers around competing methods.
-- `envs/`: one conda env file per step or method: `flagx_cpu.yml` (`fx_flagx_cpu`, flagx 0.2.1 from bioconda + CPU torch; curation and FLAG-X runs), `plot.yml` (`fx_plot`), and the method envs below. Create with strict channel priority (`CONDA_CHANNEL_PRIORITY=strict conda env create -f envs/<name>.yml`); otherwise flagx resolves to ancient scanpy/anndata.
+- `validation/runners/<method>.py` (step 4): per-method glue with one interface (`MODULES`, `input_arm(params)`, `build(params, seed, dataset, n_jobs)`, `fit(model, X, y, sample_ids)`, `predict(model, X, proba=False)`), imported via importlib in the method's env. Methods: `som`, `mlp`, `dgcytof`, `gatemeclass`, `lda_abdelaal`, `deepcytof`, and the sklearn baselines `rf`, `hgb`, `logreg`, `knn`, `lda_sklearn`, `gmm_mocking`.
+- `tune_hyperparameters.py` (step 6; runs in every env, Py3.5): grids as constants; `manifest <array>` freezes the task list, `run <array> [index]` runs one atom (method × config × outer × inner split) → `results/tune_hyperparameters/atoms/`. One SLURM array per (env, cpu/gpu): `slurm_scripts/tune_<array>.sh` (Woody / TinyGPU, see `slurm_scripts/README.md`). Plan and atom format: `working_notes/tuning_plan.md`.
+- `envs/`: one conda env file per step or method: `flagx_cpu.yml` (`fx_flagx_cpu`, flagx 0.2.1 from bioconda + CPU torch; curation and FLAG-X runs), `flagx_gpu.yml` (`fx_flagx_gpu`, same + CUDA torch; MLP and DGCyTOF on TinyGPU), `sklearn.yml` (`fx_sklearn`, numpy + scikit-learn only; tabular baselines and GMM-Mocking), `plot.yml` (`fx_plot`), and the method envs below. Create with strict channel priority (`CONDA_CHANNEL_PRIORITY=strict conda env create -f envs/<name>.yml`); otherwise flagx resolves to ancient scanpy/anndata.
 - `legacy/`: the old `main.py` / `main_plotting.py` / `run_experiments.py` drivers, slurm scripts, old envs (`flowcy`), the old `validation` package (incl. `utils/val_utils.py` with abstention-aware metrics and `plt/`), and old results. It is reference material; don't modify it.
 - `NOTES.md`: the original design notes that `PLAN.md` was built from.
 - `working_notes/additional_methods.md`: the task spec and detailed findings for the newer wrappers (supervision status, sources, env versions, smoke-test results, open decisions). Read it before touching those wrappers.
@@ -43,12 +47,13 @@ Every wrapper follows the same contract. Keep new ones consistent with `dgcytof.
 
 | Wrapper | Method | Env | Notes |
 |---|---|---|---|
-| `dgcytof.py` (`DGCyTOFClassifier`) | DGCyTOF, torch | `fx_flagx_cpu` (GPU env to follow) | uses `typing.Self` → Python ≥3.11; uses CUDA if available |
+| `dgcytof.py` (`DGCyTOFClassifier`) | DGCyTOF, torch | `fx_flagx_gpu` (tuning / benchmark on TinyGPU); also runs in `fx_flagx_cpu` | uses `typing.Self` → Python ≥3.11; uses CUDA if available |
 | `gatemeclass.py` (`GateMeClassClassifier`) | GateMeClass, R via rpy2 | `fx_gatemeclass` (`envs/gatemeclass.yml`) | **The env must be activated**; GateMeClass is installed from the pinned commit after creating the env (see the yml header). Known issues: `legacy/gatemeclass_bug_report.md` |
 | `lda.py` (`LDAClassifier`) | Abdelaal et al. LDA, official R code via rpy2 | `fx_lda` (`envs/lda.yml`) | **The env must be activated** (`conda activate fx_lda` / `conda run -n fx_lda`). Otherwise rpy2 picks up the system R and crashes. |
 | `deepcytof.py` (`DeepCyTOFClassifier`) | DeepCyTOF, Keras 1.2.2 / TF 1.0.1 | `fx_deepcytof` (Python 3.5) | must stay Python 3.5 syntax (no f-strings); CPU only |
 | `acdc.py` (`ACDCClassifier`) | ACDC + PhenoGraph | `fx_acdc` (Python 3.5) | must stay Python 3.5 syntax; needs a cell-type × marker table, so it is not truly supervised; **not in the benchmark (D4)** |
 | `bayesian_trees.py` (`BayesianTreesClassifier`) | Mondrian-process Bayesian trees | `fx_bayesian_trees` | needs `prior_table`, so it is not truly supervised; **not in the benchmark (D4)** |
+| `gmm_mocking.py` (`GMMMockingClassifier`) | per-class GMM classifier of Mocking et al. 2024 (AUMC-HEMA/cMRD-manuscript @ `df1b26e`) | `fx_sklearn` | generalized to K classes (argmax of per-class log-likelihoods; identical to the binary original); input cast to float64 (float32 data at the log10 cut-off makes GaussianMixture fail) |
 
 The envs are mutually incompatible (Python 3.5 vs 3.12, different R/TF stacks). A benchmark must run each method in its own process/env rather than importing all wrappers together. Create an env with `conda env create -f envs/<method>.yml`. Every env includes numpy.
 
@@ -56,10 +61,10 @@ R-based methods get `r-base` and all R packages inside their own conda env. Neve
 
 ## Benchmark design (summary of `PLAN.md`)
 
-- Pipeline: curated data → splits → preprocessing → tuning (Imstat) → fit/predict → scores → figures. Each step saves its outputs and the next reads them.
+- Pipeline: curated data → splits → preprocessing → shared helpers + runners → tuning (Imstat) → fit/predict (per test sample: confusion-matrix counts, optionally labels/probabilities) → scores → figures. Each step saves its outputs and the next reads them.
 - Splits are generated once (group-level k-fold CV, nested inner splits for Imstat) and are the single source of truth.
 - One shared transformation + normalization as the default input for all methods, applied on the fly and fitted on training data only. Deviations only by tuning (shared vs native input for methods with their own preprocessing: LDA, DeepCyTOF) or for stability (if needed), see D3. Downsampling is also on the fly, with fixed seeds.
-- Package-like code goes into `validation/`. The shared core `validation/core/` (preprocessing; later data/split loading, task enumeration, seeding) must be numpy-only and Python 3.5-compatible, so it runs in every method env.
+- Package-like code goes into `validation/`. `validation/core/` (PLAN step 5) holds small, modular, stateless helpers for recurring tasks (data/split loading, downsampling of one sample, joining + shuffling samples with `sample_ids`, preprocessing, seeding, per-sample evaluation counts, wall-clock / peak CPU+GPU memory tracking). No orchestration: experiment scripts compose the helpers. Numpy-only and Python 3.5-compatible, so they run in every method env.
 - Every experiment must be runnable sequentially or as a SLURM array job (task index → method × dataset × fold).
 
 ## Legacy drivers (reference)
