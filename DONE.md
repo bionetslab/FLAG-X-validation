@@ -1,0 +1,81 @@
+# Done: log of completed work
+
+What was implemented per step of `PLAN.md`, with outputs, checks, findings, and the reasoning and sources behind each decision. Append only, in chronological order; `PLAN.md` keeps the rules, the open todos and a one-line summary of each decision. Detailed notes are linked, not copied (`working_notes/`).
+
+---
+
+## Step 0: Repository scaffolding (2026-11-03)
+- Scripts at the repo root with descriptive names, no numbering; figure scripts start with `plot_`. Each script has its parameters as constants at the top and an `OVERWRITE` flag.
+- `config.py` (stdlib-only, Py3.5-compatible): `ROOT` (via `__file__`), `DATA_RAW`, `DATA_CURATED`, `RESULTS`, `FIGURES`, `DATASETS`, `CHANNELS`. No registries. **[D5]**
+- Layout: `data/raw/` (gitignored), `data/curated/<dataset>/` (`.npy` gitignored, meta CSVs tracked), `data/splits/` (tracked), `results/<script>/`, `figures/<script>/`.
+- Envs: `fx_flagx_cpu` (`envs/flagx_cpu.yml`, curation + FLAG-X runs), `fx_plot` (`envs/plot.yml`), one env per method. All with `channel_priority: strict`.
+
+## Step 1: Data curation (2026-11-03)
+- `curate_data.py` (env `fx_flagx_cpu`): one function per dataset. Load with flagx (one `FlowDataManager` per file) → compensate if the FCS file has a spillover matrix → rename channels (per-dataset map in the script) → keep/order as in `config.CHANNELS` → map labels (per-dataset map in the script, contiguous from 0) → save. Raises on unmapped channels/labels.
+- Output in `data/curated/<dataset>/`: `sample_<NNN>_X.npy` (float32) and `sample_<NNN>_y.npy` (int32), `meta_samples.csv` (sample, original filename, extra info such as `patient_id`, `subtype`, `sample_type`), `meta_labels.csv` (label, original label, name, description). Data is stored untransformed. **[D2]**
+- Datasets (10): `imstat`, `lt1`, `lt2`, `lt1b`, `lt2b`, `flowcyt`, `blast110_p1`–`p4`. **[D1]**
+- Imstat sample meta (`donor_id`, `lysis`) comes from `data/raw/imstat/Imstat_samples_2026-10-29_clean.csv`, cleaned from the data provider's table (donors `a`–`l` for the `ER_` files; for the named files the `YYYYMMDD-n` token as written). 26 donors with up to 5 lysis reagents each (R4.4, R4.6).
+- Compensation only for BLAST110 (only dataset with `$SPILL`). **[D7]**
+- BLAST110: one dataset per tube, blast vs other, FSC-A/SSC-A only, channels named by antibody (`$PnS`).
+- Overview figures: `plot_dataset_overview.py` (env `fx_plot`) → `results/dataset_overview/*.csv`, `figures/dataset_overview/` (sample sizes, pooled and per-sample class balance, optional hue by meta column, e.g. `sample_type`).
+
+## Step 2: Splits (2026-11-03)
+- `make_splits.py` (env `fx_flagx_cpu`): patient-level k-fold with scikit-learn (`StratifiedKFold` / `KFold`, `config.SEED`).
+- Folds are assigned once per split group on the union of its patients, so a patient is in the same fold in every dataset of the group: `lymphoma` (lt1, lt1b, lt2, lt2b; stratified by `subtype`), `blast110` (p1–p4; stratified by `sample_type`), `imstat` (by `donor_id`), `flowcyt` (unstratified). Rare strata (BL: 2 patients) do not occur in every fold.
+- Output in `data/splits/` (versioned in git): `<dataset>.csv` (sample, patient_id, [stratum], `split_<i>` = train/test), `imstat_inner.csv` (all samples, `split_<i>_inner_<j>` = train/val/test) for tuning, `summary.csv` and `summary_inner.csv` (sample counts per split).
+- `K_OUTER = 5`, `K_INNER = 3` (fixed; more inner folds are computationally infeasible for tuning). One CV repetition; variability is covered by model seeds (step 7) and an optional repeated CV for the FLAG-X methods.
+
+## Step 3: Preprocessing definition (2026-11-03)
+- `validation/core/preprocessing.py`: `Preprocessor(channels, trafo, trafo_params, scaling, scaling_params)` with `fit` / `transform`. Transformations `log10_cutoff` (`{'cutoff': value or {channel: value}}`), `arcsinh` (`{'cofactor': value}`), `none`; scalings `zscore`, `minmax` (`{'feature_range': (a, b)}`, default (0, 1)), `none`.
+- Numpy-only, Python 3.5-compatible reimplementation (no sklearn/flagx), so it runs in every method env. Checked against flagx `log10_w_custom_cutoffs`, pytometry `normalize_arcsinh` and the sklearn scalers.
+- Fitted on the fly inside each task on the task's (possibly downsampled) training data; the transformed data is never stored. Each experiment states its preprocessing as constants. A fitted preprocessor can be saved next to the model with `save(path)` / `Preprocessor.load(path)` (JSON, loadable in every env).
+- Cut-offs: `config.LOG10_CUTOFFS` (per dataset; a dict per channel or one uniform value).
+- **Finding:** flagx 0.2.1 `log10_w_cutoff` (uniform cut-off, used for Flowcyt in the paper) sets values <= cutoff to ln(cutoff) instead of log10(cutoff) (4.61 instead of 2 for cut-off 100). This affects up to 5 % of the values per Flowcyt channel (HLA_PB 4.8 %, CD14_FITC 1.9 %). Our implementation uses log10(cutoff); the paper's Flowcyt numbers will change slightly. To fix in the flagx package.
+- **[D3]** Default: the same input for every method, i.e. the shared preprocessing (D3a, D3b). Deviations are allowed only for two reasons, and each one is stated with the results:
+  - **Tuning:** for methods with their own preprocessing (LDA-Abdelaal, DeepCyTOF), shared vs native input is a grid parameter, and the tuning may select native (step 6); with native, the method gets the curated (untransformed) data. None of the sklearn baselines has internal preprocessing (shared input only, no scaling arm).
+  - **Stability:** a method that cannot handle the shared input gets the input it can handle. None so far: GateMeClass crashed on log10 with cut-offs in the legacy runs (`legacy/gatemeclass_bug_report.md`), but rechecked in step 4 this happens only with `GMM_parameterization="V"`; with `"E"` (package default) it runs on the shared input (step 6).
+  - The effect of the shared preprocessing itself is checked post hoc with a small ablation (step 8).
+- **[D3a]** log10 with lower cut-offs, as in the paper: per-channel cut-offs for Imstat and LT1/LT2 (incl. binary versions; values from `legacy/main.py`), uniform cut-off 100 for Flowcyt and BLAST110. Alternatives (uniform cut-off 100 everywhere, R4.m1; arcsinh with cofactor 150) only in the ablation (step 8).
+- **[D3b]** No scaling (as in the paper): log10 with cut-offs only. z-score / min-max only in the ablation (step 8). Quick check: `results/d3b_quick_check/`.
+
+## Step 4: Method integration (2026-10 to 2026-11-04, partly done)
+- Wrappers, envs and findings of the newer wrappers: `working_notes/additional_methods.md`, `working_notes/deepcytof.md`.
+- Methods: FLAG-X SOM (env `fx_flagx_cpu`), FLAG-X MLP and DGCyTOF (`fx_flagx_gpu`, `envs/flagx_gpu.yml`: flagx 0.2.1 + CUDA torch), GateMeClass (env `fx_gatemeclass`, `envs/gatemeclass.yml`, replaces the legacy setup), LDA-Abdelaal (`fx_lda`), DeepCyTOF (`fx_deepcytof`).
+- Tabular baselines (R4.3), env `fx_sklearn` (`envs/sklearn.yml`, lightweight, no flagx/torch): scikit-learn RandomForest, HistGradientBoosting, LogisticRegression, kNN, LDA (`lda_sklearn`, in addition to LDA-Abdelaal), and the per-class GMM classifier of Mocking et al. 2024 (doi:10.1038/s43856-024-00700-x; wrapper `validation/gating/gmm_mocking.py`, generalized from binary to K classes by argmax over the per-class log-likelihoods, identical to the original rule for 2 classes; all GMM hyperparameters shared by the per-class GMMs).
+  - GMM-Mocking: the input is cast to float64; with float32 input GaussianMixture fails with 'ill-defined empirical covariance' on BLAST110 (many identical values at the log10 cut-off), as does the upstream class. With float64, predictions are identical to the upstream class (same `random_state`) on BLAST110 p1 (2026-11-04).
+- Runners: `validation/runners/<method>.py`, one small module per method with the same interface (`input_arm`, `build`, `fit`, `predict`, `MODULES`), imported by the experiment scripts with importlib so only the method's own env is loaded. Smoke-tested on Imstat (2026-11-04), every method in its env.
+- `envs/flagx_gpu.yml`: solves (pytorch 2.5.1 CUDA 12, flagx 0.2.1, scanpy 1.12.5); not yet created (no GPU on the development server).
+- **Finding (D8):** FLAG-X SOM `predict` returns -1 for events whose best-matching unit has no labelled training events (flagx `som_classifier.py` L278); the runner keeps it as built-in abstention. The FLAG-X MLP never abstains.
+- **[D4]** ACDC and Bayesian trees are not included in the benchmark. Both need an expert cell-type × marker table as input, and neither the original code nor the tutorials provide a way to derive it from labelled data (checked: ACDC archived core @ `b6e9821` + `howchihlee/ACDC_tutorial` @ `b76e01e`, `disiji/fc_mondrian` @ `97420ff`; all tables are hand-written CSVs). Writing tables ourselves or deriving them from labels would not be the published method. GateMeClass stays, since it learns its marker table from labelled data (`GateMeClass_train`). The exclusion is justified in the paper's method selection criteria.
+
+## Step 5: Shared helpers (2026-11-04)
+Implemented in `validation/core/` (numpy + stdlib, Python 3.5-compatible; compiled in `fx_deepcytof`, checked in a scratch test: stratified downsampling keeps the class proportions and is seed-reproducible, `join_samples` keeps rows aligned, `confusion_counts` / `class_counts` match `sklearn.metrics.confusion_matrix` incl. -1, `derive_seed` gives identical seeds in Python 3.5 and 3.12, `track_resources` registers a 1.5 GB allocation):
+- **Data loading** (`data.py`): `load_sample`, `load_meta_samples` / `load_meta_labels` / `load_labels`, `load_split(dataset, column, inner=False)` → train / val / test sample lists.
+- **Downsampling** (`sampling.py`): `downsample_indices(y, n=None, frac=None, stratified=False, seed=None)`, random or class-stratified, by number or fraction of events; port of legacy `get_downsampling_bool` (`legacy/validation/utils/val_utils.py` L750) with a local RandomState.
+- **Joining samples** (`sampling.py`): `join_samples(Xs, ys, sample_ids, shuffle=True, seed=None)` → concatenated, (seeded) shuffled `X`, `y` and an aligned `sample_ids` vector (needed e.g. for DeepCyTOF's reference sample).
+- **Seeding** (`seeding.py`): `derive_seed(*keys)`, sha256 of `config.SEED` + any str / int / float / bool / None keys → `[0, 2**31-1)`.
+- **Evaluation counts** (`evaluation.py`): `confusion_counts(y_true, y_pred, labels)` → (K, K+1) with an abstention column; `class_counts(cm)` → per-class n_true, n_pred, n_abstained, TP, FP, FN, TN (D8 rule). The class list comes from `meta_labels.csv`, so all samples have the same shape. No score helpers yet (step 9).
+- **Resource tracking** (`resources.py`): `track_resources(gpu=False, interval=0.1)` context manager → wall-clock time, CPU RSS baseline / peak / increase of the process tree (polling thread on `/proc` + the kernel's VmHWM of the process), GPU memory via `nvidia-smi`; port of `scalability_wrapper` / `track_memory_cpu` / `track_memory_gpu` (legacy `val_utils.py`, psutil-free).
+- **Output / run helpers** (`runs.py`): atomic `save_json` / `save_csv`, `run_metadata(modules)` (versions, conda env, git commit + dirty flag, host, CPU model / threads, GPUs, SLURM ids), `n_threads()`, `now()`.
+
+## Step 6: Hyperparameter tuning, implementation (2026-11-04)
+Plan, grids and atom format in detail: `working_notes/tuning_plan.md`.
+- Input as decided in step 3 (D3): the shared preprocessing (log10 with cut-offs, no scaling) by default. Tuning and benchmark use the same input per method (for LDA / DeepCyTOF the selected arm, see below).
+- Method-internal preprocessing (D3, deviation by tuning): for methods with their own preprocessing (LDA, DeepCyTOF), the input pipeline is a grid parameter with two arms, selected like any other parameter (D6):
+  - **shared:** shared preprocessing (log10 with cut-offs, no scaling), the method's own preprocessing switched off (LDA `transformation=False`, DeepCyTOF `preprocess_log=False`);
+  - **native:** curated (untransformed) data + the method's own preprocessing as in the original (LDA `transformation='log'` as in the official flow example `Examples/FCMexample.ipynb` @ `19c2f8f`, DeepCyTOF `preprocess_log=True`). LDA `'log'` gives NaN on negative values (e.g. compensated BLAST110) and `MASS::lda` fails; such a failure is a result of the native arm, not worked around.
+  - Steps that are part of the model stay in both arms (DeepCyTOF internal z-scoring on the reference sample). DeepCyTOF `denoise=False` in both arms (not used by the authors on flow data, see `working_notes/deepcytof.md`).
+- GateMeClass: `GMM_parameterization` ∈ {"E", "V"} is part of the grid (wrapper default "E", the package default). "V" crashes on the shared input (Mclust fails on the many values at the log10 cut-off, see `legacy/gatemeclass_bug_report.md`); like the LDA native arm, such a failure is a result of that grid value (never selected), not worked around. Sources (Caligola et al. 2024, doi:10.1093/bioinformatics/btae322; repo @ `a93e020`):
+  - Paper Sec. 2.1: "The choice of the variance parameter strictly depends on the data to model." Sec. 4: it "must be carefully chosen by the user looking at the data distribution and with testing."
+  - Mass cytometry (paper Sec. 3.1, E vs V with/without RSS on AML, BMMC, PANORAMA): E and V comparable on AML, E better on BMMC, V better on PANORAMA; "GateMeClass E achieved over 90% of accuracy in all the datasets". Table 1 does not state the value; its numbers match V for AML and PANORAMA and E for BMMC (inferred).
+  - Flow cytometry (paper Sec. 3.2, Bost et al. 2021, compensated + Logicle): "we used GateMeClass with an equal variance parameter" (E). The repo has no flow example that runs GateMeClass (`test/flow_cytometry/load_FC_test_dataset.R` only loads and transforms the data).
+  - Tutorial (`tutorial/readme.md` L73, L170, L209, L236, L267, L282): "V" in all examples, all on Levine32 (mass cytometry, arcsinh cofactor 5); L132 suggests choosing E/V from per-marker density plots.
+- **[D6]** Both uses, from the same tuning runs:
+  - **Per fold (Imstat):** for outer split i, use the parameter set with the best mean inner score of split i. This is clean nested CV: the outer test samples of split i play no part in choosing its parameters.
+  - **Consensus (all other datasets):** one parameter set per method, with the best mean inner score over all outer splits (K_OUTER × K_INNER inner splits). It is used unchanged for Lt1/Lt2/Lt1b/Lt2b, Flowcyt and BLAST110 ("tuned once on Imstat"). There is no leakage, since tuning uses a different dataset. It is not used for the Imstat benchmark scores, which would be slightly optimistic.
+- `tune_hyperparameters.py` (grids as constants; Py3.5-compatible, runs in every env):
+  - Atom = (method, config, outer split, inner split) = one SLURM array task: fit on the inner train samples (each class-stratified downsampled to `TRAIN_FRAC = 0.1`, data seeds per sample independent of method and config), predict every inner val sample (class-stratified `VAL_FRAC`, 1.0 = full), store per val sample the confusion counts + per-class counts and the time / memory of fit and of each predict.
+  - Output: `results/tune_hyperparameters/atoms/<method>/<config_id>/split_<i>_inner_<j>.json` (+ `_counts.csv`, long format, concatenates directly); `config_id` = hash of the params. Frozen task lists `manifests/<array>.csv`, config tables `configs/<method>.csv`.
+  - One array per (env, cpu/gpu): `sklearn_cpu`, `flagx_cpu`, `gatemeclass_cpu`, `lda_cpu`, `deepcytof_cpu` (Woody), `flagx_gpu` (TinyGPU); scripts and usage in `slurm_scripts/`. `MaxArraySize` 10000 on both clusters.
+  - Failure rule: an atom writes `status: started` first and overwrites it with `ok` / `failed`; an atom that is not `ok` (Python error, 24 h timeout, OOM) puts its config out (per fold for its outer split; consensus needs all 15 atoms).
+- Smoke test (2026-11-04, 1 % of 3 train / 2 val samples): every method runs in its env and writes complete atoms; the counts files concatenate. Expected failures confirmed: GateMeClass "V" (`predict.Mclust ... object not of class 'Mclust'`) and LDA-Abdelaal native `log` (NaN from negative values, also on Imstat).
