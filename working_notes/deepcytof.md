@@ -44,7 +44,7 @@ Flow cytometry, FlowCAP-I, `src/FlowCAP_CellClassifier.py`:
 
 ## Decisions
 
-### 1. Input pipeline: tuned in step 5, shared vs native (see `PLAN.md`, step 5)
+### 1. Input pipeline: tuned in step 6, shared vs native (see `PLAN.md`, step 6)
 - **shared:** shared preprocessing (log10 with cut-offs, no scaling) + `preprocess_log=False`.
 - **native:** curated (untransformed) data + `preprocess_log=True` (original default), as the authors did on flow data (bioRxiv §2.1.3: "For FlowCAP-I datasets, we apply a logarithmic transform, followed by rescaling, as described in Appendix A."; Appendix A: "A_ij ← log(1 + A_ij) … we standardize each column of A to have zero mean and unit variance").
 - The internal z-scoring (fitted on the reference sample) is part of the model and stays in both arms.
@@ -64,7 +64,7 @@ Flow cytometry, FlowCAP-I, `src/FlowCAP_CellClassifier.py`:
   - The paper trains "a DAE for each batch … selecting the cells with no zeros … dropout probability = proportion of zeros".
   - The code trains one DAE on the pooled training pool, keeps cells with at most 1 zero (`numZerosOK=1`), and uses a fixed `keepProb` of 0.8 or 0.9 ([`src/Util/denoisingAutoEncoder.py#L27-L55`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/denoisingAutoEncoder.py#L27-L55), [`src/DeepCyTOF.py#L76`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/DeepCyTOF.py#L76), [`#L86`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/DeepCyTOF.py#L86)).
 
-### 3. Calibration (MMD-ResNet): a hyperparameter, tuned in step 5 (`calibrate` ∈ {True, False})
+### 3. Calibration (MMD-ResNet): a hyperparameter, tuned in step 6 (`calibrate` ∈ {True, False})
 - Its purpose is batch effects between samples. The authors disabled it for FlowCAP-I only because training and test cells come from the same sample (quote in 2.). Our test samples are different samples from different patients and runs, so calibration could help or not.
 - With the default learning rate (1e-5, [`src/Util/MMDNet.py#L27-L32`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/MMDNet.py#L27-L32)) it changed almost nothing in the real-data check (≤ 0.002 F1). It still accounts for most of the predict time (about 20–25 s per test sample of 5000 cells).
 
