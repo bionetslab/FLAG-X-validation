@@ -37,7 +37,7 @@ def downsample_indices(y, n=None, frac=None, stratified=False, seed=None):
     n = int(n)
     if n < 0:
         raise ValueError('n must be >= 0, got {}'.format(n))
-    
+
     # --- All events
     if n >= n_events:
         return np.arange(n_events)

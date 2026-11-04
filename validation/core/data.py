@@ -85,9 +85,9 @@ def load_split(dataset, column, inner=False):
 
 
 def _read_csv(path):
-    """Loads a csv files and returns rows as list of dicts.
+    """Loads a CSV file and returns the rows as a list of dicts.
 
-    Returns: 
+    Returns:
         list: [{col1: val_row1, col2: val_row1, ...}, {col1: val_row2, col2: val_row2, ...}, ...]
     """
     with open(path, newline='') as f:

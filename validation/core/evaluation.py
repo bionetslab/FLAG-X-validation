@@ -43,7 +43,7 @@ def confusion_counts(y_true, y_pred, labels):
 
     t = _map(y_true, index)  # Map ground truth labels to int labels
     p = _map(y_pred, index)  # Map predicted labels to int labels
-    # Build a confusion matrix of shape (k, k + 1): axis 0 (rows) represents the k true classes, 
+    # Build a confusion matrix of shape (k, k + 1): axis 0 (rows) represents the k true classes,
     # axis 1 (columns) the k predicted classes plus abstention (p = k).
     # Encode each (true, predicted) pair (t, p) as its row-major flat index
     # t * (k + 1) + p. np.bincount counts occurrences of each index; minlength
