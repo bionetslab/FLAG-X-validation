@@ -55,6 +55,25 @@ def fit(model, X, y, sample_ids):
     return model.fit(X, y)
 
 
+def fit_info(model):
+    """
+    Training course from flagx's training_log_ (one entry per epoch actually trained): epochs trained, whether early
+    stopping ended the training before n_epochs, the epoch whose weights were kept (lowest validation loss; flagx
+    restores it with early stopping), and the per-epoch losses.
+    """
+    log = model.training_log_
+    epochs = len(log['training_loss'])
+    val = log.get('validation_loss')
+    best = int(min(range(epochs), key=lambda i: val[i])) + 1 if (model.early_stopping and val) else epochs
+    return {
+        'epochs_trained': epochs,
+        'early_stopped': bool(model.early_stopping and epochs < model.n_epochs),
+        'best_epoch': best,  # 1-based; weights of this epoch are used
+        'training_loss': [float(v) for v in log['training_loss']],
+        'validation_loss': None if val is None else [float(v) for v in val],
+    }
+
+
 def predict(model, X, proba=False):
     # flagx predict = argmax of predict_proba; one pass for both
     p = model.predict_proba(X)

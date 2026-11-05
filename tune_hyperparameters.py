@@ -350,6 +350,8 @@ def run_atom(array, row, out, smoke=False):
             Xt = pre.fit_transform(X)
             model = runner.build(params, model_seed, DATASET, threads)
             model = runner.fit(model, Xt, y, sample_ids)
+        if hasattr(runner, 'fit_info'):
+            info['fit_info'] = runner.fit_info(model)
         del X, Xt
         info['preprocessor'] = preprocessor_state(pre)
         print('{} fit done ({:.1f} s)'.format(now(), res_fit['wall_s']))
