@@ -188,13 +188,13 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - Caveats (to state in the revision): the legacy validation was at the event level (optimistic); one-at-a-time variation misses interactions; σ had a moderate effect (0.033); the fixed values were selected on the old Imstat training set, which may overlap with today's outer test folds, so the Imstat per-fold scores are slightly optimistic (accepted: Imstat results are read with caution anyway; other datasets are not affected).
 - Suggested wording: "Based on the sensitivity analysis and grid search of the original study, map size had the largest effect on performance, whereas learning rates, decay functions, grid type and neighborhood function changed macro F1 by less than 0.005. We therefore fixed these at the previously selected values and tuned map size and the number of epochs. The number of epochs was re-tuned because the earlier calibration used a different training set size, and it determines training time."
 
-**FLAG-X MLP** (72 configs)
-- `layer_sizes` {(64,32), (128,64,32), (256,128,64)}
-- `lr` {1e-4, 1e-3, 1e-2}
-- `weight_decay` {0, 1e-4}
-- `class_weight` {none, balanced}
-- schedule {20 epochs, ≤ 50 epochs + early stopping (val 0.1, patience 5)}
-- Fixed: batch 128.
+**FLAG-X MLP** (36 configs, 540 atoms; revised in the grid review 2026-11-05)
+- Tuned: `layer_sizes` {(64, 32, 16), (128, 64, 32), (256, 128, 64)} (small / medium / large, depth fixed at 3) × `lr` {1e-4, 1e-3, 1e-2} × `batch_size` {128, 1024} × schedule:
+  - 20 epochs, no early stopping, `validation_fraction=0.0` (all training events);
+  - early stopping on 10 % of the training events (`validation_fraction=0.1`, `n_iter_no_change=5`, flagx `tol` 1e-4), `n_epochs=1000` as a safety cap; flagx restores the weights of the best epoch and does not refit on all events.
+- Not tuned: no explicit regularization (Adam default, no weight decay; flagx's MLP has no dropout); ReLU, Adam, early-stopping patience / tolerance fixed by flagx; no class weighting (separate ablation, PLAN.md step 8).
+- Default: the paper config ((128, 64, 32), lr 1e-3, batch 128, 20 epochs on all events). The flagx version used for the paper had no validation split; with flagx 0.2.1 `validation_fraction=0.0` reproduces it (flagx 0.2.1 splits off `validation_fraction` = 0.1 by default even without early stopping, checked).
+- Training course per atom in the JSON (`fit_info`: epochs trained, early stopped, best epoch, loss curves).
 
 **DGCyTOF** (54 configs)
 - `layer_sizes` {(64,32), (128,64,32), (256,128,64)}

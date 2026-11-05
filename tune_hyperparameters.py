@@ -111,17 +111,20 @@ GRIDS = OrderedDict([
     }),
     ('mlp', {
         'blocks': [
-            [('layer_sizes', [[64, 32], [128, 64, 32], [256, 128, 64]]), ('lr', [1e-4, 1e-3, 1e-2]),
-             ('weight_decay', [0.0, 1e-4]), ('class_weight', [None, 'balanced']),
-             ('n_epochs', [20]), ('early_stopping', [False])],
-            [('layer_sizes', [[64, 32], [128, 64, 32], [256, 128, 64]]), ('lr', [1e-4, 1e-3, 1e-2]),
-             ('weight_decay', [0.0, 1e-4]), ('class_weight', [None, 'balanced']),
-             ('n_epochs', [50]), ('early_stopping', [True])],
+            [('layer_sizes', [[64, 32, 16], [128, 64, 32], [256, 128, 64]]), ('lr', [1e-4, 1e-3, 1e-2]),
+             ('batch_size', [128, 1024]),
+             ('n_epochs', [20]), ('early_stopping', [False]),
+             ('validation_fraction', [0.0])],  # No early stopping: train on all events
+            [('layer_sizes', [[64, 32, 16], [128, 64, 32], [256, 128, 64]]), ('lr', [1e-4, 1e-3, 1e-2]),
+             ('batch_size', [128, 1024]),
+             ('n_epochs', [1000]), ('early_stopping', [True]),
+             ('validation_fraction', [0.1])],  # Early stopping on 10 % of the events; n_epochs = safety cap
         ],
-        'fixed': {'batch_size': 128, 'validation_fraction': 0.1, 'n_iter_no_change': 5},
-        # Paper (legacy/main.py main_fcnn)
-        'default': {'layer_sizes': [128, 64, 32], 'lr': 1e-3, 'weight_decay': 0.0, 'class_weight': None,
-                    'n_epochs': 20, 'early_stopping': False},
+        'fixed': {'n_iter_no_change': 5},  # No weight decay (Adam default), no dropout (not in flagx's MLP)
+        # Paper (legacy/main.py main_fcnn): trained on all events; the flagx version used then had no validation split /
+        # early stopping (validation_fraction=0.0 reproduces it with flagx 0.2.1)
+        'default': {'layer_sizes': [128, 64, 32], 'lr': 1e-3, 'batch_size': 128, 'n_epochs': 20,
+                    'early_stopping': False, 'validation_fraction': 0.0},
     }),
     ('dgcytof', {
         'blocks': [[('layer_sizes', [[64, 32], [128, 64, 32], [256, 128, 64]]), ('n_epochs', [10, 20, 50]),
