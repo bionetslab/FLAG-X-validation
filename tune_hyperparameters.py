@@ -1,19 +1,41 @@
 """
 Hyperparameter tuning on the Imstat inner splits (PLAN.md step 6, working_notes/tuning_plan.md).
 
-One atom = (method, config, outer split, inner split): fit on the (downsampled) inner train samples, predict every
-inner val sample, store per val sample the evaluation counts and the time / memory of fit and predict. Scores,
-selection (per fold / consensus, D6) and plots are computed later from the atoms.
+One atom = (method, config, outer split, inner split): fit on the inner train samples (all events, TRAIN_FRAC = 1.0),
+predict every inner val sample, store per val sample the evaluation counts and the time / memory of fit and predict.
+Scores, selection (per fold / consensus, D6) and plots are computed later from the atoms.
 
 Env: the env of the array (ARRAYS below), e.g. fx_sklearn for 'sklearn_cpu'. Python 3.5-compatible (fx_deepcytof).
 
-Usage:
+Arrays:
+    The methods need different conda envs and some a GPU, so the atoms are split into arrays, one per (env, cpu/gpu)
+    combination (ARRAYS below): sklearn_cpu, flagx_cpu, gatemeclass_cpu, lda_cpu, deepcytof_cpu (Woody) and
+    flagx_gpu (TinyGPU). Each array has its own manifest (task list, numbered from 0) and its own SLURM script
+    (slurm_scripts/tune_<array>.sh), which activates the array's env and runs 'run <array>'. Array task i runs row i
+    of manifests/<array>.csv. The arrays are independent: submit them in any order, also in parallel.
+
+Commands:
     python tune_hyperparameters.py manifest <array> [--out DIR]
-        Expands the grids of the array's methods, writes <out>/configs/<method>.csv and the frozen task list
-        <out>/manifests/<array>.csv, prints the number of atoms N (SLURM: --array=0-<N-1>).
+        Expands the grids of the array's methods, writes <out>/configs/<method>.csv (config_id, grid position,
+        is_default, params) and the frozen task list <out>/manifests/<array>.csv (index, atom_id, method, config_id,
+        split, inner, params), creates the SLURM log dir and prints the number of atoms N (SLURM: --array=0-<N-1>).
+        Any env with numpy works (no method code is imported).
     python tune_hyperparameters.py run <array> [<index> | all] [--out DIR] [--smoke]
-        Runs atom <index> of the manifest (default: $SLURM_ARRAY_TASK_ID), or all atoms sequentially.
-        --smoke: 3 train / 2 val samples, 1 % of the events (only with --out, for testing).
+        Runs atom <index> of the manifest (default: $SLURM_ARRAY_TASK_ID), or all atoms sequentially ('all').
+        Must run in the array's env. --smoke: 3 train / 2 val samples, 1 % of the events (only with --out, for
+        testing).
+
+Workflow (from the repo root, with the code state the jobs should run committed):
+    1. python tune_hyperparameters.py manifest sklearn_cpu      # prints N, e.g. 3405
+    2. sbatch --array=0-3404%50 slurm_scripts/tune_sklearn_cpu.sh                  # Woody (%50: max. running tasks)
+       sbatch.tinygpu --array=0-1889%20 slurm_scripts/tune_flagx_gpu.sh            # TinyGPU, for 'flagx_gpu'
+    3. Resume / rerun missing atoms: submit the same command again; atoms with a JSON are skipped.
+    Repeat 1-2 for every array. Write the manifest right before submitting and do not rewrite it while the array
+    runs: the task indices refer to the frozen file, a changed grid would shift them. After a grid change, write a new
+    manifest and submit again; finished atoms are kept, because config_id is a hash of the params.
+    Local test: python tune_hyperparameters.py manifest lda_cpu --out <scratch_dir> && \\
+                python tune_hyperparameters.py run lda_cpu 0 --out <scratch_dir> --smoke
+    Details and cluster setup: slurm_scripts/README.md.
 
 Outputs (<out> = results/tune_hyperparameters by default):
     atoms/<method>/<config_id>/split_<i>_inner_<j>.json: everything about the atom (identity, params, data, seeds,
@@ -22,7 +44,8 @@ Outputs (<out> = results/tune_hyperparameters by default):
         traceback). Any status other than 'ok' puts the config out (working_notes/tuning_plan.md).
     atoms/<method>/<config_id>/split_<i>_inner_<j>_counts.csv (only if ok): one row per val sample x true class with
         the identifiers, per-class counts (n_true, n_pred, n_abstained, tp, fp, fn, tn), the confusion row
-        (pred_<label>..., pred_abstained) and the predict time / memory of the sample. Concatenates directly.
+        (pred_<label>..., pred_abstained). Prediction performance only; all time / memory values are in the JSON.
+        Concatenates directly.
 An atom with an existing JSON is skipped (OVERWRITE = False); delete the JSON to rerun it.
 """
 
@@ -338,8 +361,7 @@ def run_atom(array, row, out, smoke=False):
         # Val samples: downsample (val_frac), predict, counts
         header = (['method', 'config_id', 'split', 'inner', 'sample', 'n_events_sample', 'n_events_used', 'label',
                    'n_true', 'n_pred', 'n_abstained', 'tp', 'fp', 'fn', 'tn']
-                  + ['pred_{}'.format(l) for l in labels] + ['pred_abstained', 'predict_wall_s',
-                                                             'predict_cpu_rss_peak_mb', 'predict_gpu_peak_mb'])
+                  + ['pred_{}'.format(l) for l in labels] + ['pred_abstained'])
         rows, res_pred = [], OrderedDict()
         for s in val:
             Xv, yv = load_sample(DATASET, s)
@@ -355,7 +377,7 @@ def run_atom(array, row, out, smoke=False):
             for i, l in enumerate(labels):
                 rows.append([method, cid, split, inner, s, n_sample, int(yv.shape[0]), l]
                             + [int(cc[k][i]) for k in ('n_true', 'n_pred', 'n_abstained', 'tp', 'fp', 'fn', 'tn')]
-                            + [int(v) for v in cm[i]] + [r['wall_s'], r['cpu_rss_peak_mb'], r['gpu_peak_mb']])
+                            + [int(v) for v in cm[i]])
         info['resources'] = {'fit': res_fit, 'predict': res_pred}
 
         save_csv(counts_path, header, rows)
@@ -387,7 +409,9 @@ def main():
         return
 
     if args.smoke and out == os.path.abspath(OUT):
-        raise SystemExit('--smoke requires --out (keep test atoms out of the results)')
+        raise SystemExit('--smoke requires --out with a directory other than {} (smoke atoms there would count as '
+                         'finished and be skipped by the real runs); e.g. --out results/tune_smoke, after running manifest with the '
+                         'same --out'.format(OUT))
     manifest = read_manifest(args.array, out)
     index = args.index if args.index is not None else os.environ.get('SLURM_ARRAY_TASK_ID')
     if index is None:
