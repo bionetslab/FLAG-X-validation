@@ -138,7 +138,7 @@ GRIDS = OrderedDict([
         'default': {'gmc_gmm_parameterization': 'E', 'gmc_k': 20, 'gmc_sampling': 0.1},
     }),
     ('lda_abdelaal', {
-        'blocks': [[('transformation', [False, 'log', 'arcsinh'])]],
+        'blocks': [[('transformation', [False])]],
         'fixed': {},
         'default': {'transformation': False},
     }),

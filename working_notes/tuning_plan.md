@@ -219,9 +219,13 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
   - `gmc_sampling_imp_vars` (train): cap on the number of cells per cell type in each pairwise decision tree, `floor(sampling_imp_vars × total reference cells)`; larger cell types are subsampled to it. Independent of E/V. Not mentioned in the paper or in the tutorial's parameter list; only a function default (0.05). **Fixed, not tuned:** at full training data (~2.5M events, `TRAIN_FRAC = 1.0`) the cap is ~125,000 cells per type and pair, so nearly all Imstat cell types enter the trees completely (only the largest, granulocytes, are subsampled); it acts as a speed cap, and keeping the undocumented default is the faithful choice.
 - Paper: Caligola et al. 2024, Bioinformatics 40(5):btae322, doi:10.1093/bioinformatics/btae322 (full text read at PMC11136448; supplementary not accessible). Further notes: the benchmark numbers in the paper are the best of 10 random runs ("For each tool, the best run, in terms of accuracy, among 10 random executions was reported"); all tools were run with default settings.
 
-**LDA-Abdelaal** (3 configs)
-- `transformation` {False (shared input), `'log'` (raw), `'arcsinh'` (raw)}.
-- The wrapper has no other model hyperparameters; rejection is off (D8).
+**LDA-Abdelaal** (1 config, 15 atoms; reviewed 2026-11-05)
+- Only config: `transformation=False` (shared input, the method's own transformation off), `rejection_threshold=0`. Nothing to tune; kept in the tuning for completeness (inner scores next to the other methods; trivially selected).
+- Internal transformations of the official code (`CyTOF_LDAtrain.R` L69–77 @ `19c2f8f`) are not run:
+  - `'log'`: natural log without cut-offs (−Inf → 0), a cruder version of the shared log10 with cut-offs; also gives NaN on negative values (fails on Imstat).
+  - `'arcsinh'`: `asinh(x/5)` with the cofactor 5 hard-coded (mass-cytometry setting; flow data would need ~150). Changing it would modify the authors' preprocessing, so it is not a native arm anymore.
+- No other hyperparameters: `CyTOF_LDAtrain` only takes data, labels, `RelevantMarkers` (all channels used), `LabelIndex` and `Transformation`; `MASS::lda` runs with its defaults (prior = class proportions, method "moment"); exposing its options would be our addition (a tuned LDA is covered by LDA-sklearn).
+- `rejection_threshold` (cells with max posterior below it → unknown, −1) not tuned: D8 (full assignment, optional abstention off for all methods); under the D8 scoring rule a tuned threshold could raise F1 by abstaining on uncertain wrong predictions (removes an FP, no extra FN). Abstention behaviour is a step 8 analysis.
 
 **DeepCyTOF** (36 configs)
 - input arm {shared + `preprocess_log=False`, raw + `preprocess_log=True`}
