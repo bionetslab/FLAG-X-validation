@@ -320,8 +320,23 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 - `weights` {uniform, distance}
 - `p` {1, 2}
 
-**LDA-sklearn** (11 configs)
-- solver svd, or solver {lsqr, eigen} × `shrinkage` {None, auto, 0.1, 0.5, 0.9}
+**LDA-sklearn** (6 configs, 90 atoms; revised in the grid review 2026-11-05)
+- sklearn `LinearDiscriminantAnalysis` (scikit-learn 1.9.1, env `fx_sklearn`); deterministic (no seed). 10–12 channels, ~2.5M training events per inner split.
+- Default: no shrinkage (`shrinkage=None`) with `solver='lsqr'` = the same model as the sklearn default (`solver='svd'`, which cannot shrink). Checked: `shrinkage=None` and `0.0` give identical coefficients and predictions with lsqr, so None is the shrinkage-0 extreme.
+- Solvers: all three fit the same classifier (Gaussian classes with a shared covariance, same decision rule) and differ only in the computation. `'svd'` (default) avoids the covariance matrix and is recommended by the docs "for data with a large number of features" (not our case), but does not support shrinkage; `'lsqr'` solves Σ w = μ_k directly (cheapest, classification only, supports shrinkage); `'eigen'` gives the same predictions as lsqr and is only needed for `transform`. One solver (lsqr) for all configs, so the configs differ only in the shrinkage; with 10–12 features and ~2.5M events the covariance is well conditioned, so svd and lsqr give the same predictions up to rounding. The old grid (svd, or {lsqr, eigen} × shrinkage, 11 configs) contained 6 duplicate models.
+
+| Tuned | sklearn default | Values | Reason |
+|---|---|---|---|
+| `shrinkage` | None (= 0) | {None, 0.1, 0.5, 0.9, 1, auto} | The only parameter that changes the model. sklearn standardises the features, shrinks their covariance toward the identity and scales back: 0 = empirical covariance, 1 = per-feature variances only (diagonal LDA, no correlations). Both extremes are included: None = 0 = default (no shrinkage), 1 = diagonal LDA; 0.1 / 0.5 / 0.9 = low / mid / high regularisation in between; `'auto'` = Ledoit-Wolf (data-driven; probably close to 0 here, since the covariance of 10–12 features from ~2.5M events is estimated very precisely). |
+
+| Fixed | Value | Reason not tuned |
+|---|---|---|
+| `solver` | `'lsqr'` | See above: same model for all solvers; lsqr supports shrinkage and is the cheapest. |
+| `priors` | None = class proportions of the training data (default) | Uniform priors amount to class weighting, a follow-up experiment (PLAN.md step 8). |
+| `covariance_estimator` | None (default) | Alternative covariance estimator (e.g. OAS) for lsqr / eigen; overlaps with `shrinkage` (Ledoit-Wolf already covered by `'auto'`). |
+| `n_components` | None (default) | Only used by `transform` (dimensionality reduction); no effect on `predict`. |
+| `tol` | 1e-4 (default) | Rank threshold of the svd solver only (not used with lsqr). |
+| `store_covariance` | False (default) | Only stores the covariance; no effect on the model. |
 
 **GMM-Mocking** (20 configs)
 - `n_components` {1, 2, 5, 10, 20} (their range was 1–20)

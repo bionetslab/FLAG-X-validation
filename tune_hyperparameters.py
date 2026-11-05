@@ -174,10 +174,9 @@ GRIDS = OrderedDict([
         'default': {'n_neighbors': 5, 'weights': 'uniform', 'p': 2},
     }),
     ('lda_sklearn', {
-        'blocks': [[('solver', ['svd'])],
-                   [('solver', ['lsqr', 'eigen']), ('shrinkage', [None, 'auto', 0.1, 0.5, 0.9])]],
-        'fixed': {},
-        'default': {'solver': 'svd'},
+        'blocks': [[('shrinkage', [None, 'auto', 0.1, 0.5, 0.9, 1.0])]],
+        'fixed': {'solver': 'lsqr'},
+        'default': {'shrinkage': None},
     }),
     ('gmm_mocking', {
         'blocks': [[('n_components', [1, 2, 5, 10, 20]), ('covariance_type', ['full', 'tied', 'diag', 'spherical'])]],
