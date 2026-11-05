@@ -92,12 +92,12 @@ ARRAYS = OrderedDict([
 ])
 
 # Grids: per method a list of blocks; a block is a list of (param, values) pairs whose product gives configs (blocks
-# allow conditional params, e.g. sigma only for the gaussian neighborhood). FIXED params are added to every config.
-# DEFAULT = the default / published config (must be in the grid; listed first in the config table).
+# allow conditional params, e.g. different fixed values per training schedule). FIXED params are added to every
+# config. DEFAULT = the default / published config (must be in the grid; listed first in the config table).
 # Param names are the runner's (validation/runners/<method>.py), mostly the wrapper / sklearn argument names.
+# Justification of every grid (values, fixed params, defaults, sources): working_notes/tuning_plan.md, section 6.
 GRIDS = OrderedDict([
     ('som', {
-        # Full product: 28 configs
         'blocks': [
             [('som_dimensions', [[15, 15], [20, 20], [25, 25], [30, 30]]),
              ('n_epochs', [50, 100, 250, 500, 750, 1000, 2000])],
@@ -105,7 +105,7 @@ GRIDS = OrderedDict([
         'fixed': {'som_topology': 'planar', 'som_grid_type': 'rectangular', 'neighborhood': 'gaussian',
                   'gaussian_neighborhood_sigma': 0.1, 'initialization': 'pca', 'radius_cooling': 'exponential',
                   'learning_rate_decay': 'exponential', 'learning_rate_0': 0.1, 'learning_rate_n': 0.001,
-                  'radius_0': -0.5, 'radius_n': 0.1},  # radius_0 < 0: fraction of the map size
+                  'radius_0': -0.5, 'radius_n': 0.1},
         # Paper (legacy/main.py L928-943)
         'default': {'som_dimensions': [25, 25], 'n_epochs': 1000},
     }),
@@ -114,27 +114,20 @@ GRIDS = OrderedDict([
             [('layer_sizes', [[64, 32, 16], [128, 64, 32], [256, 128, 64]]), ('lr', [1e-4, 1e-3, 1e-2]),
              ('batch_size', [128, 1024]),
              ('n_epochs', [20]), ('early_stopping', [False]),
-             ('validation_fraction', [0.0])],  # No early stopping: train on all events
+             ('validation_fraction', [0.0])],
             [('layer_sizes', [[64, 32, 16], [128, 64, 32], [256, 128, 64]]), ('lr', [1e-4, 1e-3, 1e-2]),
              ('batch_size', [128, 1024]),
              ('n_epochs', [1000]), ('early_stopping', [True]),
-             ('validation_fraction', [0.1])],  # Early stopping on 10 % of the events; n_epochs = safety cap
+             ('validation_fraction', [0.1])],
         ],
-        'fixed': {'n_iter_no_change': 5},  # No weight decay (Adam default), no dropout (not in flagx's MLP)
-        # Paper (legacy/main.py main_fcnn): trained on all events; the flagx version used then had no validation split /
-        # early stopping (validation_fraction=0.0 reproduces it with flagx 0.2.1)
+        'fixed': {'n_iter_no_change': 5},
+        # Paper (legacy/main.py main_fcnn)
         'default': {'layer_sizes': [128, 64, 32], 'lr': 1e-3, 'batch_size': 128, 'n_epochs': 20,
                     'early_stopping': False, 'validation_fraction': 0.0},
     }),
     ('dgcytof', {
         'blocks': [[('layer_sizes', [[64, 32, 16], [128, 64, 32], [256, 128, 64]]), ('n_epochs', [10, 20, 50]),
                     ('lr', [1e-4, 1e-3, 1e-2]), ('batch_size', [128, 1024])]],
-        # val_size: share of the training events held out for DGCyTOF's calibration step; 0.2 as in the authors'
-        # code (test_size=0.20, cell 9; the paper says half-half); not tuned by the authors:
-        # https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF1/CyTOF1.ipynb
-        # https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb
-        # lr: tunable via a wrapper addition (hard-coded 0.001 in the package); the authors searched lr and batch size
-        # in the same notebooks (cells 20-21)
         'fixed': {'val_size': 0.2},
         'default': {'layer_sizes': [128, 64, 32], 'n_epochs': 20, 'lr': 1e-3, 'batch_size': 128},
     }),

@@ -174,11 +174,13 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 
 **Later (not implemented now):** an aggregation script reads manifests + atoms. It computes macro F1 per val sample (D8 rule) → inner means → per-fold and consensus selection (D6), and reports failures / missing atoms and plots.
 
-## 6. Proposed grids (for review; sizes checked against the timing run; atoms = configs × 15)
+## 6. Grids (atoms = configs × 15)
+
+The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section holds their justification (values, fixed parameters, defaults, sources). Inline comments in the script only point to legacy code. Principle (grid review 2026-11-05): each grid is defined around the method's default / published configuration, which is always part of the grid.
 
 **FLAG-X SOM** (28 configs, 420 atoms; revised in the grid review 2026-11-05)
 - Tuned: `som_dimensions` {15², 20², 25², 30²} × `n_epochs` {50, 100, 250, 500, 750, 1000, 2000}.
-- Fixed at the values selected in the original tuning (legacy/main.py L928-943): planar, rectangular, gaussian with `gaussian_neighborhood_sigma=0.1`, `initialization='pca'`, exponential radius cooling and learning-rate decay, `learning_rate_0=0.1`, `learning_rate_n=0.001`, `radius_0=-0.5`, `radius_n=0.1`.
+- Fixed at the values selected in the original tuning (legacy/main.py L928-943): planar, rectangular, gaussian with `gaussian_neighborhood_sigma=0.1`, `initialization='pca'`, exponential radius cooling and learning-rate decay, `learning_rate_0=0.1`, `learning_rate_n=0.001`, `radius_0=-0.5` (negative = fraction of the map size, flagx), `radius_n=0.1`.
 - Default: the paper config (25², 1000 epochs, legacy schedule), inside the grid.
 - Rationale (legacy results, `legacy/results/som_parameter_influence_study/`, `som_parameter_tuning/.../full_grid/`):
   - One-at-a-time study (10 % data, 3-fold CV), range of mean macro F1 per parameter: map size 0.096 (largest), `radius_n` 0.069 (only for values ≥ 2; flat for ≤ 1, 0.1 best), σ 0.033, `n_epochs` 0.027 (noise, no trend from 10 to 15,000), `radius_0` 0.022, initialization / topology 0.013–0.015; neighborhood, learning rates, grid type, decay and cooling ≤ 0.004 (cross-validation SD ~0.002).
@@ -204,11 +206,18 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - Other findings (notebooks @ `6ff3667`): epochs 20 (CyTOF1) and 50 (CyTOF2); the saved models they load are named `40-60_50epochs_trained_model.pt` / `40-60_100epochs_trained_model.pt`, i.e. trained with other settings than the notebooks show. The paper's particle-swarm optimisation of layers / regularization / dropout is not in the published code.
 - Cost: the calibration step dominates (~48 min per atom on CPU in the timing run) and may not use the GPU (unchecked); whether DGCyTOF runs on TinyGPU or Woody is decided with the array resources at the end.
 
-**GateMeClass** (18 configs)
-- `gmc_gmm_parameterization` {E, V}
-- `gmc_k` {10, 20, 40}
-- `gmc_sampling` {0.05, 0.1, 0.2}
-- `gmc_sampling_imp_vars` 0.05 (optional ×3: {0.01, 0.05, 0.1}).
+**GateMeClass** (18 configs, 270 atoms; reviewed 2026-11-05, unchanged)
+- Grid around the method's defaults: `gmc_gmm_parameterization` {E, V} (all values) × `gmc_k` {10, 20, 40} × `gmc_sampling` {0.05, 0.1, 0.2}; fixed `gmc_sampling_imp_vars=0.05`.
+- Default: E, k 20, sampling 0.1, `sampling_imp_vars` 0.05 = the function defaults of `GateMeClass_train` / `GateMeClass_annotate` (repo @ `a93e020`, [R/GateMeClass.R](https://github.com/simo1c/GateMeClass/blob/a93e0202336f7048324c7c8b9b60ee965104f4d5/R/GateMeClass.R)); k 20 and sampling 0.1 are also used in every tutorial example ([tutorial/readme.md](https://github.com/simo1c/GateMeClass/blob/a93e0202336f7048324c7c8b9b60ee965104f4d5/tutorial/readme.md) L73-76, L170-172, L236-238, L267-268).
+- How the method works (code @ `a93e020`):
+  1. `GateMeClass_train`: per marker a 1-D Gaussian mixture (mclust) splits the reference cells into −/+ (or −/m/+), giving each cell a +/− signature; for every pair of cell types a decision tree (rpart via caret) finds the marker that best separates them → marker table (each cell type as a few signs, e.g. CD3+CD4+).
+  2. `GateMeClass_annotate`: a random subset of the test sample (`sampling`) is taken; the per-marker mixtures are fitted again on that subset (on the test data itself); cells whose signature matches a marker-table entry get that label; all other cells (unmatched ones and those outside the subset) are labelled by a k-NN classifier trained on the matched cells.
+- Parameters:
+  - `gmc_gmm_parameterization` (train + annotate): variance model of the per-marker mixtures, E = equal, V = variable variance per component. V also switches on ranked set sampling (RSS: the mixture is fitted on a ranked subsample, the rest is predicted); this is the only other effect of E/V. Paper: "The choice of the variance parameter strictly depends on the data to model" (Sec. 2.1); "the best variance parameterization must be carefully chosen by the user looking at the data distribution and with testing" (Conclusion); flow cytometry (Bost et al. 2021): "we used GateMeClass with an equal variance parameter" (Sec. 3.2). The tutorial uses V (mass cytometry only). V crashes on the shared input (Mclust on the many values at the log10 cut-off, `legacy/gatemeclass_bug_report.md`; reproduced in the smoke test); such a failure is a result of the grid value (config out), not worked around. More sources: `DONE.md`, step 6.
+  - `gmc_sampling` (annotate): share of a test sample's cells annotated via the marker table; the rest is labelled by k-NN (0.1 → 90 % of the cells get their label from k-NN). Applied before the mixtures in both E and V. The only parameter the authors varied systematically: 10 %–100 % (Sec. 3.1): "using only the 10% of the cells results in the best accuracy in many cases. Therefore, this sampling percentage was set as the default configuration of GateMeClass". Our grid stays around the default (0.05, 0.1, 0.2) instead of the authors' 10–100 % range (decision: grids are defined around the methods' defaults).
+  - `gmc_k` (annotate): number of neighbours of the k-NN refinement (and of the MNN step with `reject_option=TRUE`, off here, D8). Independent of E/V. No value is reported in the paper and there is no sensitivity analysis; tutorial and function default: 20. Grid: low / mid / high around 20.
+  - `gmc_sampling_imp_vars` (train): cap on the number of cells per cell type in each pairwise decision tree, `floor(sampling_imp_vars × total reference cells)`; larger cell types are subsampled to it. Independent of E/V. Not mentioned in the paper or in the tutorial's parameter list; only a function default (0.05). **Fixed, not tuned:** at full training data (~2.5M events, `TRAIN_FRAC = 1.0`) the cap is ~125,000 cells per type and pair, so nearly all Imstat cell types enter the trees completely (only the largest, granulocytes, are subsampled); it acts as a speed cap, and keeping the undocumented default is the faithful choice.
+- Paper: Caligola et al. 2024, Bioinformatics 40(5):btae322, doi:10.1093/bioinformatics/btae322 (full text read at PMC11136448; supplementary not accessible). Further notes: the benchmark numbers in the paper are the best of 10 random runs ("For each tool, the best run, in terms of accuracy, among 10 random executions was reported"); all tools were run with default settings.
 
 **LDA-Abdelaal** (3 configs)
 - `transformation` {False (shared input), `'log'` (raw), `'arcsinh'` (raw)}.
@@ -240,7 +249,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - Fixed: `max_iter=500` with early stopping (val 0.1, 10 iterations).
 
 **LogReg** (14 configs)
-- penalty l2 with `C` {1e-3, 1e-2, 0.1, 1, 10, 100}, or no penalty **[impl]** (`C: null` in the grid → `C=inf` in the runner; sklearn 1.9 deprecates `penalty`)
+- penalty l2 with `C` {1e-3, 1e-2, 0.1, 1, 10, 100}, or no penalty **[impl]** (`C: None` in the grid → `C=inf` in the runner; sklearn 1.9 deprecates `penalty`)
 - `class_weight` {None, balanced}
 - Fixed: lbfgs, multinomial, `max_iter=1000`.
 - l1 / elasticnet are excluded: they need saga, which converges poorly on unscaled input.
@@ -257,6 +266,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - `n_components` {1, 2, 5, 10, 20} (their range was 1–20)
 - `covariance_type` {full, tied, diag, spherical}
 - Fixed: `n_init=1`, `max_iter=100`, `reg_covar=1e-6` (sklearn defaults, as upstream).
+- Default: the original `GMMClassifier` default (1 component per class, full covariance).
 
 **Atoms per array**
 
