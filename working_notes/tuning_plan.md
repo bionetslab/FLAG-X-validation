@@ -227,12 +227,22 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 - No other hyperparameters: `CyTOF_LDAtrain` only takes data, labels, `RelevantMarkers` (all channels used), `LabelIndex` and `Transformation`; `MASS::lda` runs with its defaults (prior = class proportions, method "moment"); exposing its options would be our addition (a tuned LDA is covered by LDA-sklearn).
 - `rejection_threshold` (cells with max posterior below it → unknown, −1) not tuned: D8 (full assignment, optional abstention off for all methods); under the D8 scoring rule a tuned threshold could raise F1 by abstaining on uncertain wrong predictions (removes an FP, no extra FN). Abstention behaviour is a step 8 analysis.
 
-**DeepCyTOF** (36 configs)
-- input arm {shared + `preprocess_log=False`, raw + `preprocess_log=True`}
-- `calibrate` {True, False}
-- `hidden_layer_sizes` {(12,6,3), (24,12,6), (48,24,12)}
-- `lr_initial` {1e-4, 1e-3, 1e-2}
-- Fixed: `denoise=False`, rest original.
+**DeepCyTOF** (24 configs, 360 atoms; revised in the grid review 2026-11-05)
+- Sources: code @ `ac924b1` (links below), paper bioRxiv v5 (§ numbers; details in `working_notes/deepcytof.md`).
+- Grid: input arm {shared + `preprocess_log=False`, raw + `preprocess_log=True`} × `calibrate` {True, False} × `hidden_layer_sizes` {(12,6,3), (128,64,32)} × `lr_initial` {1e-4, 1e-3, 1e-2}.
+- Default = paper / code: `preprocess_log=True`, `calibrate=True`, (12, 6, 3), lr 1e-3.
+- Fixed (code values): `denoise=False` (not used by the authors on flow data, see `deepcytof.md`); softplus, l2 1e-4, RMSprop, lr halved every 50 epochs, ≤ 80 epochs with early stopping (10 % validation, patience 25; last weights kept, no restore), batch 128 ([`Util/feedforwadClassifier.py#L30-L38`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/feedforwadClassifier.py#L30-L38), [`#L75-L117`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/feedforwadClassifier.py#L75-L117)); `rejection_threshold=0` (D8).
+- The authors tuned nothing: §3.4 only states the values ("the hidden layer sizes have been set to 12, 6, and 3"; "All networks were trained using RMSprop"; classifiers "μ(0) = 10−3, δ = .5, and T = 50"; "mini-batches of size 128"); epochs and patience are only in the code. Batch size is therefore not tuned (with the 80-epoch cap, 1024 would give far fewer updates).
+- Architecture: only the published default and the FLAG-X MLP default, so the comparison shows whether DeepCyTOF's own parts (one reference sample, z-scoring on it, softplus + l2, RMSprop schedule, calibration) add anything over MLP / DGCyTOF.
+- Input arm: `preprocess_log=True` = `log(1 + |x|)` on the raw data ([`Util/DataHandler.py#L25-L27`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/DataHandler.py#L25-L27)); the internal z-scoring on the reference stays in both arms. A legitimate native arm (unlike LDA-Abdelaal's): it is the authors' flow preprocessing (§2.1.3: "For FlowCAP-I datasets, we apply a logarithmic transform, followed by rescaling, as described in Appendix A."). After z-scoring the log base does not matter; the arms differ only at low values (no cut-offs, negatives mirrored by `|x|`).
+- `calibrate` (MMD-ResNet per test sample onto the reference): tuned as a defining feature of the method, although the authors' usage argues against it here. It targets run-to-run / instrument batch effects, and the authors skip it when these are absent or small:
+  - Purpose (§2.2.2): "To account for machine based technical bias and variability, we include a preprocessing option in DeepCyTOF to calibrate each batch to a reference using the MMD-ResNet approach."
+  - Off for FlowCAP-I (§2.3): "the MMD-ResNet option is also disabled because the training and test sets are from the same run and thus do not require calibration."
+  - Off for the single-instrument CyTOF datasets of §3.2 (§2.3): "Batch effects in these two datasets were not substantial allowing classification of cells into major cell populations without employing a calibration step".
+  - On for the multi-center data (§3.3): "The multi-center dataset consists of samples of the same subject, which were measured on different CyTOF machines in different locations. It is therefore reasonable that the different instrument conditions will result in calibration differences, which need to be accounted for."
+  - Our samples come from one dataset (one centre, one panel), like the single-instrument case, but are separate runs (unlike FlowCAP-I), so residual batch effects are possible; the tuning decides.
+  - MMD learning rate: the code's 1e-5 (`initial_lrate = 1e-5#1e-3`, [`Util/MMDNet.py#L27-L32`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/MMDNet.py#L27-L32)), not the paper's 1e-3 (§3.4: "μ(0) = 10−3, δ = .1, and T = 15"), to keep the authors' code. With it, calibration changed F1 by ≤ 0.002 in the real-data check, but dominates the runtime (timing run: 91 min per atom).
+- Without calibration, DeepCyTOF is a small softplus MLP trained on one reference sample, chosen among the training samples by the original covariance criterion ([`Util/DataHandler.py#L59-L77`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/DataHandler.py#L59-L77)); classes absent from it cannot be predicted.
 
 **RF** (108 configs)
 - `max_depth` {10, 20, None}

@@ -144,7 +144,7 @@ GRIDS = OrderedDict([
     }),
     ('deepcytof', {
         'blocks': [[('preprocess_log', [False, True]), ('calibrate', [True, False]),
-                    ('hidden_layer_sizes', [[12, 6, 3], [24, 12, 6], [48, 24, 12]]),
+                    ('hidden_layer_sizes', [[12, 6, 3], [128, 64, 32]]),
                     ('lr_initial', [1e-4, 1e-3, 1e-2])]],
         'fixed': {'denoise': False},
         'default': {'preprocess_log': True, 'calibrate': True, 'hidden_layer_sizes': [12, 6, 3], 'lr_initial': 1e-3},
