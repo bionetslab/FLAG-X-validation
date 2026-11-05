@@ -24,7 +24,8 @@ Contents:
         predict: forward pass + calibration (_calibrate_data), returns the original labels, -1 = unassigned.
         predict_proba: softmax output of FCNNModel (without calibration).
         score: macro F1 with unassigned cells (-1) given weight 0. save / load: torch.save / torch.load.
-        train_model: __init__.py L94-140 (adds moving the batches to the device).
+        train_model: __init__.py L94-140 (adds moving the batches to the device and the learning rate as argument;
+            the original hard-codes lr=0.001, the authors' notebooks search lr and batch size).
         validate_model: __init__.py L32-91 (unchanged; note: returns the results of the LAST validation batch only,
             batch size 10000, as in the original).
         _calibrate_data: __init__.py L171-270 (returns the calibrated labels in addition; the correlation matrices
@@ -60,6 +61,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
             val_size: float = 0.2,
             layer_sizes: Tuple[int, int, int] = (128, 64, 32),
             n_epochs: int = 20,
+            lr: float = 0.001,
             train_params: Union[dict, None] = None,
             random_state: Union[int, None] = 42,
             verbosity: int = 0,
@@ -68,6 +70,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
         self.val_size = val_size
         self.layer_sizes = layer_sizes
         self.n_epochs = n_epochs
+        self.lr = lr  # Not in the original package (hard-coded 0.001 in train_model), see train_model
         self.verbosity = verbosity
         self.train_params = train_params
         self.random_state = random_state
@@ -133,6 +136,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
             max_epochs=self.n_epochs,
             params_train=self.train_params,
             device=self.device_,
+            lr=self.lr,
         )
 
         # Move model back to cpu
@@ -267,6 +271,7 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
             max_epochs: int = 20,
             params_train: Union[Dict[str, Any], None] = None,
             device: Union[torch.device, None] = None,
+            lr: float = 0.001,
     ) -> None:
         """
         Train loop for the fully connected neural network at the core of the Dgcytof classifier.
@@ -291,6 +296,8 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
                 - 'num_workers' (int): Number of subprocesses for data loading (default: 6)
             device (torch.device, optional):
                 Device to run the training on (e.g., 'cpu' or 'cuda'). Defaults to 'cpu'.
+            lr (float, optional):
+                Learning rate of Adam. Defaults to 0.001 (the value hard-coded in the original).
 
         Returns:
             None
@@ -304,7 +311,14 @@ class DGCyTOFClassifier(BaseEstimator, ClassifierMixin):
 
         train_loader = data_utils.DataLoader(dataset=X_train, **params_train)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(model_fc.parameters(), lr=0.001)
+        # ###### Start, My addition: ###### #
+        # Learning rate as argument (original: optim.Adam(model_fc.parameters(), lr=0.001)). The authors searched
+        # lr in {0.01, 0.001, 0.0001, 0.00001} (and batch size in {128, 256, 512}) in their notebooks (cells 20-21):
+        # https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF1/CyTOF1.ipynb
+        # https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb
+        # so lr is exposed as a hyperparameter here; default unchanged.
+        optimizer = optim.Adam(model_fc.parameters(), lr=lr)
+        # ###### End, My addition ###### #
 
         for epoch in range(max_epochs):  # loop over the dataset multiple times
 

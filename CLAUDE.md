@@ -47,7 +47,7 @@ Every wrapper follows the same contract. Keep new ones consistent with `dgcytof.
 
 | Wrapper | Method | Env | Notes |
 |---|---|---|---|
-| `dgcytof.py` (`DGCyTOFClassifier`) | DGCyTOF, torch | `fx_flagx_gpu` (tuning / benchmark on TinyGPU); also runs in `fx_flagx_cpu` | uses `typing.Self` → Python ≥3.11; uses CUDA if available |
+| `dgcytof.py` (`DGCyTOFClassifier`) | DGCyTOF, torch | `fx_flagx_gpu` (tuning / benchmark on TinyGPU); also runs in `fx_flagx_cpu` | uses `typing.Self` → Python ≥3.11; uses CUDA if available; `lr` exposed (hard-coded 0.001 in the package, searched by the authors in their notebooks) |
 | `gatemeclass.py` (`GateMeClassClassifier`) | GateMeClass, R via rpy2 | `fx_gatemeclass` (`envs/gatemeclass.yml`) | **The env must be activated**; GateMeClass is installed from the pinned commit after creating the env (see the yml header). Known issues: `legacy/gatemeclass_bug_report.md` |
 | `lda.py` (`LDAClassifier`) | Abdelaal et al. LDA, official R code via rpy2 | `fx_lda` (`envs/lda.yml`) | **The env must be activated** (`conda activate fx_lda` / `conda run -n fx_lda`). Otherwise rpy2 picks up the system R and crashes. |
 | `deepcytof.py` (`DeepCyTOFClassifier`) | DeepCyTOF, Keras 1.2.2 / TF 1.0.1 | `fx_deepcytof` (Python 3.5) | must stay Python 3.5 syntax (no f-strings); CPU only |

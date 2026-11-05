@@ -127,10 +127,16 @@ GRIDS = OrderedDict([
                     'early_stopping': False, 'validation_fraction': 0.0},
     }),
     ('dgcytof', {
-        'blocks': [[('layer_sizes', [[64, 32], [128, 64, 32], [256, 128, 64]]), ('n_epochs', [10, 20, 50]),
-                    ('batch_size', [128, 512]), ('val_size', [0.1, 0.2, 0.3])]],
-        'fixed': {},
-        'default': {'layer_sizes': [128, 64, 32], 'n_epochs': 20, 'batch_size': 128, 'val_size': 0.2},
+        'blocks': [[('layer_sizes', [[64, 32, 16], [128, 64, 32], [256, 128, 64]]), ('n_epochs', [10, 20, 50]),
+                    ('lr', [1e-4, 1e-3, 1e-2]), ('batch_size', [128, 1024])]],
+        # val_size: share of the training events held out for DGCyTOF's calibration step; 0.2 as in the authors'
+        # code (test_size=0.20, cell 9; the paper says half-half); not tuned by the authors:
+        # https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF1/CyTOF1.ipynb
+        # https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb
+        # lr: tunable via a wrapper addition (hard-coded 0.001 in the package); the authors searched lr and batch size
+        # in the same notebooks (cells 20-21)
+        'fixed': {'val_size': 0.2},
+        'default': {'layer_sizes': [128, 64, 32], 'n_epochs': 20, 'lr': 1e-3, 'batch_size': 128},
     }),
     ('gatemeclass', {
         'blocks': [[('gmc_gmm_parameterization', ['E', 'V']), ('gmc_k', [10, 20, 40]),

@@ -196,12 +196,13 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - Default: the paper config ((128, 64, 32), lr 1e-3, batch 128, 20 epochs on all events). The flagx version used for the paper had no validation split; with flagx 0.2.1 `validation_fraction=0.0` reproduces it (flagx 0.2.1 splits off `validation_fraction` = 0.1 by default even without early stopping, checked).
 - Training course per atom in the JSON (`fit_info`: epochs trained, early stopped, best epoch, loss curves).
 
-**DGCyTOF** (54 configs)
-- `layer_sizes` {(64,32), (128,64,32), (256,128,64)}
-- `n_epochs` {10, 20, 50}
-- batch {128, 512}
-- `val_size` {0.1, 0.2, 0.3}
-- The learning rate is hard-coded in the method.
+**DGCyTOF** (54 configs, 810 atoms; revised in the grid review 2026-11-05)
+- Tuned: `layer_sizes` {(64, 32, 16), (128, 64, 32), (256, 128, 64)} (small / medium / large, as for the MLP) × `n_epochs` {10, 20, 50} (no early stopping in DGCyTOF) × `lr` {1e-4, 1e-3, 1e-2} × `batch_size` {128, 1024} (as for the MLP).
+- `lr`: hard-coded `lr=0.001` in the official package (`DGCyTOF_Package/DGCyTOF/__init__.py` L118); exposed in the wrapper as a marked addition, default unchanged. The authors themselves searched lr {0.01, 0.001, 0.0001, 0.00001} × batch size {128, 256, 512} (100 epochs) in their notebooks (cells 20–21, commented out, no results reported): [CyTOF1.ipynb](https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF1/CyTOF1.ipynb), [CyTOF2.ipynb](https://github.com/lijcheng12/DGCyTOF/blob/6ff36677e8b341e8f0c7154e13d740062861cbb6/Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb).
+- Fixed: `val_size=0.2`, the share of the training events held out for DGCyTOF's validation / calibration step (its results set the confidence threshold of the built-in abstention). **Not tuned by the authors:** their code uses `test_size=0.20` (stratified, cell 9 of both notebooks); the paper says "half-half" (Methods, Step 1); no other value appears anywhere.
+- Default: the wrapper defaults = package / notebook settings ((128, 64, 32), 20 epochs, lr 1e-3, batch 128, `val_size` 0.2).
+- Other findings (notebooks @ `6ff3667`): epochs 20 (CyTOF1) and 50 (CyTOF2); the saved models they load are named `40-60_50epochs_trained_model.pt` / `40-60_100epochs_trained_model.pt`, i.e. trained with other settings than the notebooks show. The paper's particle-swarm optimisation of layers / regularization / dropout is not in the published code.
+- Cost: the calibration step dominates (~48 min per atom on CPU in the timing run) and may not use the GPU (unchecked); whether DGCyTOF runs on TinyGPU or Woody is decided with the array resources at the end.
 
 **GateMeClass** (18 configs)
 - `gmc_gmm_parameterization` {E, V}
