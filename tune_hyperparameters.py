@@ -26,7 +26,7 @@ Commands:
         testing).
 
 Workflow (from the repo root, with the code state the jobs should run committed):
-    1. python tune_hyperparameters.py manifest sklearn_cpu      # prints N, e.g. 3405
+    1. python tune_hyperparameters.py manifest sklearn_cpu      # prints N, e.g. 2010
     2. sbatch --array=0-2009%50 slurm_scripts/tune_sklearn_cpu.sh                  # Woody (%50: max. running tasks)
        sbatch.tinygpu --array=0-1349%20 slurm_scripts/tune_flagx_gpu.sh            # TinyGPU, for 'flagx_gpu'
     3. Resume / rerun missing atoms: submit the same command again; atoms with a JSON are skipped.
