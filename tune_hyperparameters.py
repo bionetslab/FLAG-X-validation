@@ -157,9 +157,10 @@ GRIDS = OrderedDict([
     }),
     ('hgb', {
         'blocks': [[('learning_rate', [0.01, 0.1, 0.3]), ('max_leaf_nodes', [15, 31, 63]),
-                    ('l2_regularization', [0.0, 1.0, 10.0]), ('class_weight', [None, 'balanced'])]],
-        'fixed': {'max_iter': 500, 'early_stopping': True, 'validation_fraction': 0.1, 'n_iter_no_change': 10},
-        'default': {'learning_rate': 0.1, 'max_leaf_nodes': 31, 'l2_regularization': 0.0, 'class_weight': None},
+                    ('l2_regularization', [0.0, 1.0, 10.0])]],
+        'fixed': {'max_iter': 1000, 'early_stopping': True, 'validation_fraction': 0.1, 'n_iter_no_change': 10,
+                  'class_weight': None},
+        'default': {'learning_rate': 0.1, 'max_leaf_nodes': 31, 'l2_regularization': 0.0},
     }),
     ('logreg', {
         # C=None: no penalty (runner: C=inf)

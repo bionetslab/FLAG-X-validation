@@ -269,12 +269,29 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 
 - Memory risk: fully grown trees (`max_depth=None`, `min_samples_leaf=1`, the default config) on ~2.5M events can have hundreds of thousands of nodes each, i.e. several GB per forest; an OOM kill would put the default config out (failure rule) → generous `--mem` for `sklearn_cpu`.
 
-**HGB** (54 configs)
-- `learning_rate` {0.01, 0.1, 0.3}
-- `max_leaf_nodes` {15, 31, 63}
-- `l2_regularization` {0, 1, 10}
-- `class_weight` {None, balanced}
-- Fixed: `max_iter=500` with early stopping (val 0.1, 10 iterations).
+**HGB** (27 configs, 405 atoms; revised in the grid review 2026-11-05)
+- sklearn `HistGradientBoostingClassifier` (scikit-learn 1.9.1, env `fx_sklearn`). Grid around the sklearn defaults; 10–12 channels, 8 Imstat classes, ~2.5M training events per inner split.
+- Default = sklearn defaults: `learning_rate=0.1`, `max_leaf_nodes=31`, `l2_regularization=0`, with early stopping (on by default for > 10,000 samples) and the cap `max_iter=1000` (default 100, see below).
+
+| Tuned | sklearn default | Values | Reason |
+|---|---|---|---|
+| `learning_rate` | 0.1 | {0.01, 0.1, 0.3} | Shrinkage per boosting step, the most important boosting parameter: 0.01 slow (needs many iterations), 0.3 aggressive; 1.0 left out (usually unstable). Interacts with the number of iterations, which early stopping decides. |
+| `max_leaf_nodes` | 31 | {15, 31, 63} | Tree size; HGB grows trees leaf-wise, so this is the main complexity control. ~half / default / double. |
+| `l2_regularization` | 0 | {0, 1, 10} | L2 penalty on the leaf values (shrinks updates of leaves with few events): default / moderate / strong. Often a minor effect, but the only regulariser that does not limit the tree structure. |
+
+| Fixed | Value | Reason not tuned |
+|---|---|---|
+| `class_weight` | None (default) | Class weighting is a follow-up experiment (PLAN.md step 8), as for RF and the MLP. |
+| `max_iter` | 1000 (default 100) | Only a cap for early stopping: generous (like the MLP's early-stopping ceiling of 1000), so that early stopping and not the cap ends the training, also at lr 0.01 (with the default 100, lr 0.01 would be cut short). `fit_info` stores `n_iter` / `early_stopped`, so the aggregation can check whether the cap was hit. |
+| `early_stopping` | True | Identical to the default (`'auto'` = on for > 10,000 samples); explicit so tiny smoke-test data behave the same. |
+| `validation_fraction`, `n_iter_no_change`, `tol`, `scoring` | 0.1, 10, 1e-7, `'loss'` (defaults) | Early-stopping settings, not model parameters. |
+| `min_samples_leaf` | 20 (default) | Practically never binds: with ~2.5M events and ≤ 63 leaves, an average leaf holds tens of thousands of events; the tree size is controlled by `max_leaf_nodes`. |
+| `max_depth` | None (default) | Redundant: leaf-wise growth is already limited by `max_leaf_nodes`. |
+| `max_features` | 1.0 (default) | Feature subsampling per split; little room with 10–12 features, and boosting does not rely on tree diversity like RF. |
+| `max_bins` | 255 (default, the maximum) | Resolution of the feature binning; already the finest, coarser bins only save time. |
+| `loss` | `'log_loss'` | The only classification loss. |
+| `categorical_features`, `interaction_cst`, `monotonic_cst` | defaults | No categorical features, no domain constraints. |
+| `warm_start`, `verbose`, `random_state` | defaults / task seed | Runtime settings (the seed is set by the runner). |
 
 **LogReg** (14 configs)
 - penalty l2 with `C` {1e-3, 1e-2, 0.1, 1, 10, 100}, or no penalty **[impl]** (`C: None` in the grid → `C=inf` in the runner; sklearn 1.9 deprecates `penalty`)
