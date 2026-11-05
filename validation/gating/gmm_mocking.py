@@ -50,7 +50,9 @@ class GMMMockingClassifier(BaseEstimator, ClassifierMixin):
         n_components_class1 (original default 1 for both).
     covariance_type : {'full', 'tied', 'diag', 'spherical'}
         Covariance type of the mixtures (original default 'full').
-    tol, reg_covar, max_iter, n_init, init_params : see sklearn.mixture.GaussianMixture.
+    tol, reg_covar, max_iter, n_init, init_params, verbose, verbose_interval : see sklearn.mixture.GaussianMixture.
+        Not exposed: weights_init / means_init / precisions_init (arrays specific to one mixture, cannot be shared by
+        the per-class mixtures) and warm_start (fit creates new mixtures, so it would have no effect).
     random_state : int or None
         Seed of the mixtures. # MOD: actually used (the original stores None instead, L11).
     """
@@ -66,6 +68,8 @@ class GMMMockingClassifier(BaseEstimator, ClassifierMixin):
             n_init: int = 1,
             init_params: str = 'kmeans',
             random_state: Union[int, None] = None,
+            verbose: int = 0,
+            verbose_interval: int = 10,
     ):
         self.n_components = n_components
         self.covariance_type = covariance_type
@@ -75,6 +79,8 @@ class GMMMockingClassifier(BaseEstimator, ClassifierMixin):
         self.n_init = n_init
         self.init_params = init_params
         self.random_state = random_state  # MOD: original L11 sets self.random_state = None
+        self.verbose = verbose
+        self.verbose_interval = verbose_interval
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> T:
         # Addition: float64 input (float32 data with many identical values, e.g. at a log10 cut-off, makes
@@ -94,7 +100,7 @@ class GMMMockingClassifier(BaseEstimator, ClassifierMixin):
             gmm = GaussianMixture(
                 n_components=self.n_components, covariance_type=self.covariance_type, tol=self.tol,
                 reg_covar=self.reg_covar, max_iter=self.max_iter, n_init=self.n_init, init_params=self.init_params,
-                random_state=self.random_state,
+                random_state=self.random_state, verbose=self.verbose, verbose_interval=self.verbose_interval,
             )
             self.gmms_.append(gmm.fit(X[y == c]))
         # End of copied block
