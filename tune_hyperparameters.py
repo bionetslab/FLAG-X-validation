@@ -95,22 +95,19 @@ ARRAYS = OrderedDict([
 # allow conditional params, e.g. sigma only for the gaussian neighborhood). FIXED params are added to every config.
 # DEFAULT = the default / published config (must be in the grid; listed first in the config table).
 # Param names are the runner's (validation/runners/<method>.py), mostly the wrapper / sklearn argument names.
-SOM_N_EPOCHS = 1000  # Legacy final value (legacy/main.py L928-943); to be checked with the timing run
 GRIDS = OrderedDict([
     ('som', {
+        # Full product: 28 configs
         'blocks': [
-            [('som_dimensions', [[10, 10], [20, 20], [25, 25], [30, 30]]), ('som_topology', ['planar', 'toroid']),
-             ('som_grid_type', ['rectangular', 'hexagonal']), ('neighborhood', ['gaussian']),
-             ('gaussian_neighborhood_sigma', [0.1, 0.5, 1.0])],
-            [('som_dimensions', [[10, 10], [20, 20], [25, 25], [30, 30]]), ('som_topology', ['planar', 'toroid']),
-             ('som_grid_type', ['rectangular', 'hexagonal']), ('neighborhood', ['bubble'])],
+            [('som_dimensions', [[15, 15], [20, 20], [25, 25], [30, 30]]),
+             ('n_epochs', [50, 100, 250, 500, 750, 1000, 2000])],
         ],
-        'fixed': {'initialization': 'pca', 'n_epochs': SOM_N_EPOCHS, 'radius_0': -0.5, 'radius_n': 0.1,
-                  'radius_cooling': 'exponential', 'learning_rate_0': 0.1, 'learning_rate_n': 0.001,
-                  'learning_rate_decay': 'exponential'},
+        'fixed': {'som_topology': 'planar', 'som_grid_type': 'rectangular', 'neighborhood': 'gaussian',
+                  'gaussian_neighborhood_sigma': 0.1, 'initialization': 'pca', 'radius_cooling': 'exponential',
+                  'learning_rate_decay': 'exponential', 'learning_rate_0': 0.1, 'learning_rate_n': 0.001,
+                  'radius_0': -0.5, 'radius_n': 0.1},  # radius_0 < 0: fraction of the map size
         # Paper (legacy/main.py L928-943)
-        'default': {'som_dimensions': [25, 25], 'som_topology': 'planar', 'som_grid_type': 'rectangular',
-                    'neighborhood': 'gaussian', 'gaussian_neighborhood_sigma': 0.1},
+        'default': {'som_dimensions': [25, 25], 'n_epochs': 1000},
     }),
     ('mlp', {
         'blocks': [
@@ -410,8 +407,8 @@ def main():
 
     if args.smoke and out == os.path.abspath(OUT):
         raise SystemExit('--smoke requires --out with a directory other than {} (smoke atoms there would count as '
-                         'finished and be skipped by the real runs); e.g. --out results/tune_smoke, after running manifest with the '
-                         'same --out'.format(OUT))
+                         'finished and be skipped by the real runs); e.g. --out results/tune_smoke, after running '
+                         'manifest with the same --out'.format(OUT))
     manifest = read_manifest(args.array, out)
     index = args.index if args.index is not None else os.environ.get('SLURM_ARRAY_TASK_ID')
     if index is None:

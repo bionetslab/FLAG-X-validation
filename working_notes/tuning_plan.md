@@ -13,7 +13,7 @@ Scope of this step:
 
 ## 1. Decisions taken
 - **Input (D3):** all methods get the shared input (log10 with cut-offs, no scaling). Methods with internal preprocessing tune it as a grid parameter (LDA-Abdelaal, DeepCyTOF); if it is selected, they get the raw curated data. No sklearn method has internal preprocessing, so all of them use the shared input only (no scaling arm).
-- **Training samples:** class-stratified 10 % per sample (`TRAIN_FRAC = 0.1`).
+- **Training samples:** all events (`TRAIN_FRAC = 1.0`). **[impl]** Raised from 10 % (timing run) via 20 % to 1.0: the benchmark trains on all available data, so the size-dependent parameters are tuned at (close to) the training size they are used with (`DONE.md`, step 6).
 - **Val samples:** class-stratified fraction per sample (`VAL_FRAC`, 1.0 = no downsampling).
 - **Seeds:** the data seed depends only on (split, inner, sample), so all methods and configs see identical events. The model seed is `derive_seed('tune', method, split, inner)`, the same for all configs of a method.
 - **Grids:** mid-sized. All values of a categorical parameter are included; continuous ones get at least low / mid / high. Each grid contains the default / published config. The user reviews the grids (section 6).
@@ -70,7 +70,7 @@ All modules are numpy + stdlib only and Python 3.5-compatible.
 | `sampling.py` | `downsample_indices(y, n=None, frac=None, stratified=False, seed=None) -> sorted idx`; `join_samples(Xs, ys, sample_ids, shuffle=True, seed=None) -> X, y, sample_ids` | stratified = port of legacy `get_downsampling_bool` (`legacy/validation/utils/val_utils.py:750`), but with `np.random.RandomState(seed)`. If `n` is at least the sample size, or `frac >= 1`, all events are kept. The data-requirements experiment uses the same function with `n` |
 | `seeding.py` | `derive_seed(*keys) -> int` | sha256 of `config.SEED` + keys → `[0, 2**31-1)`; independent of process and Python version |
 | `evaluation.py` | `confusion_counts(y_true, y_pred, labels) -> (K, K+1)` (last column = abstention -1); `class_counts(cm) -> dict` (per class: tp, fp, fn, tn, n_true, n_pred, n_abstained) | D8: an abstained cell = FN for its true class, FP for none. `labels` come from `meta_labels.csv`, so every sample has the same shape. No score functions now; they come with the aggregation |
-| `resources.py` | `track_resources(gpu=False, interval=0.1)`: a context manager that yields a dict filled on exit (`wall_s`, `cpu_rss_baseline_mb`, `cpu_rss_peak_mb`, `cpu_rss_peak_increase_mb`, `gpu_peak_mb`) | port of `scalability_wrapper` / `track_memory_cpu/gpu` (`val_utils.py:822–928`). A polling thread reads VmRSS from `/proc` for the process and its children; GPU via `nvidia-smi`; `time.perf_counter` |
+| `resources.py` | `track_resources(gpu=False, interval=0.05)`: a context manager that yields a dict filled on exit (`wall_s`, `cpu_rss_baseline_mb`, `cpu_rss_peak_mb`, `cpu_rss_peak_increase_mb`, `gpu_peak_mb`) | port of `scalability_wrapper` / `track_memory_cpu/gpu` (`val_utils.py:822–928`). A polling thread reads VmRSS from `/proc` for the process and its children; GPU via `nvidia-smi`; `time.perf_counter` |
 | `runs.py` | `save_json(path, obj)`, `save_csv(path, header, rows)` (atomic: tmp + `os.replace`); `run_metadata(modules)` (Python and module `__version__`s, conda env, git commit + dirty flag, host, CPU model / threads, GPU names, SLURM job / array ids); `n_threads()` (`SLURM_CPUS_PER_TASK`, else `os.cpu_count()`) | the benchmark (step 7) reuses them |
 
 `Preprocessor` (`validation/core/preprocessing.py`) is reused unchanged.
@@ -110,7 +110,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
   | `lda_cpu` | `fx_lda` | cpu | lda_abdelaal |
   | `deepcytof_cpu` | `fx_deepcytof` | cpu | deepcytof |
 
-- `GRIDS` (section 6), `TRAIN_FRAC = 0.1`, `VAL_FRAC = 1.0`, `OVERWRITE = False`, `DATASET = 'imstat'`.
+- `GRIDS` (section 6), `TRAIN_FRAC = 1.0`, `VAL_FRAC = 1.0`, `OVERWRITE = False`, `DATASET = 'imstat'`.
 
 **Commands**
 - `python tune_hyperparameters.py manifest <array>`: expands the grids and writes:
@@ -134,10 +134,11 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - `…_counts.csv` (long and tidy, self-identifying, so all atoms concatenate directly):
   - identifiers: `method, config_id, split, inner, sample, n_events_sample, n_events_used`;
   - class counts: `label, n_true, n_pred, n_abstained, tp, fp, fn, tn`;
-  - confusion row: `pred_<label>…, pred_abstained`.
+  - confusion row: `pred_<label>…, pred_abstained`;
+  - prediction performance only: time and memory are only in the JSON. **[impl]** The per-sample predict time / memory columns were removed again (2026-11-05).
 - `….json`:
   - **identity:** `atom_id`, method, array, env, device, `config_id`, params;
-  - **data:** dataset, split, inner; train and val sample lists; labels (`meta_labels`); `TRAIN_FRAC` / `VAL_FRAC`, stratified; `n_train_events`;
+  - **data:** dataset, split, inner; train and val sample lists; labels (`meta_labels`); `TRAIN_FRAC` / `VAL_FRAC`, stratified; `n_train_events` and `n_train_events_per_class` (all classes of the dataset, 0 if absent);
   - **seeds:** data seeds (rule), model seed;
   - **preprocessing:** the fitted Preprocessor state, input arm;
   - **outcome:** status `ok` / `failed` (+ traceback);
@@ -145,7 +146,6 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
     - `resources.fit`: preprocessing fit + `build` + `fit`;
     - `resources.predict[<val sample>]`: transform + `predict` of that sample;
     - each entry is the `track_resources` dict (`wall_s`, `cpu_rss_baseline_mb`, `cpu_rss_peak_mb`, `cpu_rss_peak_increase_mb`, `gpu_peak_mb`; `null` without a GPU);
-    - the per-sample predict values are also written as columns `predict_wall_s`, `predict_cpu_rss_peak_mb`, `predict_gpu_peak_mb` in `…_counts.csv`, so they concatenate like the counts;
   - `run_metadata`, start / end time.
 - **Failures and timeouts. Rule: an atom that does not finish puts its config out.**
   - **Start marker:** the first thing an atom does is write its JSON with `status: started`. At the end it overwrites it with `ok` or `failed`.
@@ -176,17 +176,17 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 
 ## 6. Proposed grids (for review; sizes checked against the timing run; atoms = configs × 15)
 
-**FLAG-X SOM** (64 configs)
-- `som_dimensions` {10², 20², 25², 30²} **[impl]** 25² added, the published size (default = paper config: 25², planar, rectangular, gaussian 0.1)
-- `som_topology` {planar, toroid}
-- `som_grid_type` {rectangular, hexagonal}
-- `neighborhood`: gaussian with `gaussian_neighborhood_sigma` {0.1, 0.5, 1.0}, or bubble (4 options)
-- Fixed:
-  - `initialization='pca'`: flagx has no seed, so `random` init is not reproducible;
-  - exponential cooling / decay;
-  - `radius_0=-0.5`, `radius_n=0.1`, `learning_rate_0=0.1`, `learning_rate_n=0.001` (legacy final);
-  - `n_epochs` from the timing run (legacy: 1000).
-- Optional: `learning_rate_0` {0.1, 0.5, 1.0} (×3).
+**FLAG-X SOM** (28 configs, 420 atoms; revised in the grid review 2026-11-05)
+- Tuned: `som_dimensions` {15², 20², 25², 30²} × `n_epochs` {50, 100, 250, 500, 750, 1000, 2000}.
+- Fixed at the values selected in the original tuning (legacy/main.py L928-943): planar, rectangular, gaussian with `gaussian_neighborhood_sigma=0.1`, `initialization='pca'`, exponential radius cooling and learning-rate decay, `learning_rate_0=0.1`, `learning_rate_n=0.001`, `radius_0=-0.5`, `radius_n=0.1`.
+- Default: the paper config (25², 1000 epochs, legacy schedule), inside the grid.
+- Rationale (legacy results, `legacy/results/som_parameter_influence_study/`, `som_parameter_tuning/.../full_grid/`):
+  - One-at-a-time study (10 % data, 3-fold CV), range of mean macro F1 per parameter: map size 0.096 (largest), `radius_n` 0.069 (only for values ≥ 2; flat for ≤ 1, 0.1 best), σ 0.033, `n_epochs` 0.027 (noise, no trend from 10 to 15,000), `radius_0` 0.022, initialization / topology 0.013–0.015; neighborhood, learning rates, grid type, decay and cooling ≤ 0.004 (cross-validation SD ~0.002).
+  - Full grid (243 configs): share of score variance map size 0.19, `radius_0` 0.10 (the collapse of −0.25 on maps ≥ 20², F1 ≈ 0.86 with the fixed settings), σ 0.02, learning rates ≤ 0.01; −0.5 best at 25².
+  - Epoch calibration (all training events, tuned config): flat from 10 to 6000 epochs (0.9716–0.9749).
+  - So map size is the most influential parameter; the fixed parameters had a negligible effect or are fixed at their optimum. Epochs are tuned not because they were influential but because the earlier calibration used a different setting (event-level split, other training size) and they drive the runtime (local training, scalability).
+- Caveats (to state in the revision): the legacy validation was at the event level (optimistic); one-at-a-time variation misses interactions; σ had a moderate effect (0.033); the fixed values were selected on the old Imstat training set, which may overlap with today's outer test folds, so the Imstat per-fold scores are slightly optimistic (accepted: Imstat results are read with caution anyway; other datasets are not affected).
+- Suggested wording: "Based on the sensitivity analysis and grid search of the original study, map size had the largest effect on performance, whereas learning rates, decay functions, grid type and neighborhood function changed macro F1 by less than 0.005. We therefore fixed these at the previously selected values and tuned map size and the number of epochs. The number of epochs was re-tuned because the earlier calibration used a different training set size, and it determines training time."
 
 **FLAG-X MLP** (72 configs)
 - `layer_sizes` {(64,32), (128,64,32), (256,128,64)}
