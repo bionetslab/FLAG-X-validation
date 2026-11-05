@@ -1,0 +1,20 @@
+# GPU env for FLAG-X MLP (flagx 0.2.1, the version used for the paper; bioconda) and DGCyTOF
+# (validation/gating/dgcytof.py), used by the GPU tuning / benchmark arrays on TinyGPU (NHR@FAU).
+# Same as envs/flagx_cpu.yml but with a CUDA build of PyTorch (conda-forge).
+# cuda-version must be supported by the node's driver (check with nvidia-smi on a TinyGPU node: "CUDA Version: X.Y").
+# Create (on the cluster frontend, no GPU needed):
+#   CONDA_OVERRIDE_CUDA=12.4 CONDA_CHANNEL_PRIORITY=strict conda env create -f envs/flagx_gpu.yml
+# Check on a GPU node: python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# Tested versions: not yet created (no GPU on the development server)
+name: fx_flagx_gpu
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+channel_priority: strict
+
+dependencies:
+  - flagx=0.2.1
+  - pytorch=*=cuda*
+  - cuda-version=12.4
