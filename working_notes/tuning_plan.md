@@ -244,16 +244,30 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
   - MMD learning rate: the code's 1e-5 (`initial_lrate = 1e-5#1e-3`, [`Util/MMDNet.py#L27-L32`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/MMDNet.py#L27-L32)), not the paper's 1e-3 (§3.4: "μ(0) = 10−3, δ = .1, and T = 15"), to keep the authors' code. With it, calibration changed F1 by ≤ 0.002 in the real-data check, but dominates the runtime (timing run: 91 min per atom).
 - Without calibration, DeepCyTOF is a small softplus MLP trained on one reference sample, chosen among the training samples by the original covariance criterion ([`Util/DataHandler.py#L59-L77`](https://github.com/KlugerLab/deepcytof/blob/ac924b10a77cf2d5c7ea43ea39a172898d71abb1/src/Util/DataHandler.py#L59-L77)); classes absent from it cannot be predicted.
 
-**RF** (108 configs)
-- `max_depth` {10, 20, None}
-- `min_samples_leaf` {1, 10, 100}
-- `max_features` {sqrt, None}
-- `class_weight` {None, balanced, balanced_subsample}
-- `criterion` {gini, entropy}
-- Fixed:
-  - `n_estimators=200`: more trees only cost runtime;
-  - `log2` is dropped: identical to `sqrt` for 10–12 channels;
-  - `log_loss` is dropped: identical to `entropy`.
+**RF** (54 configs, 810 atoms; revised in the grid review 2026-11-05)
+- sklearn `RandomForestClassifier` (scikit-learn 1.9.1, env `fx_sklearn`). Grid around the sklearn defaults; 10–12 channels per dataset; ~2.5M training events per inner split (`TRAIN_FRAC = 1.0`).
+- Default = sklearn defaults (with `n_estimators=100`): `max_depth=None`, `min_samples_leaf=1`, `max_features='sqrt'`, `criterion='gini'`.
+
+| Tuned | sklearn default | Values | Reason |
+|---|---|---|---|
+| `max_depth` | None | {10, 20, None} | Main complexity control: None (fully grown) is the default, 20 / 10 a moderate / strong limit. With ~2.5M events, unlimited trees get very large; a limit may generalise better across patients and saves memory. |
+| `min_samples_leaf` | 1 | {1, 10, 100} | Second regulariser (smoother leaves); unlike depth it acts locally, in sparse regions (rare classes, class boundaries). Low / mid / high on a log scale; 100 is still small relative to ~2.5M events. |
+| `max_features` | `'sqrt'` | {sqrt, 0.5, None} | Features tried per split, controls the diversity of the trees. For 10–12 channels: sqrt = 3, 0.5 = 5–6, None = all (plain bagging) → low / mid / high. `'log2'` left out: also 3 for 10–12 channels. |
+| `criterion` | `'gini'` | {gini, entropy} | Categorical: all distinct values. `'log_loss'` left out: identical to `'entropy'` in sklearn. |
+
+| Fixed | Value | Reason not tuned |
+|---|---|---|
+| `class_weight` | None (default) | Class weighting is a follow-up experiment (PLAN.md step 8), as for the MLP. |
+| `n_estimators` | 100 (default) | More trees do not overfit; they only reduce variance with diminishing returns, at the cost of time and memory. The default halves the memory of fully grown trees compared with 200. |
+| `min_samples_split` | 2 (default) | Largely redundant with `min_samples_leaf` (a split already needs ≥ 2 × `min_samples_leaf` events). |
+| `max_leaf_nodes`, `min_impurity_decrease`, `min_weight_fraction_leaf` | None / 0 / 0 (defaults) | Alternative pre-pruning (stopping) rules for the tree size; they overlap with `max_depth` / `min_samples_leaf`, so only that pair is tuned. |
+| `ccp_alpha` | 0 (default, no pruning) | Minimal cost-complexity post-pruning: after a tree is grown, subtrees whose impurity reduction per extra leaf is below α are pruned. Not tuned: another size regulariser (overlaps with depth / leaf size); rarely used in forests, where averaging already controls the variance of deep trees; no natural scale for α (depends on the impurity of the data); the pruning path on fully grown trees from ~2.5M events adds runtime. |
+| `bootstrap` | True (default) | Part of the random-forest definition; without it every tree sees the same data and diversity comes only from `max_features`. |
+| `max_samples` | None (default: bootstrap of the training-set size) | Mainly a speed knob; smaller per-tree samples would be our addition. |
+| `oob_score`, `warm_start`, `verbose`, `monotonic_cst` | defaults | Do not change the fitted model, or need domain constraints we do not have (`monotonic_cst`). |
+| `random_state`, `n_jobs` | task seed, job threads | Runtime settings, set by the runner. |
+
+- Memory risk: fully grown trees (`max_depth=None`, `min_samples_leaf=1`, the default config) on ~2.5M events can have hundreds of thousands of nodes each, i.e. several GB per forest; an OOM kill would put the default config out (failure rule) → generous `--mem` for `sklearn_cpu`.
 
 **HGB** (54 configs)
 - `learning_rate` {0.01, 0.1, 0.3}

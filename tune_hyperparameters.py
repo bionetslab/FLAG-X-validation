@@ -151,11 +151,9 @@ GRIDS = OrderedDict([
     }),
     ('rf', {
         'blocks': [[('max_depth', [10, 20, None]), ('min_samples_leaf', [1, 10, 100]),
-                    ('max_features', ['sqrt', None]), ('class_weight', [None, 'balanced', 'balanced_subsample']),
-                    ('criterion', ['gini', 'entropy'])]],
-        'fixed': {'n_estimators': 200},
-        'default': {'max_depth': None, 'min_samples_leaf': 1, 'max_features': 'sqrt', 'class_weight': None,
-                    'criterion': 'gini'},
+                    ('max_features', ['sqrt', 0.5, None]), ('criterion', ['gini', 'entropy'])]],
+        'fixed': {'n_estimators': 100, 'class_weight': None},
+        'default': {'max_depth': None, 'min_samples_leaf': 1, 'max_features': 'sqrt', 'criterion': 'gini'},
     }),
     ('hgb', {
         'blocks': [[('learning_rate', [0.01, 0.1, 0.3]), ('max_leaf_nodes', [15, 31, 63]),
