@@ -39,7 +39,7 @@ def save_csv(path, header, rows):
         w = csv.writer(f)
         w.writerow(header)
         for r in rows:
-            w.writerow([_to_builtin(v) if _is_numpy(v) else v for v in r])  # ??? Why only _to_builtin() if _is_numpy() -> in save_json all is cast to builtin
+            w.writerow([_to_builtin(v) if _is_numpy(v) else v for v in r])
     _atomic_write(path, write, newline='')
 
 
@@ -62,7 +62,7 @@ def n_threads():
     try:
         return len(os.sched_getaffinity(0))
     except (AttributeError, OSError):  # Not available on every platform
-        return os.cpu_count() or 1  # ??? What is the return value cpu count or 1, how does an or statement work in a return
+        return os.cpu_count() or 1
 
 
 def run_metadata(modules=()):
