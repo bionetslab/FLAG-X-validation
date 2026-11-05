@@ -27,8 +27,8 @@ Commands:
 
 Workflow (from the repo root, with the code state the jobs should run committed):
     1. python tune_hyperparameters.py manifest sklearn_cpu      # prints N, e.g. 3405
-    2. sbatch --array=0-3404%50 slurm_scripts/tune_sklearn_cpu.sh                  # Woody (%50: max. running tasks)
-       sbatch.tinygpu --array=0-1889%20 slurm_scripts/tune_flagx_gpu.sh            # TinyGPU, for 'flagx_gpu'
+    2. sbatch --array=0-2009%50 slurm_scripts/tune_sklearn_cpu.sh                  # Woody (%50: max. running tasks)
+       sbatch.tinygpu --array=0-1349%20 slurm_scripts/tune_flagx_gpu.sh            # TinyGPU, for 'flagx_gpu'
     3. Resume / rerun missing atoms: submit the same command again; atoms with a JSON are skipped.
     Repeat 1-2 for every array. Write the manifest right before submitting and do not rewrite it while the array
     runs: the task indices refer to the frozen file, a changed grid would shift them. After a grid change, write a new

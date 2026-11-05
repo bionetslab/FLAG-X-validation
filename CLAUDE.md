@@ -63,7 +63,7 @@ R-based methods get `r-base` and all R packages inside their own conda env. Neve
 
 - Pipeline: curated data → splits → preprocessing → shared helpers + runners → tuning (Imstat) → fit/predict (per test sample: confusion-matrix counts, optionally labels/probabilities) → scores → figures. Each step saves its outputs and the next reads them.
 - Splits are generated once (group-level k-fold CV, nested inner splits for Imstat) and are the single source of truth.
-- One shared transformation + normalization as the default input for all methods, applied on the fly and fitted on training data only. Deviations only by tuning (shared vs native input for methods with their own preprocessing: LDA, DeepCyTOF) or for stability (if needed), see D3. Downsampling is also on the fly, with fixed seeds.
+- One shared transformation + normalization as the default input for all methods, applied on the fly and fitted on training data only. Deviations only by tuning (shared vs native input for DeepCyTOF; LDA-Abdelaal runs on the shared input only) or for stability (if needed), see D3. Downsampling is also on the fly, with fixed seeds.
 - Package-like code goes into `validation/`. `validation/core/` (PLAN step 5) holds small, modular, stateless helpers for recurring tasks (data/split loading, downsampling of one sample, joining + shuffling samples with `sample_ids`, preprocessing, seeding, per-sample evaluation counts, wall-clock / peak CPU+GPU memory tracking). No orchestration: experiment scripts compose the helpers. Numpy-only and Python 3.5-compatible, so they run in every method env.
 - Every experiment must be runnable sequentially or as a SLURM array job (task index → method × dataset × fold).
 

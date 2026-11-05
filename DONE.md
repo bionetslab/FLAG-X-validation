@@ -55,7 +55,7 @@ Implemented in `validation/core/` (numpy + stdlib, Python 3.5-compatible; compil
 - **Joining samples** (`sampling.py`): `join_samples(Xs, ys, sample_ids, shuffle=True, seed=None)` → concatenated, (seeded) shuffled `X`, `y` and an aligned `sample_ids` vector (needed e.g. for DeepCyTOF's reference sample).
 - **Seeding** (`seeding.py`): `derive_seed(*keys)`, sha256 of `config.SEED` + any str / int / float / bool / None keys → `[0, 2**31-1)`.
 - **Evaluation counts** (`evaluation.py`): `confusion_counts(y_true, y_pred, labels)` → (K, K+1) with an abstention column; `class_counts(cm)` → per-class n_true, n_pred, n_abstained, TP, FP, FN, TN (D8 rule). The class list comes from `meta_labels.csv`, so all samples have the same shape. No score helpers yet (step 9).
-- **Resource tracking** (`resources.py`): `track_resources(gpu=False, interval=0.1)` context manager → wall-clock time, CPU RSS baseline / peak / increase of the process tree (polling thread on `/proc` + the kernel's VmHWM of the process), GPU memory via `nvidia-smi`; port of `scalability_wrapper` / `track_memory_cpu` / `track_memory_gpu` (legacy `val_utils.py`, psutil-free).
+- **Resource tracking** (`resources.py`): `track_resources(gpu=False, interval=0.05)` context manager → wall-clock time, CPU RSS baseline / peak / increase of the process tree (pure polling of `/proc`; peaks shorter than the interval can be missed; polling costs ~3 % of one core), GPU memory via `nvidia-smi`; port of `scalability_wrapper` / `track_memory_cpu` / `track_memory_gpu` (legacy `val_utils.py`, psutil-free).
 - **Output / run helpers** (`runs.py`): atomic `save_json` / `save_csv`, `run_metadata(modules)` (versions, conda env, git commit + dirty flag, host, CPU model / threads, GPUs, SLURM ids), `n_threads()`, `now()`.
 
 ## Step 6: Hyperparameter tuning, implementation (2026-11-04)
@@ -99,3 +99,29 @@ Plan, grids and atom format in detail: `working_notes/tuning_plan.md`.
   ¹ Caveat: in this run the PyTorch data loaders used more than 1 worker process: MLP 3 (training) + 1 (flagx validation loader); DGCyTOF 3 (training) + 6 (validation step in `fit`, hard-coded upstream default in the wrapper). The workers bring no speed-up for in-memory tensors, but each is a separate process, so the peak RSS of the process tree is inflated (copy-on-write pages are counted per process). Fixed afterwards (2026-11-04): both runners use 1 worker, and the DGCyTOF wrapper's validation step takes `num_workers` from `train_params`. Fit time and memory of MLP / DGCyTOF are to be remeasured (on the GPU).
   - Every default atom finishes in well under the 24 h limit; peak RAM ≤ 9 GB everywhere.
   - The slow parts are prediction-side calibrations that run once per val sample: DeepCyTOF's MMD-ResNet (`calibrate=True`, about 2.6 min per sample) and DGCyTOF's calibration step (about 1.4 min per sample on CPU). SOM is dominated by the fit (1000 epochs).
+- **Change after the timing run** (2026-11-04): `TRAIN_FRAC` 0.1 → 0.2 (about 500k training events per atom). Fit is not the bottleneck (slowest fit: SOM, ~15 min at 10 %, expected ~30 min at 20 %; kNN predict scales with the training set, ~4 → ~8 min per atom); the per-sample calibrations of DeepCyTOF / DGCyTOF do not depend on the training size. Closer to the benchmark's training size, which matters for size-dependent parameters (e.g. SOM grid size, kNN k).
+- **Change** (2026-11-04): `TRAIN_FRAC` 0.2 → 1.0 (all training events, ~2.5M per inner split). The benchmark trains on all available data (step 7) and the data-requirements experiment (step 8) shows how much is needed, so tuning uses the full inner training set; the inner train set is still ~2/3 of the outer one (inherent to nested CV). Extrapolated from the timing run (not measured): SOM fit ~2.5 h (25²), kNN predict up to ~1–2 h per atom (k=50), other fits ~5–15 min, calibrations unchanged; risks: memory of RF with unlimited depth, the 30² SOM grids near the 24 h limit. No worst-case timing check was run (user decision); `--mem` / `--time` are set without it.
+
+## Step 6 (cont.): Hyperparameter tuning, grid review (2026-11-05)
+All grids reviewed one by one with the user; justification of every grid (tuned values, fixed parameters with reasons, defaults, sources and quotes) in `working_notes/tuning_plan.md`, section 6. Principles:
+- Grids are defined around each method's default / published config (the default is always in the grid, at position 0); categorical parameters get all distinct values, continuous ones low / mid / high.
+- No class weighting in any grid (MLP, RF, HGB, LogReg tuned without); class weighting is a step 8 follow-up experiment.
+- Iteration / epoch limits under early stopping or a convergence criterion are generous caps (MLP ES 1000 epochs, HGB `max_iter=1000`, LogReg `max_iter=1000`, GMM-Mocking `max_iter=1000`), so the criterion and not the cap ends the training; `fit_info` (MLP epochs / early stopping, HGB `n_iter`, GMM per-class convergence) shows whether a cap binds.
+
+| Method | Configs | Atoms | Change |
+|---|---|---|---|
+| SOM | 28 | 420 | map size {15², 20², 25², 30²} × epochs {50 … 2000}; planar, rectangular, gaussian σ 0.1, pca, exponential decays, lr 0.1 → 0.001, radius −0.5 → 0.1 fixed (legacy analysis: map size most influential) |
+| MLP | 36 | 540 | layer widths × lr × batch {128, 1024} × schedule (20 epochs, or early stopping with cap 1000); no weight decay, no class weighting |
+| DGCyTOF | 54 | 810 | layer widths × epochs × lr (exposed in the wrapper) × batch; `val_size` 0.2 fixed (not tuned by the authors) |
+| GateMeClass | 18 | 270 | unchanged (E/V × k × sampling) |
+| LDA-Abdelaal | 1 | 15 | shared input only: the native arms (`'log'` without cut-offs, `'arcsinh'` with the hard-coded mass-cytometry cofactor 5) are dropped, no other hyperparameters, rejection off (D8); kept for completeness. Supersedes the two-arm LDA design in the implementation entry above |
+| DeepCyTOF | 24 | 360 | input arm × `calibrate` × architecture {(12,6,3) published, (128,64,32) = MLP default} × lr; `denoise=False`. Calibration kept as a defining feature, although the authors skip it within one instrument / run (§2.3) and the code's MMD lr is 1e-5 vs the paper's 1e-3. Without calibration DeepCyTOF is a small MLP trained on one reference sample |
+| RF | 54 | 810 | `max_depth` × `min_samples_leaf` × `max_features` {sqrt, 0.5, None} × criterion; `n_estimators=100` (default), no class weighting |
+| HGB | 27 | 405 | lr × `max_leaf_nodes` × `l2_regularization`; `max_iter=1000` cap with early stopping, no class weighting |
+| LogReg | 7 | 105 | `C` {1e-5 … 1} + unpenalised (C above 1 is practically unpenalised at ~2.5M events), no class weighting |
+| kNN | 20 | 300 | k {1, 5, 15, 50, 150} × weights × p |
+| LDA-sklearn | 6 | 90 | lsqr shrinkage sweep {None, auto, 0.1, 0.5, 0.9, 1}; the old grid had 6 duplicate solver configs |
+| GMM-Mocking | 20 | 300 | grid unchanged; `max_iter=1000`; wrapper exposes `verbose` / `verbose_interval` |
+
+- Arrays: `sklearn_cpu` 2010, `flagx_cpu` 420, `flagx_gpu` 1350, `gatemeclass_cpu` 270, `lda_cpu` 15, `deepcytof_cpu` 360 atoms (total 4425; before the review 7110). All below `MaxArraySize` 10000.
+- With D3 now only DeepCyTOF has a native input arm (PLAN.md D3 updated).

@@ -63,9 +63,8 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 - Downsampling is applied to the training samples; test samples are predicted in full unless an experiment states otherwise.
 
 ### Step 6: Hyperparameter tuning (Imstat) -- IN PROGRESS
-Done: `tune_hyperparameters.py`, atom format, SLURM scripts, smoke test (`DONE.md`, `working_notes/tuning_plan.md`).
-- [ ] Timing run (default config per method, split 0 / inner 0): add the results to `working_notes/tuning_plan.md`; set `--cpus-per-task` / `--mem` per array and `VAL_FRAC`.
-- [ ] Final review of the grids (`working_notes/tuning_plan.md` section 6) by the user.
+Done: `tune_hyperparameters.py`, atom format, SLURM scripts, smoke test, grid review (295 configs, 4425 atoms; `DONE.md`, `working_notes/tuning_plan.md` section 6).
+- [ ] Set `--cpus-per-task` / `--mem` per array and `VAL_FRAC` from the timing run (`DONE.md`, step 6).
 - [ ] Write the manifests and submit the six arrays (`slurm_scripts/README.md`).
 - [ ] Aggregation script: macro F1 per val sample from the counts (D8 rule) → mean over val samples → mean inner score per (method, config, outer split); per-fold and consensus selection (D6); configs with a non-`ok` atom are out; failure / missing-atom report; plots of the inner scores.
 
@@ -87,6 +86,7 @@ Reuse the same splits, curated data and runners; only the task list changes. Can
 - robustness to sample order (random sample order trials),
 - probabilistic predictions / abstention behaviour,
 - channel leave-out,
+- class weighting ablation: methods with a class-weight option (FLAG-X MLP, RF, HGB, LogReg `class_weight='balanced'`; LDA-sklearn uniform `priors`) with and without class weighting; not part of the tuning grids (all tuned without),
 - preprocessing ablation (decided, see D3): rerun a subset (e.g. a few methods × datasets) with the alternative transformations (uniform cut-off 100, R4.m1; arcsinh) and normalizations, on the reduced/minimal training sets from the training data requirements experiment.
 
 ### Step 9: Evaluation
@@ -111,7 +111,7 @@ One line per decision; reasoning and sources in `DONE.md`.
 |---|---|---|
 | D1 | Datasets | **decided:** Imstat (also used for tuning), Lt1, Lt2, Lt1b, Lt2b, Flowcyt, BLAST110 (p1–p4) |
 | D2 | Storage of curated data | **decided:** per-sample `.npy` (X, y) + `meta_samples.csv`, `meta_labels.csv` |
-| D3 | Preprocessing ownership | **decided:** the same shared input for all; native input only as a tuning arm for LDA-Abdelaal / DeepCyTOF (no sklearn baseline has internal preprocessing), or for stability (none so far); post hoc ablation |
+| D3 | Preprocessing ownership | **decided:** the same shared input for all; native input only as a tuning arm for DeepCyTOF (LDA-Abdelaal: shared input only, its internal transformations are not flow-appropriate; no sklearn baseline has internal preprocessing), or for stability (none so far); post hoc ablation |
 | D3a | Shared transformation | **decided:** log10 with cut-offs as in the paper (per-channel for Imstat/LT, 100 for Flowcyt/BLAST110); alternatives in the ablation |
 | D3b | Shared normalization | **decided:** none; z-score / min-max in the ablation |
 | D4 | Prior-knowledge methods (ACDC, Bayesian trees) | **decided:** dropped; both need an expert marker table and cannot derive it from labelled data |

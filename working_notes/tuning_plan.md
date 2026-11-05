@@ -12,7 +12,7 @@ Scope of this step:
 - Aggregation, scores, selection and plots come later and get no helpers now. The atom format is designed to make them easy.
 
 ## 1. Decisions taken
-- **Input (D3):** all methods get the shared input (log10 with cut-offs, no scaling). Methods with internal preprocessing tune it as a grid parameter (LDA-Abdelaal, DeepCyTOF); if it is selected, they get the raw curated data. No sklearn method has internal preprocessing, so all of them use the shared input only (no scaling arm).
+- **Input (D3):** all methods get the shared input (log10 with cut-offs, no scaling). Methods with internal preprocessing tune it as a grid parameter (DeepCyTOF only, after the grid review; LDA-Abdelaal runs on the shared input only, see section 6); if it is selected, they get the raw curated data. No sklearn method has internal preprocessing, so all of them use the shared input only (no scaling arm).
 - **Training samples:** all events (`TRAIN_FRAC = 1.0`). **[impl]** Raised from 10 % (timing run) via 20 % to 1.0: the benchmark trains on all available data, so the size-dependent parameters are tuned at (close to) the training size they are used with (`DONE.md`, step 6).
 - **Val samples:** class-stratified fraction per sample (`VAL_FRAC`, 1.0 = no downsampling).
 - **Seeds:** the data seed depends only on (split, inner, sample), so all methods and configs see identical events. The model seed is `derive_seed('tune', method, split, inner)`, the same for all configs of a method.
@@ -90,7 +90,7 @@ The experiment script imports only the requested runner (`importlib`), so each e
 | `mlp` | `fx_flagx_gpu` | flagx `MLPClassifier`. Torch is seeded here (flagx has no seed). `class_weight='balanced'` becomes `loss_params={'weight': tensor}` computed from the training labels |
 | `dgcytof` | `fx_flagx_gpu` | `random_state=seed`; built-in abstention kept (D8) |
 | `gatemeclass` | `fx_gatemeclass` | `marker_names=CHANNELS[dataset]`, `gmc_reject_option=False`, `gmc_seed=seed` |
-| `lda_abdelaal` | `fx_lda` | `rejection_threshold=0`; `transformation` = input arm |
+| `lda_abdelaal` | `fx_lda` | `rejection_threshold=0`; `transformation` = input arm (grid: `False` only, section 6) |
 | `deepcytof` | `fx_deepcytof` (Py3.5) | `denoise=False`, `rejection_threshold=0`; `sample_ids` passed; one `predict_proba` call per sample, then argmax; `K.clear_session()`; `n_threads` |
 | `rf`, `hgb`, `logreg`, `knn`, `lda_sklearn`, `gmm_mocking` | `fx_sklearn` | `random_state=seed` and `n_jobs` where available |
 
@@ -117,7 +117,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
   - `results/tune_hyperparameters/configs/<method>.csv` (`config_id`, grid position, `is_default`, params JSON);
   - `results/tune_hyperparameters/manifests/<array>.csv` (`index, atom_id, method, config_id, split, inner`). It prints the number of atoms, which gives the `--array` range.
   - `config_id` = a short hash of the canonical params JSON. It stays stable when the grid is edited, so finished atoms are kept.
-- `python tune_hyperparameters.py run <array> [<index>|all]`: the index is taken from `SLURM_ARRAY_TASK_ID` if not given. The atom is looked up in the frozen manifest. No offset is needed: `MaxArraySize` is 10000 on Woody and TinyGPU, and the largest array has 3405 atoms.
+- `python tune_hyperparameters.py run <array> [<index>|all]`: the index is taken from `SLURM_ARRAY_TASK_ID` if not given. The atom is looked up in the frozen manifest. No offset is needed: `MaxArraySize` is 10000 on Woody and TinyGPU, and the largest array has 2010 atoms.
 
 **One atom**
 1. Skip if the atom's JSON exists (unless `OVERWRITE`); otherwise write it with `status: started`.
@@ -149,7 +149,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
   - `run_metadata`, start / end time.
 - **Failures and timeouts. Rule: an atom that does not finish puts its config out.**
   - **Start marker:** the first thing an atom does is write its JSON with `status: started`. At the end it overwrites it with `ok` or `failed`.
-  - **Crash:** a Python exception is caught and written as `status: failed` + traceback, with no counts. This is expected for GateMeClass "V" and LDA-Abdelaal native `log`; the result counts, nothing is worked around.
+  - **Crash:** a Python exception is caught and written as `status: failed` + traceback, with no counts. This is expected for GateMeClass "V" (LDA-Abdelaal native `log` is no longer in the grid); the result counts, nothing is worked around.
   - **Timeout, OOM kill, node failure:** Python cannot write anything, so the JSON stays at `started`. After all jobs are done, `started` simply means "did not finish". If the reason is wanted, it is in the job log or in `sacct`. No signal trap, no extra code.
   - **Timeout limit:** every array runs with `--time=24:00:00`, the cluster maximum, so a timeout always means "longer than 24 h".
   - **Config out:** a config with a non-`ok` atom in outer split i is not eligible for the per-fold selection of split i. It is also not eligible for the consensus, which needs all 15 atoms.
@@ -379,14 +379,17 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 
 **Atoms per array**
 
-| Array | Atoms |
-|---|---|
-| `sklearn_cpu` | 227 × 15 = 3405 |
-| `flagx_cpu` | 64 × 15 = 960 |
-| `flagx_gpu` | 126 × 15 = 1890 |
-| `gatemeclass_cpu` | 270 |
-| `lda_cpu` | 45 |
-| `deepcytof_cpu` | 540 |
+After the grid review (2026-11-05):
+
+| Array | Configs | Atoms |
+|---|---|---|
+| `sklearn_cpu` | rf 54 + hgb 27 + logreg 7 + knn 20 + lda_sklearn 6 + gmm_mocking 20 = 134 | 2010 |
+| `flagx_cpu` | som 28 | 420 |
+| `flagx_gpu` | mlp 36 + dgcytof 54 = 90 | 1350 |
+| `gatemeclass_cpu` | gatemeclass 18 | 270 |
+| `lda_cpu` | lda_abdelaal 1 | 15 |
+| `deepcytof_cpu` | deepcytof 24 | 360 |
+| **Total** | 295 | 4425 |
 
 ## 7. Docs (after implementation)
 - `PLAN.md`:
