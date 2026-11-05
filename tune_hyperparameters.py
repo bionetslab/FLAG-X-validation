@@ -164,9 +164,9 @@ GRIDS = OrderedDict([
     }),
     ('logreg', {
         # C=None: no penalty (runner: C=inf)
-        'blocks': [[('C', [1e-3, 1e-2, 0.1, 1.0, 10.0, 100.0, None]), ('class_weight', [None, 'balanced'])]],
-        'fixed': {'max_iter': 1000},
-        'default': {'C': 1.0, 'class_weight': None},
+        'blocks': [[('C', [1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1.0, None])]],
+        'fixed': {'max_iter': 1000, 'class_weight': None},
+        'default': {'C': 1.0},
     }),
     ('knn', {
         'blocks': [[('n_neighbors', [1, 5, 15, 30, 50]), ('weights', ['uniform', 'distance']), ('p', [1, 2])]],

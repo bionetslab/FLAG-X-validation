@@ -293,11 +293,27 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 | `categorical_features`, `interaction_cst`, `monotonic_cst` | defaults | No categorical features, no domain constraints. |
 | `warm_start`, `verbose`, `random_state` | defaults / task seed | Runtime settings (the seed is set by the runner). |
 
-**LogReg** (14 configs)
-- penalty l2 with `C` {1e-3, 1e-2, 0.1, 1, 10, 100}, or no penalty **[impl]** (`C: None` in the grid → `C=inf` in the runner; sklearn 1.9 deprecates `penalty`)
-- `class_weight` {None, balanced}
-- Fixed: lbfgs, multinomial, `max_iter=1000`.
-- l1 / elasticnet are excluded: they need saga, which converges poorly on unscaled input.
+**LogReg** (7 configs, 105 atoms; revised in the grid review 2026-11-05)
+- sklearn `LogisticRegression` (scikit-learn 1.9.1, env `fx_sklearn`): with lbfgs a multiclass problem is always one multinomial model (`multi_class` removed in 1.8); `penalty` is deprecated (`l1_ratio` selects the penalty, `C=np.inf` = no penalty).
+- Default = sklearn defaults: `C=1` (L2), lbfgs; `max_iter=1000` (default 100, see below).
+- Scale of `C`: sklearn minimises ½‖w‖² + C · Σᵢ lossᵢ (a sum over events), so the per-event penalty weight is ~1/(C·n). With n ≈ 2.5M training events and 10–12 features: C = 1 → ~4e-7 (no effect), C = 1e-3 → ~4e-4, C = 1e-5 → ~0.04 (noticeable). Values above 1 are practically identical to C = 1; with so few parameters and so many events, regularisation hardly matters for this model.
+
+| Tuned | sklearn default | Values | Reason |
+|---|---|---|---|
+| `C` | 1.0 | {1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1, None} | Inverse L2 strength, the only real hyperparameter. Log scale from the default down to where the penalty starts to act (see above); 10 / 100 dropped (identical to C = 1 at this n). `None` = no penalty at all (completely unregularised model; runner: `C=inf`), kept as the reference case. |
+
+| Fixed | Value | Reason not tuned |
+|---|---|---|
+| `class_weight` | None (default) | Class weighting is a follow-up experiment (PLAN.md step 8), as for RF, HGB and the MLP. |
+| `l1_ratio` (penalty type) | 0 = L2 (default) | lbfgs supports only L2; L1 / elastic net need saga, which converges poorly on unscaled input; with 10–12 features the feature selection of L1 is pointless. |
+| `solver` | `'lbfgs'` (default) | Optimiser, not model: the problem is convex, so every solver reaches the same solution if it converges. |
+| `max_iter` | 1000 (default 100) | Convergence cap; lbfgs on unscaled input may need more than 100 iterations. A non-converged fit still counts as `ok` (the sklearn warning is not stored). |
+| `tol` | 1e-4 (default) | Convergence criterion, not a model parameter. |
+| `fit_intercept` | True (default) | Without intercept the model is misspecified (input not centred). |
+| `intercept_scaling`, `dual` | defaults | Only used by liblinear. |
+| `warm_start`, `verbose` | defaults | Runtime settings. |
+| `random_state` | task seed | Only used by sag / saga / liblinear; no effect with lbfgs. |
+| `n_jobs` | not set | No effect with lbfgs multinomial (threads via BLAS / `OMP_NUM_THREADS`). |
 
 **kNN** (20 configs)
 - `n_neighbors` {1, 5, 15, 30, 50}
