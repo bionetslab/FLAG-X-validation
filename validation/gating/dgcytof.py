@@ -34,8 +34,9 @@ Contents:
         _active_learning_index: utils.py L10-24 (unchanged). get_num_correct: utils.py L6-7 (unchanged).
     FCNNModel: architecture as in the paper and Code_Study/DGCyTOF/CyTOF2/CyTOF2.ipynb.
 
-Env: fx_flagx_cpu (envs/flagx_cpu.yml; Python 3.12, CPU torch). Uses typing.Self, hence Python >= 3.11. Trains on
-CUDA if available (torch.cuda.is_available()), otherwise on CPU, so the same code runs in a GPU env.
+Env: fx_flagx_gpu (envs/flagx_gpu.yml; CUDA torch; tuning / benchmark on TinyGPU) or fx_flagx_cpu (envs/flagx_cpu.yml;
+CPU torch); both Python 3.12. Uses typing.Self, hence Python >= 3.11. Trains on CUDA if available
+(torch.cuda.is_available()), otherwise on CPU. Prediction (forward pass + calibration) always runs on the CPU.
 """
 import os
 import warnings
