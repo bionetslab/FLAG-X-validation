@@ -169,7 +169,7 @@ GRIDS = OrderedDict([
         'default': {'C': 1.0},
     }),
     ('knn', {
-        'blocks': [[('n_neighbors', [1, 5, 15, 30, 50]), ('weights', ['uniform', 'distance']), ('p', [1, 2])]],
+        'blocks': [[('n_neighbors', [1, 5, 15, 50, 150]), ('weights', ['uniform', 'distance']), ('p', [1, 2])]],
         'fixed': {},
         'default': {'n_neighbors': 5, 'weights': 'uniform', 'p': 2},
     }),

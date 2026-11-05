@@ -315,10 +315,25 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 | `random_state` | task seed | Only used by sag / saga / liblinear; no effect with lbfgs. |
 | `n_jobs` | not set | No effect with lbfgs multinomial (threads via BLAS / `OMP_NUM_THREADS`). |
 
-**kNN** (20 configs)
-- `n_neighbors` {1, 5, 15, 30, 50}
-- `weights` {uniform, distance}
-- `p` {1, 2}
+**kNN** (20 configs, 300 atoms; revised in the grid review 2026-11-05)
+- sklearn `KNeighborsClassifier` (scikit-learn 1.9.1, env `fx_sklearn`); deterministic (no seed). Shared input (log10 with cut-offs, no scaling, D3), so all channels are on a similar log10 scale. Fit only stores the ~2.5M training events; the cost is in predict (extrapolated from the timing run, not measured: up to ~1–2 h per atom at k = 50, more at k = 150).
+- Default = sklearn defaults: `n_neighbors=5`, `weights='uniform'`, `p=2`.
+
+| Tuned | sklearn default | Values | Reason |
+|---|---|---|---|
+| `n_neighbors` | 5 | {1, 5, 15, 50, 150} | The main (and only real) complexity control: small k = local fit, large k = smoothing. Roughly log-spaced (factor ~3) around the default; 30 (old grid) dropped (close to 15 and 50); 150 added at the top, since even k = 50 is very local with ~2.5M training events. |
+| `weights` | `'uniform'` | {uniform, distance} | Categorical: all values. `'distance'` weights closer neighbours more, mostly relevant at large k. Test events that coincide with training events (frequent at the log10 cut-off) give those training events weight 1 and all others 0 (sklearn rule), no division by zero. |
+| `p` | 2 | {1, 2} | Minkowski exponent: 1 = Manhattan, 2 = Euclidean (default); the two standard distances. Manhattan is less dominated by a single channel with a large difference. |
+
+| Fixed | Value | Reason not tuned |
+|---|---|---|
+| `metric` | `'minkowski'` (default) | Covers L1 / L2 via `p`; other metrics (Chebyshev, Mahalanobis, …) are unusual here, and Mahalanobis would effectively rescale the input, which is fixed by D3. |
+| `metric_params` | None (default) | Only for metrics with extra parameters. |
+| `algorithm` | `'auto'` (default; kd-tree for dense low-dimensional data) | Only the search speed: all algorithms return the exact neighbours (with exactly tied distances the kept neighbour may differ, not a model choice). |
+| `leaf_size` | 30 (default) | Speed / memory of the tree only. |
+| `n_jobs` | job threads | Runtime setting, set by the runner. |
+
+- No class weighting option in `KNeighborsClassifier` (nothing to fix for the step 8 follow-up).
 
 **LDA-sklearn** (6 configs, 90 atoms; revised in the grid review 2026-11-05)
 - sklearn `LinearDiscriminantAnalysis` (scikit-learn 1.9.1, env `fx_sklearn`); deterministic (no seed). 10–12 channels, ~2.5M training events per inner split.
