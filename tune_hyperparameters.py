@@ -180,7 +180,7 @@ GRIDS = OrderedDict([
     }),
     ('gmm_mocking', {
         'blocks': [[('n_components', [1, 2, 5, 10, 20]), ('covariance_type', ['full', 'tied', 'diag', 'spherical'])]],
-        'fixed': {},
+        'fixed': {'max_iter': 1000},
         # Original GMMClassifier default (1 component per class, full covariance)
         'default': {'n_components': 1, 'covariance_type': 'full'},
     }),

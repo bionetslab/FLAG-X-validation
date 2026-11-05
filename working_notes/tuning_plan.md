@@ -353,11 +353,29 @@ The grids are defined in `GRIDS` of `tune_hyperparameters.py`; this section hold
 | `tol` | 1e-4 (default) | Rank threshold of the svd solver only (not used with lsqr). |
 | `store_covariance` | False (default) | Only stores the covariance; no effect on the model. |
 
-**GMM-Mocking** (20 configs)
-- `n_components` {1, 2, 5, 10, 20} (their range was 1–20)
-- `covariance_type` {full, tied, diag, spherical}
-- Fixed: `n_init=1`, `max_iter=100`, `reg_covar=1e-6` (sklearn defaults, as upstream).
-- Default: the original `GMMClassifier` default (1 component per class, full covariance).
+**GMM-Mocking** (20 configs, 300 atoms; reviewed 2026-11-05, grid unchanged, `max_iter` cap raised)
+- Wrapper `validation/gating/gmm_mocking.py` (env `fx_sklearn`, scikit-learn 1.9.1) around the authors' `GMMClassifier` (Mocking et al. 2024, repo `AUMC-HEMA/cMRD-manuscript` @ `df1b26e`, [GMMClassifier.py](https://github.com/AUMC-HEMA/cMRD-manuscript/blob/df1b26e6035f22af6b32f8881bad1636f04acabd/GMMClassifier.py)): one `GaussianMixture` per class, prediction = argmax of the per-class log-likelihoods. The wrapper exposes all scalar `GaussianMixture` parameters with sklearn defaults (the original only sets `n_components`, `covariance_type` and `random_state`, so every other value is a sklearn default there as well).
+- Authors' tuning ([02-GMMclf.ipynb](https://github.com/AUMC-HEMA/cMRD-manuscript/blob/df1b26e6035f22af6b32f8881bad1636f04acabd/02-GMMclf.ipynb), cells 7 and 14): `GridSearchCV` over `n_components_class0` 1–20 × `n_components_class1` 1–10 (10-fold `GroupKFold`, refit on F1), `covariance_type='full'` fixed, 5K events per sample (BLAST110). `random_state` is effectively None in the original (L11 drops it).
+- Our generalisation: one shared `n_components` for all classes (per-class values would be 5⁸ combinations for 8 Imstat classes). The decision rule has no class priors (= uniform priors, an implicit class balancing inherent to the method).
+- ~2.5M training events per inner split (500× the authors' 5K per sample): each per-class mixture is fitted on up to ~1M events (largest class).
+- Default = original default: 1 component per class, full covariance (with `max_iter=1000`, see below).
+
+| Tuned | Default (original / sklearn) | Values | Reason |
+|---|---|---|---|
+| `n_components` (per class, shared) | 1 | {1, 2, 5, 10, 20} | The only parameter the authors tuned; from the default to their maximum (20), roughly log-spaced. 1 component per class = QDA (Gaussian classes with own covariances); more components model multimodal classes; with ~2.5M events even 20 full components per class are well determined. |
+| `covariance_type` | `'full'` | {full, tied, diag, spherical} | Categorical: all values (the authors fixed `'full'`). full = free covariance per component; tied = one covariance per class shared by its components; diag / spherical are cheaper and less flexible (can approximate correlations with more components). Cheap (timing run: atom well under 0.1 min at 10 % data). |
+
+| Fixed | Value | Reason not tuned |
+|---|---|---|
+| `tol` | 1e-3 (sklearn default, as in the original) | EM convergence criterion, not a model parameter. |
+| `max_iter` | 1000 (default and original: 100) | Only a cap: EM stops when the per-event mean log-likelihood improves by less than `tol`, independent of the number of events. Few components converge fast, but with 10–20 full components EM often creeps and 100 can bind; sklearn then only warns and uses the unconverged mixture. Generous cap, consistent with HGB / LogReg / MLP (the original used 100 on 5K events per sample). Cost only for fits that would stop at 100 (worst case ~1–2 s per iteration on ~1M events with 20 full components, i.e. a few hours per atom, < 24 h). `fit_info` stores per class `converged` / `n_iter`, so the aggregation can check whether the cap binds. |
+| `reg_covar` | 1e-6 (default, as in the original) | Numerical safeguard against singular covariances (e.g. components collapsing on the many identical values at the log10 cut-off); tuning it would be a model change the authors did not make. A failing fit puts the config out (failure rule). |
+| `n_init` | 1 (default, as in the original) | EM restarts: only reduce the dependence on the initialisation, at multiple cost. |
+| `init_params` | `'kmeans'` (default, as in the original) | Initialisation method. |
+| `random_state` | task seed | Seed of the mixtures (our change: the original drops it, L11). |
+| `verbose`, `verbose_interval` | 0, 10 (defaults) | Logging only. |
+| `weights_init`, `means_init`, `precisions_init`, `warm_start` | not exposed (sklearn defaults) | The init arrays are specific to one mixture and cannot be shared by the per-class mixtures; `warm_start` has no effect, since `fit` creates new mixtures. |
+| Class priors / weighting | none (uniform, inherent to the decision rule) | Part of the original method; class weighting is a follow-up experiment (PLAN.md step 8). |
 
 **Atoms per array**
 
