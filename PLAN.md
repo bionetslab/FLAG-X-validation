@@ -45,11 +45,8 @@ This file holds the rules, the open todos and a one-line summary of each decisio
 ### Steps 0–3 -- DONE
 Scaffolding, data curation (10 datasets), splits (`data/splits/`, K_OUTER = 5, K_INNER = 3), shared preprocessing (`Preprocessor`). Details: `DONE.md`.
 
-### Step 4: Method integration -- IN PROGRESS
-Done: wrappers, envs and runners (`validation/runners/`) for FLAG-X SOM / MLP, DGCyTOF, GateMeClass, LDA-Abdelaal, DeepCyTOF and the tabular baselines (RF, HGB, LogReg, kNN, LDA-sklearn, GMM-Mocking); smoke-tested on Imstat. Details: `DONE.md`.
-- [ ] Create `fx_flagx_gpu` on TinyGPU (`envs/flagx_gpu.yml`, check `cuda-version` against the node driver) and run one MLP / DGCyTOF atom on a GPU.
-- [ ] Create all envs on Woody / TinyGPU and copy `data/curated/imstat/` there.
-- [ ] D8 for FLAG-X: SOM returns -1 for BMUs without labelled training events (currently kept as built-in abstention); the MLP never abstains. Confirm.
+### Step 4: Method integration -- DONE
+Wrappers, envs and runners (`validation/runners/`) for FLAG-X SOM / MLP, DGCyTOF, GateMeClass, LDA-Abdelaal, DeepCyTOF and the tabular baselines (RF, HGB, LogReg, kNN, LDA-sklearn, GMM-Mocking); smoke-tested on Imstat; all envs created and checked on Woody / TinyGPU. Details: `DONE.md`.
 
 ### Step 5: Shared helpers (`validation/core/`) -- IN PROGRESS
 Done: data loading, downsampling, joining, seeding, evaluation counts, resource tracking, output / run helpers (`DONE.md`). Rules: each helper does one thing, is stateless (seeds are passed in), numpy + stdlib only, Python 3.5-compatible, and knows nothing about individual methods. **No orchestration:** experiment scripts compose the helpers and write their own code where none fits. Helpers are added when a second script needs them.
@@ -63,18 +60,16 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 - Downsampling is applied to the training samples; test samples are predicted in full unless an experiment states otherwise.
 
 ### Step 6: Hyperparameter tuning (Imstat) -- IN PROGRESS
-Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`).
-- [ ] Confirm `VAL_FRAC` (currently 1.0 = full val samples; timing run: fine at 1.0).
-- [ ] Create the envs on the cluster (`fx_flagx_gpu` in an interactive TinyGPU job) and submit the six arrays (`slurm_scripts/README.md`).
-- [ ] Aggregation script: macro F1 per val sample from the counts (D8 rule) → mean over val samples → mean inner score per (method, config, outer split); per-fold and consensus selection (D6); configs with a non-`ok` atom are out; failure / missing-atom report; plots of the inner scores.
+Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`); envs and Imstat data on the cluster, tuning jobs running (2026-11-06).
+- [ ] `tune_hyperparameters_aggregate.py` (aggregation, separate from `tune_hyperparameters.py`): reads manifests + atoms of the current config tables; macro F1 per val sample from the counts (D8 rule) → mean over val samples → mean inner score per (method, config, outer split); per-fold and consensus selection (D6); configs with a non-`ok` atom are out; failure / missing-atom report; check whether `max_iter` caps bind (`fit_info`). Writes tables incl. the selected parameters (read by step 7).
 
 ### Step 7: Main benchmark
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.
 - Model seeds (R4.4, R4.m3 seed variability): 3 seeds per fold for stochastic methods (FLAG-X MLP/SOM, DGCyTOF, DeepCyTOF; initialization and on-the-fly downsampling), 1 for deterministic ones (e.g. LDA). Seeds are derived from `config.SEED` + task identity. Report the mean and SD over seeds. If BLAST110 is too expensive, reduce its seeds or downsample harder and state this. The splits stay unchanged (1 CV repetition); tuning uses a single seed (stated as a limitation).
 - Optional robustness check: a repeated CV with a different partition seed, for the FLAG-X methods only.
 - **[D8, decided] Abstention:** the task is full assignment of every cell.
-  - Where abstention is only an option of a method, it is switched off: LDA `rejection_threshold=0` (default), GateMeClass `reject_option=False` (default), DeepCyTOF `rejection_threshold=0` (the 0.4 rejection exists only in the code, not in the paper; it also filters the cells used for the MMD calibration). FLAG-X: to be checked when integrated.
-  - Where it is built into the method (DGCyTOF's calibration step), the method is run as published and its abstentions are scored as below.
+  - Where abstention is only an option of a method, it is switched off: LDA `rejection_threshold=0` (default), GateMeClass `reject_option=False` (default), DeepCyTOF `rejection_threshold=0` (the 0.4 rejection exists only in the code, not in the paper; it also filters the cells used for the MMD calibration). The FLAG-X MLP never abstains.
+  - Where it is built into the method (DGCyTOF's calibration step; FLAG-X SOM: cells whose best-matching unit has no labelled training events), the method is run as published and its abstentions are scored as below.
 - Hyperparameters (D6): Imstat tasks use the per-fold parameters of their outer split; all other datasets use the consensus parameters.
 - Run sequentially or as a SLURM array job; GPU only where it helps (FLAG-X MLP, DGCyTOF).
 
@@ -118,4 +113,4 @@ One line per decision; reasoning and sources in `DONE.md`.
 | D5 | Config format | **decided:** small shared `config.py` at root, per-script constants otherwise, no registries |
 | D6 | Use of tuned parameters | **decided:** both. Per-fold best for Imstat (nested CV); one consensus set (best mean inner score over all outer splits) for all other datasets |
 | D7 | Compensation | **decided:** with flagx if the FCS file has a spillover matrix (only BLAST110) |
-| D8 | Abstention | **decided:** switched off where it is an option (LDA, GateMeClass, DeepCyTOF); built-in abstention (DGCyTOF) kept; abstained cells count as FN for their true class, abstention rate reported (step 9) |
+| D8 | Abstention | **decided:** switched off where it is an option (LDA, GateMeClass, DeepCyTOF); built-in abstention (DGCyTOF, FLAG-X SOM) kept; abstained cells count as FN for their true class, abstention rate reported (step 9) |

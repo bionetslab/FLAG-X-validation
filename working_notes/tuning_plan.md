@@ -172,7 +172,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - Logs go to `results/tune_hyperparameters/logs/<array>/%A_%a.out`. Repo, data and envs live on the cluster (`$WORK`); paths come from `config.ROOT`.
 - `slurm_scripts/README.md`: the submit / resume commands per array.
 
-**Later (not implemented now):** an aggregation script reads manifests + atoms. It computes macro F1 per val sample (D8 rule) → inner means → per-fold and consensus selection (D6), and reports failures / missing atoms and plots.
+**Later (not implemented now):** an aggregation script (`tune_hyperparameters_aggregate.py`, separate from `tune_hyperparameters.py`) reads manifests + atoms. It computes macro F1 per val sample (D8 rule) → inner means → per-fold and consensus selection (D6), and reports failures / missing atoms.
 
 ## 6. Grids (atoms = configs × 15)
 
