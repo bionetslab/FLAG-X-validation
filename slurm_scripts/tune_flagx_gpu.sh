@@ -1,26 +1,31 @@
 #!/bin/bash -l
-# Hyperparameter tuning, array 'flagx_gpu' (env fx_flagx_gpu, TinyGPU): one array task = one atom (tune_hyperparameters.py).
-# Submit from the repo root (see slurm_scripts/README.md):
-#   python tune_hyperparameters.py manifest flagx_gpu     # prints N
-#   sbatch.tinygpu --array=0-<N-1>%<throttle> slurm_scripts/tune_flagx_gpu.sh
-# --time is the cluster maximum on purpose: an atom that does not finish within 24 h puts its config out.
-# --cpus-per-task / --mem: from the timing run (working_notes/tuning_plan.md).
-#SBATCH --job-name=tune_flagx_gpu
-#SBATCH --time=24:00:00
-#SBATCH --gres=gpu:1
+# First, run
+#   python tune_hyperparameters.py manifest flagx_gpu     # prints N; --array below must be 0-<N-1>
+# Then, submit from the repo root on tinyx (see slurm_scripts/README.md):
+#   sbatch.tinygpu slurm_scripts/tune_flagx_gpu.sh
+# Partition rtx3080: per GPU 8 cores and 46 GB host RAM (fixed share, no --cpus-per-task / --mem)
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:rtx3080:1
 #SBATCH --partition=rtx3080
-#SBATCH --export=NONE
+#SBATCH --time=24:00:00
+#SBATCH --job-name=tune_flagx_gpu
+#SBATCH --array=0-1349%20
 #SBATCH --output=results/tune_hyperparameters/logs/%x/%A_%a.out
+#SBATCH --export=NONE
 
 unset SLURM_EXPORT_ENV
 
-module load python
+module purge
+source ~/miniforge3/etc/profile.d/conda.sh
 conda activate fx_flagx_gpu
 
-export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-8}  # TinyGPU allocates a fixed number of cores per GPU
+export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-8}  # Not set without --cpus-per-task; 8 = the per-GPU share
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export PYTHONUNBUFFERED=1
 
 cd "$SLURM_SUBMIT_DIR"
-python tune_hyperparameters.py run flagx_gpu
+
+python tune_hyperparameters.py run flagx_gpu "$SLURM_ARRAY_TASK_ID"
