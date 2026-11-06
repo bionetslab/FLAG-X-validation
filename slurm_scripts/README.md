@@ -37,6 +37,8 @@ sbatch slurm_scripts/tune_sklearn_cpu.sh
 sbatch.tinygpu slurm_scripts/tune_flagx_gpu.sh     # on the TinyGPU frontend tinyx
 
 # 3. Resume: resubmit the same command. Atoms that already have a JSON are skipped.
+#    Or only the missing atoms (no JSON yet): python tune_hyperparameters.py missing sklearn_cpu prints a range for
+#    sbatch --array=<range> slurm_scripts/tune_sklearn_cpu.sh (the command line overrides the script's range).
 ```
 
 **Atom status**

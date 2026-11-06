@@ -24,12 +24,17 @@ Commands:
         Runs atom <index> of the manifest (default: $SLURM_ARRAY_TASK_ID), or all atoms sequentially ('all').
         Must run in the array's env. --smoke: 3 train / 2 val samples, 1 % of the events (only with --out, for
         testing).
+    python tune_hyperparameters.py missing <array> [--out DIR]
+        Lists the manifest indices whose atom has no JSON yet (never started) and prints them as a SLURM --array
+        range, e.g. to resubmit only new configs after a grid change. Atoms with status started / failed count as
+        present (failure rule); delete their JSON to rerun them. Any env works (no method code is imported).
 
 Workflow (from the repo root, with the code state the jobs should run committed):
     1. python tune_hyperparameters.py manifest sklearn_cpu      # prints N, e.g. 2010
     2. sbatch slurm_scripts/tune_sklearn_cpu.sh            # Woody; the script has #SBATCH --array=0-<N-1>
        sbatch.tinygpu slurm_scripts/tune_flagx_gpu.sh      # TinyGPU (frontend tinyx), for 'flagx_gpu'
-    3. Resume / rerun missing atoms: submit the same command again; atoms with a JSON are skipped.
+    3. Resume / rerun missing atoms: submit the same command again; atoms with a JSON are skipped. Or submit only
+       those: python tune_hyperparameters.py missing sklearn_cpu, then sbatch --array=<printed range> <script>.
     Repeat 1-2 for every array. Write the manifest right before submitting and do not rewrite it while the array
     runs: the task indices refer to the frozen file, a changed grid would shift them. After a grid change, write a new
     manifest and submit again; finished atoms are kept, because config_id is a hash of the params.
@@ -262,6 +267,27 @@ def read_manifest(array, out):
         return list(csv.DictReader(f))
 
 
+def index_ranges(indices):
+    """Sorted ints -> SLURM range string, e.g. [1, 2, 3, 7] -> '1-3,7'."""
+    parts, start = [], None
+    for k, i in enumerate(indices):
+        if start is None:
+            start = i
+        if k + 1 == len(indices) or indices[k + 1] != i + 1:
+            parts.append(str(i) if i == start else '{}-{}'.format(start, i))
+            start = None
+    return ','.join(parts)
+
+
+def print_missing(array, out):
+    manifest = read_manifest(array, out)
+    missing = [int(r['index']) for r in manifest
+               if not os.path.exists(atom_paths(out, r['method'], r['config_id'], r['split'], r['inner'])[0])]
+    print('{}: {} of {} atoms missing'.format(array, len(missing), len(manifest)))
+    if missing:
+        print('SLURM: --array={}'.format(index_ranges(missing)))
+
+
 # ### One atom #########################################################################################################
 
 def atom_paths(out, method, cid, split, inner):
@@ -395,7 +421,7 @@ def run_atom(array, row, out, smoke=False):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['manifest', 'run'])
+    ap.add_argument('command', choices=['manifest', 'run', 'missing'])
     ap.add_argument('array', choices=list(ARRAYS))
     ap.add_argument('index', nargs='?', default=None, help="atom index, 'all', default $SLURM_ARRAY_TASK_ID")
     ap.add_argument('--out', default=OUT, help='output root (default results/tune_hyperparameters)')
@@ -405,6 +431,9 @@ def main():
 
     if args.command == 'manifest':
         write_manifest(args.array, out)
+        return
+    if args.command == 'missing':
+        print_missing(args.array, out)
         return
 
     if args.smoke and out == os.path.abspath(OUT):
