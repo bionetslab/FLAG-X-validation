@@ -10,7 +10,7 @@
 #SBATCH --partition=rtx3080
 #SBATCH --time=24:00:00
 #SBATCH --job-name=tune_flagx_gpu
-#SBATCH --array=0-1349%20
+#SBATCH --array=0-1349
 #SBATCH --output=results/tune_hyperparameters/logs/%x/%A_%a.out
 #SBATCH --export=NONE
 
