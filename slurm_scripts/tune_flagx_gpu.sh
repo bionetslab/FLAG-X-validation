@@ -3,11 +3,10 @@
 #   python tune_hyperparameters.py manifest flagx_gpu     # prints N; --array below must be 0-<N-1>
 # Then, submit from the repo root on tinyx (see slurm_scripts/README.md):
 #   sbatch.tinygpu slurm_scripts/tune_flagx_gpu.sh
-# Partition rtx3080: per GPU 8 cores and 46 GB host RAM (fixed share, no --cpus-per-task / --mem)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:rtx3080:1
-#SBATCH --partition=rtx3080
+#SBATCH --gres=gpu:1
+#SBATCH --partition=work,v100
 #SBATCH --time=24:00:00
 #SBATCH --job-name=tune_flagx_gpu
 #SBATCH --array=0-1349

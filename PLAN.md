@@ -63,7 +63,7 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 - Downsampling is applied to the training samples; test samples are predicted in full unless an experiment states otherwise.
 
 ### Step 6: Hyperparameter tuning (Imstat) -- IN PROGRESS
-Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 RTX 3080; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`).
+Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`).
 - [ ] Confirm `VAL_FRAC` (currently 1.0 = full val samples; timing run: fine at 1.0).
 - [ ] Create the envs on the cluster (`fx_flagx_gpu` in an interactive TinyGPU job) and submit the six arrays (`slurm_scripts/README.md`).
 - [ ] Aggregation script: macro F1 per val sample from the counts (D8 rule) → mean over val samples → mean inner score per (method, config, outer split); per-fold and consensus selection (D6); configs with a non-`ok` atom are out; failure / missing-atom report; plots of the inner scores.
