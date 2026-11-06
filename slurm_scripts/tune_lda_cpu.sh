@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=24:00:00
-#SBATCH --array=0-14%50
+#SBATCH --array=0-14
 #SBATCH --job-name=tune_lda_cpu
 #SBATCH --output=results/tune_hyperparameters/logs/%x/%A_%a.out
 #SBATCH --export=NONE

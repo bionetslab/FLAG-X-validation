@@ -165,7 +165,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - The array range is not hard-coded. It is passed at submission from the manifest size.
 - Usage:
   1. `python tune_hyperparameters.py manifest <array>` prints N.
-  2. `sbatch --array=0-$((N-1))%<throttle> slurm_scripts/tune_<array>.sh`, or `sbatch.tinygpu …` for `flagx_gpu`.
+  2. `sbatch slurm_scripts/tune_<array>.sh` (the script hard-codes `#SBATCH --array=0-<N-1>`, no throttle), or `sbatch.tinygpu …` for `flagx_gpu`.
   3. To resume, resubmit the same command.
 - Woody: `--mem` ≤ 7.75 GB per core. TinyGPU: GPU type (rtx3080 / a100) to be chosen.
 - `MaxArraySize` = 10000 on both Woody and TinyGPU (checked by the user, 2026-11-04). Every array fits into one submission.

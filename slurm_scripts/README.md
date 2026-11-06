@@ -15,7 +15,7 @@ One script per (env, cluster) array. Every array task runs one atom. CPU arrays 
 | `lda_cpu` | `tune_lda_cpu.sh` | `fx_lda` | Woody | lda_abdelaal | 15 |
 | `deepcytof_cpu` | `tune_deepcytof_cpu.sh` | `fx_deepcytof` | Woody | deepcytof | 360 |
 
-N as of the grid review (2026-11-05), from the committed manifests (`results/tune_hyperparameters/manifests/<array>.csv`). The scripts hard-code the array range: `#SBATCH --array=0-<N-1>%50` on Woody (at most 50 tasks running at once), `0-<N-1>` without throttle on TinyGPU; after a grid change, write a new manifest and update the range in the script. `--array` on the `sbatch` command line overrides the script (e.g. to resubmit selected indices).
+N as of the grid review (2026-11-05), from the committed manifests (`results/tune_hyperparameters/manifests/<array>.csv`). The scripts hard-code the array range `#SBATCH --array=0-<N-1>`, without throttle (Slurm schedules as many tasks as the cluster and the fair-share allow); after a grid change, write a new manifest and update the range in the script. `--array` on the `sbatch` command line overrides the script (e.g. to resubmit selected indices).
 
 **Prerequisites on the cluster**
 - The repo is cloned and `data/curated/imstat/` is copied into it, for example under `$WORK`.
@@ -23,7 +23,7 @@ N as of the grid review (2026-11-05), from the committed manifests (`results/tun
 
 **What a Woody script does:** one array task = one atom. Each task gets 4 cores (memory: 7.75 GB per core on Woody, so 31 GB; no `--mem`), 24 h (the cluster maximum, on purpose: an atom that does not finish in 24 h puts its config out), activates the array's env, sets the thread variables from `SLURM_CPUS_PER_TASK` and runs `python tune_hyperparameters.py run <array> "$SLURM_ARRAY_TASK_ID"` directly (no `srun`: one process per task, as in the NHR OpenMP example) from the submit directory (`SLURM_SUBMIT_DIR`, hence: submit from the repo root).
 
-**The TinyGPU script** (`tune_flagx_gpu.sh`) is the same, except: 1 RTX 3080 (`--gres=gpu:rtx3080:1 --partition=rtx3080`) with its fixed host share of 8 cores and 46 GB RAM (no `--cpus-per-task`; `SLURM_CPUS_PER_TASK` falls back to 8 for the thread variables), no throttle, submitted with `sbatch.tinygpu` on `tinyx`. Create `fx_flagx_gpu` in an interactive TinyGPU job, so conda picks the CUDA build of torch (NHR: "For GPU support of your packages you must use an interactive job"). DGCyTOF uses the GPU only for training; its prediction (incl. the calibration) runs on the 8 cores.
+**The TinyGPU script** (`tune_flagx_gpu.sh`) is the same, except: 1 RTX 3080 (`--gres=gpu:rtx3080:1 --partition=rtx3080`) with its fixed host share of 8 cores and 46 GB RAM (no `--cpus-per-task`; `SLURM_CPUS_PER_TASK` falls back to 8 for the thread variables), submitted with `sbatch.tinygpu` on `tinyx`. Create `fx_flagx_gpu` in an interactive TinyGPU job, so conda picks the CUDA build of torch (NHR: "For GPU support of your packages you must use an interactive job"). DGCyTOF uses the GPU only for training; its prediction (incl. the calibration) runs on the 8 cores.
 
 **Run, from the repo root:**
 
@@ -32,7 +32,7 @@ N as of the grid review (2026-11-05), from the committed manifests (`results/tun
 #    dir. Any env with numpy works; the manifest imports no method code.
 python tune_hyperparameters.py manifest sklearn_cpu
 
-# 2. Submit (the array range and the throttle are in the scripts)
+# 2. Submit (the array range is in the scripts)
 sbatch slurm_scripts/tune_sklearn_cpu.sh
 sbatch.tinygpu slurm_scripts/tune_flagx_gpu.sh     # on the TinyGPU frontend tinyx
 

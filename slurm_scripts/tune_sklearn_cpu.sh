@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=24:00:00
-#SBATCH --array=0-2009%50
+#SBATCH --array=0-2009
 #SBATCH --job-name=tune_sklearn_cpu
 #SBATCH --output=results/tune_hyperparameters/logs/%x/%A_%a.out
 #SBATCH --export=NONE
