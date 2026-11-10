@@ -172,7 +172,7 @@ The number of threads comes from `n_threads()` (also exported as `OMP_NUM_THREAD
 - Logs go to `results/tune_hyperparameters/logs/<array>/%A_%a.out`. Repo, data and envs live on the cluster (`$WORK`); paths come from `config.ROOT`.
 - `slurm_scripts/README.md`: the submit / resume commands per array.
 
-**Later (not implemented now):** an aggregation script (`tune_hyperparameters_aggregate.py`, separate from `tune_hyperparameters.py`) reads manifests + atoms. It computes macro F1 per val sample (D8 rule) → inner means → per-fold and consensus selection (D6), and reports failures / missing atoms.
+**Later (implemented 2026-11-10 as `tune_hyperparameters_eval.py`, see section 8):** an aggregation script (`tune_hyperparameters_aggregate.py`, separate from `tune_hyperparameters.py`) reads manifests + atoms. It computes macro F1 per val sample (D8 rule) → inner means → per-fold and consensus selection (D6), and reports failures / missing atoms.
 
 ## 6. Grids (atoms = configs × 15)
 
@@ -411,3 +411,112 @@ After the grid review (2026-11-05):
 4. Create `fx_sklearn` (and `fx_flagx_gpu` when a GPU is reachable).
 5. Smoke atoms: one atom per method in its env, on a tiny subsample, output to the scratchpad. Check that the JSON + counts files are complete and that the counts files concatenate.
 6. Timing run: the default config, split 0 / inner 0, `TRAIN_FRAC=0.1`, per method. Report fit / predict time and memory, then propose `VAL_FRAC`, `--time` / `--mem` per array and final grid sizes. The full arrays are submitted by the user.
+
+---
+
+## 8. Evaluation: aggregation and p-value tables (`tune_hyperparameters_eval.py`)
+
+> **Update 2026-11-10 (current state; the plan below is kept as reviewed):**
+> - The pairwise test add-on (`rank_and_test`, `TESTS`, `ALPHA`, `pvalues/`) was implemented and then removed again: a significance matrix over all config pairs cannot show that tuning makes little difference (that is an effect-size question). Open todo on the effect of tuning: `PLAN.md` step 6. scipy / statsmodels stay in `fx_plot`.
+> - Added: best configs (D6). Per method, the argmax of `mean` at the outer level (per outer split, Imstat benchmark) and the overall level (consensus, other datasets); configs with NaN mean excluded; ties → default, then lowest `config_id` → `best_configs/params_{outer,overall}_<method>.json` (read by step 7). This replaces the "selection, `selected.csv`" of the plan.
+> - **[impl]** Output layout: `atoms.csv`, `failures.csv` (counts per method × status × error only), `scores/scores_<level>.csv`, `best_configs/`.
+> - **[impl]** Helper: `validation/core/scores.py` `f1_from_counts(tp, fp, fn, binary=False)` (classes with tp + fp + fn > 0, equivalent to n_true + n_pred > 0) and `abstention_rate(n_abstained, n_true)`.
+> - **[impl]** Runtimes per atom kept separate (`fit_s`, `predict_s`), aggregated to `fit_mean / fit_sd / predict_mean / predict_sd`.
+>
+> Status: implemented and run (2026-11-10; outputs in `results/tune_hyperparameters_eval/`, checks and findings in `DONE.md`, step 6). Simplified after review: mean / SD / n only (no median / MAD). **[impl]** `params` is joined from the inner level upwards (sample / donor tables carry `is_default` only, to keep them small). Scope: (a) **core:** the chain of aggregation tables from the per-val-sample counts; (b) **add-on:** a ranking harness that turns any of these tables into a ranked pairwise p-value table. **Selection (top set, runtime vs best mean, per-fold vs consensus, `selected.csv` for step 7) is a separate next step.**
+
+**Facts found while planning**
+- Imstat: 125 samples, 26 donors. Per outer split the 3 inner val sets partition the ~20 training donors, so each donor is validated once per outer split and in 4 of the 5 outer splits overall.
+- Failures:
+  - DGCyTOF: 124 atoms failed in `predict` (calibration step, `_active_learning_index`). Only 3 of 54 configs are complete over all 15 atoms.
+  - GateMeClass: the 9 V configs failed entirely; 3 E configs are complete.
+  - All other methods: every atom is `ok`.
+- HGB with `learning_rate=0.01` hits the `max_iter=1000` cap in 106 of 135 atoms.
+- Binary datasets: `lt1b`, `lt2b`, `blast110_p1`–`p4`. In all of them the positive class is label 1 (B cells / blasts) and 0 = other.
+
+**Decisions**
+- **Score per val sample**, from the stored counts with the D8 rule: an abstained cell counts as an FN for its true class, and abstention is not a class.
+  - Multiclass datasets (> 2 labels in `meta_labels.csv`): macro F1 over the classes with `n_true + n_pred > 0`. This is the legacy / sklearn union convention (`legacy/validation/utils/val_utils.py:53`).
+  - Binary datasets (2 labels): F1 of the positive class (label 1).
+    - A sample with no positive cells and no positive predictions has an undefined F1. Decided: NaN, and report it. Only a safeguard: every curated binary sample has ≥ 103 positive cells (lt1b / lt2b ≥ 103, BLAST110 ≥ 217; checked 2026-11-10), so F1 is always defined. With no positive predictions it is 0.
+  - Imstat is multiclass. The binary branch is there so that step 9 can reuse the helper.
+- **Aggregation chain.** Each level aggregates the level below it and is saved to its own file:
+  1. sample;
+  2. donor: the val samples of one donor within one atom;
+  3. inner fold: over donors;
+  4. outer split: over the 3 inner folds;
+  5. overall: over the 5 outer splits.
+
+  Each row holds `mean, sd, n` over the units of the level below; the value passed upward is `mean`. `sd` uses ddof = 1 (NaN if n = 1). `n` = number of units entering mean and SD: donor = its val samples in that atom; inner = the donors of that val set; outer = 3; overall = 5; `donor_pooled` = the outer splits the donor is validated in (4).
+
+  Side table `donor_pooled`: each donor's score averaged over the 4 outer splits it is validated in, so tests across all outer splits get independent units.
+- **Failures:**
+  - A non-`ok` atom (`failed`, `started`, or missing from the manifest) gives NaN rows at the sample level, for its val samples taken from the split table.
+  - NaN propagates through the chain: plain means, no nanmeans.
+  - So an outer-split row is NaN unless all 3 of its atoms are ok, and an overall row is NaN unless all 15 are ok.
+  - Nothing is debugged or rerun: a method's failures are a result.
+- **Ranking harness (add-on):** `rank_and_test(table, unit_cols, scope_cols)` works on any level table.
+  - Within each method × scope group (e.g. scope `split` = per outer split; no scope = everything), it pivots configs × units. Example: the donor table with units `donor_id`.
+  - A config with a NaN in the group is excluded from it and listed as such.
+  - Configs are ranked by the mean over the units.
+  - All pairs get a paired two-sided Wilcoxon signed-rank test: `scipy.stats.wilcoxon`, `zero_method='wilcox'`; if all differences are 0, p = 1.
+  - Holm–Bonferroni runs over all pairs of that method × scope (`statsmodels.stats.multitest.multipletests(method='holm')`). Tests and corrections are not reimplemented.
+  - Output: a long table with method, level, scope, config_a, config_b, rank_a, rank_b, mean_a, mean_b, n_pairs, statistic, p, p_holm.
+- **Default runs:**
+  - donor table, per outer split (~20 pairs);
+  - `donor_pooled`, all splits (26 pairs);
+  - inner table, all splits (15 pairs; these fold units overlap in training data, so for comparison only).
+
+  Further combinations are just extra `TESTS` entries. Sample-level tests are possible, but samples of one donor are correlated, so their p-values come out too small.
+
+**Env**
+- `fx_plot`: pandas 3.1; scipy 1.18 so far only comes in through seaborn.
+- Extend `envs/plot.yml` with `scipy` and `statsmodels` explicitly; update the env and pin the versions in the header after the update.
+
+**Script**
+- `tune_hyperparameters_eval.py` at the repo root, env `fx_plot`.
+- Constants: `ALPHA = 0.05` (display only), `TESTS` (a list of `(level, unit_cols, scope_cols)`, one per p-value table), `OVERWRITE`.
+- Inputs:
+  - `results/tune_hyperparameters/manifests/*.csv`: only manifest atoms count;
+  - `configs/*.csv` (params, `is_default`);
+  - the atom JSON + `_counts.csv` files;
+  - `data/splits/imstat_inner.csv`;
+  - `meta_samples.csv` (`donor_id`) and `meta_labels.csv`.
+- Outputs (`results/tune_hyperparameters_eval/`):
+  - `atoms.csv`: one row per manifest atom, with:
+    - status and last error line;
+    - fit / summed predict wall time and peak memory;
+    - host and GPU;
+    - flattened `fit_info` and a `cap_hit` flag.
+  - `failures.csv`: atom counts per method × status × error line, and per scope the configs that are complete.
+  - `scores_sample.csv`: method, config_id, split, inner, sample, donor_id, `score`, `abstention_rate`.
+  - `scores_donor.csv`, `scores_inner.csv`, `scores_outer.csv`, `scores_overall.csv` and `scores_donor_pooled.csv`, each with:
+    - `mean, sd, n`;
+    - the runtimes, kept separate: `fit_s` / `predict_s` per atom (inner level; predict summed over the val samples), aggregated the same way to `fit_mean, fit_sd, predict_mean, predict_sd` (outer, overall);
+    - `is_default` and the params JSON.
+  - add-on: `pvalues_<level>_<scope>.csv`, the long table from `rank_and_test`, one per `TESTS` entry.
+- Linear structure, one function per stage:
+  - load atoms;
+  - score samples;
+  - `aggregate(table, by)`: one generic `groupby` helper, used for every level;
+  - `rank_and_test`;
+  - write.
+
+**Shared helper (PLAN step 5 todo)**
+- `validation/core/scores.py`:
+  - `f1_score_counts(tp, fp, fn, n_true, n_pred, binary)`: macro F1, or F1 of label 1 when `binary`;
+  - `abstention_rate(...)`.
+- Both work on the per-class count arrays of one sample. numpy only, Python 3.5 compatible, so step 9 reuses them.
+
+**Not in this step:** the selection rule and `selected.csv`; the heatmap figure.
+
+**Verification**
+1. The helper against `sklearn.metrics.f1_score`, on y_true / y_pred rebuilt from the confusion rows:
+   - `average='macro'` on a few Imstat atoms, incl. one DGCyTOF atom with abstentions;
+   - `pos_label=1` on a binary toy case.
+2. Each donor appears exactly once per outer split across the 3 inner folds, and each level's `mean` equals the mean of the level below.
+3. NaN propagation: a DGCyTOF config that failed in split 0 is:
+   - NaN in split 0 and in the overall table;
+   - excluded from the split-0 p-value table;
+   - kept in the splits where it is complete.
+4. p is symmetric in (a, b), and ranks follow the means.

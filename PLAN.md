@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–3 done (2026-11-03); steps 4–6 in progress: helpers, runners and the tuning script written, tuning runs pending (2026-11-04). Built from `NOTES.md`.
+Status: steps 0–5 done; step 6 in progress: tuning runs finished, evaluation and best configs done, effect-of-tuning analysis open (2026-11-10). Built from `NOTES.md`.
 
 This file holds the rules, the open todos and a one-line summary of each decision. What was done, with outputs, checks, findings and the reasoning behind each decision, is logged in `DONE.md` (append only). Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
@@ -48,9 +48,9 @@ Scaffolding, data curation (10 datasets), splits (`data/splits/`, K_OUTER = 5, K
 ### Step 4: Method integration -- DONE
 Wrappers, envs and runners (`validation/runners/`) for FLAG-X SOM / MLP, DGCyTOF, GateMeClass, LDA-Abdelaal, DeepCyTOF and the tabular baselines (RF, HGB, LogReg, kNN, LDA-sklearn, GMM-Mocking); smoke-tested on Imstat; all envs created and checked on Woody / TinyGPU. Details: `DONE.md`.
 
-### Step 5: Shared helpers (`validation/core/`) -- IN PROGRESS
-Done: data loading, downsampling, joining, seeding, evaluation counts, resource tracking, output / run helpers (`DONE.md`). Rules: each helper does one thing, is stateless (seeds are passed in), numpy + stdlib only, Python 3.5-compatible, and knows nothing about individual methods. **No orchestration:** experiment scripts compose the helpers and write their own code where none fits. Helpers are added when a second script needs them.
-- [ ] Score helpers (D8 rule) together with the tuning aggregation / step 9.
+### Step 5: Shared helpers (`validation/core/`) -- DONE
+Done: data loading, downsampling, joining, seeding, evaluation counts, resource tracking, output / run helpers, scores (`DONE.md`). Rules: each helper does one thing, is stateless (seeds are passed in), numpy + stdlib only, Python 3.5-compatible, and knows nothing about individual methods. **No orchestration:** experiment scripts compose the helpers and write their own code where none fits. Helpers are added when a second script needs them.
+- [x] Score helpers (D8 rule): `validation/core/scores.py` (2026-11-10).
 
 **What every experiment stores** (convention, using the helpers above):
 - per test sample: the evaluation counts. Any metric (abstention-aware or not, per class or averaged) is computed later from them, without the per-cell predictions (step 9);
@@ -60,8 +60,10 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 - Downsampling is applied to the training samples; test samples are predicted in full unless an experiment states otherwise.
 
 ### Step 6: Hyperparameter tuning (Imstat) -- IN PROGRESS
-Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`); envs and Imstat data on the cluster, tuning jobs running (2026-11-06).
-- [ ] `tune_hyperparameters_aggregate.py` (aggregation, separate from `tune_hyperparameters.py`): reads manifests + atoms of the current config tables; macro F1 per val sample from the counts (D8 rule) → mean over val samples → mean inner score per (method, config, outer split); per-fold and consensus selection (D6); configs with a non-`ok` atom are out; failure / missing-atom report; check whether `max_iter` caps bind (`fit_info`). Writes tables incl. the selected parameters (read by step 7).
+Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`); envs and Imstat data on the cluster; all 4425 atoms run (4157 ok, 268 failed; 2026-11-10).
+- [x] `tune_hyperparameters_eval.py` (2026-11-10): aggregation chain sample → donor → inner → outer → overall (+ donor_pooled), mean / SD / n per level, NaN for failed atoms propagates (`working_notes/tuning_plan.md` section 8, `DONE.md`).
+- [x] Best configs (D6, 2026-11-10): argmax mean at the outer level (per outer split, Imstat) and the overall level (consensus); incomplete configs excluded; ties → default, then lowest config_id → `results/tune_hyperparameters_eval/best_configs/params_{outer,overall}_<method>.json` (read by step 7).
+- [ ] Effect of tuning (replaces the dropped pairwise config tests): best vs. default config per method (paired difference over the 26 donors of `donor_pooled`, bootstrap CI, optionally one Wilcoxon per method + Holm over methods) and the flatness of each grid (range of config means, share of configs within 0.01 of the best); to be decided.
 
 ### Step 7: Main benchmark
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.
@@ -70,7 +72,7 @@ Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 confi
 - **[D8, decided] Abstention:** the task is full assignment of every cell.
   - Where abstention is only an option of a method, it is switched off: LDA `rejection_threshold=0` (default), GateMeClass `reject_option=False` (default), DeepCyTOF `rejection_threshold=0` (the 0.4 rejection exists only in the code, not in the paper; it also filters the cells used for the MMD calibration). The FLAG-X MLP never abstains.
   - Where it is built into the method (DGCyTOF's calibration step; FLAG-X SOM: cells whose best-matching unit has no labelled training events), the method is run as published and its abstentions are scored as below.
-- Hyperparameters (D6): Imstat tasks use the per-fold parameters of their outer split; all other datasets use the consensus parameters.
+- Hyperparameters (D6): Imstat tasks use the per-fold parameters of their outer split (`best_configs/params_outer_<method>.json`, `['splits'][str(split)]['params']`); all other datasets use the consensus parameters (`params_overall_<method>.json`, `['params']`).
 - Run sequentially or as a SLURM array job; GPU only where it helps (FLAG-X MLP, DGCyTOF).
 
 ### Step 8: Follow-up experiments

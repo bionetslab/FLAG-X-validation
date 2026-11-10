@@ -137,3 +137,35 @@ All grids reviewed one by one with the user; justification of every grid (tuned 
 - All envs created and checked on the cluster by the user (Woody: `fx_flagx_cpu`, `fx_sklearn`, `fx_gatemeclass`, `fx_lda`, `fx_deepcytof`; TinyGPU: `fx_flagx_gpu`), `data/curated/imstat/` copied; the tuning arrays are running (step 6).
 - **[D8] FLAG-X SOM abstention kept as built-in:** `predict` returns -1 for cells whose best-matching unit has no labelled training events (flagx `som_classifier.py` L278). It cannot be switched off; it is inherent to the SOM (a node without training events has no label). It matters only for large SOMs with few training events. Treated like DGCyTOF's built-in abstention: run as published, abstained cells count as FN for their true class, abstention rate reported (step 9). The FLAG-X MLP never abstains.
 - **`VAL_FRAC = 1.0` confirmed (2026-11-06):** the inner val samples are predicted in full (timing run: prediction cost fine at 1.0). The aggregation goes into a separate script (`tune_hyperparameters_aggregate.py`), not into `tune_hyperparameters.py`; no plot script for now.
+
+## Step 6 (cont.) + step 5: Tuning evaluation: aggregation and best configs (2026-11-10)
+- Plan: `working_notes/tuning_plan.md` section 8 (reviewed and simplified 2026-11-10). Chronological: the pairwise tests were added, then removed; the best-config selection was added (bullets at the end of this section).
+- **Decisions:**
+  - Score per val sample: macro F1 over the classes with `n_true + n_pred > 0` (legacy / sklearn union convention); binary datasets (lt1b, lt2b, BLAST110) F1 of label 1, NaN if undefined (does not occur: every binary sample has ≥ 103 positives).
+  - Aggregation chain sample → donor → inner → outer → overall, + `donor_pooled` (donor over its 4 outer splits); mean / SD (ddof 1) / n per level, mean passed upwards.
+  - Failed atoms → NaN at the sample level, propagated (no nanmean).
+  - Tests are an add-on that works on any level: paired Wilcoxon (scipy), Holm over all pairs per method × scope (statsmodels), not reimplemented.
+  - Medians / MAD dropped.
+- **Code:**
+  - `validation/core/scores.py` (`f1_from_counts`, `abstention_rate`; numpy, Py3.5);
+  - `tune_hyperparameters_eval.py` (env `fx_plot`, ~40 s);
+  - `envs/plot.yml` + scipy, statsmodels (statsmodels 0.15.0; scipy was already present via seaborn).
+- **Outputs** (`results/tune_hyperparameters_eval/`):
+  - `atoms.csv`, `failures.csv`;
+  - `scores_{sample,donor,inner,outer,overall,donor_pooled}.csv` (147,500 / 30,680 / 4,425 / 1,475 / 295 / 7,670 rows);
+  - `pvalues_donor_split.csv` (per outer split, 20–21 donors), `pvalues_donor_pooled_all.csv` (26 donors), `pvalues_inner_all.csv` (15 inner folds; comparison only).
+- **Checks:**
+  - `f1_from_counts` = sklearn macro F1 on y_true / y_pred rebuilt from the confusion rows (rf + DGCyTOF atoms incl. 1,248 abstained events, max |diff| 1e-16), binary toy case equal.
+  - Every donor once per outer split (20–21 donors per split); each level's mean = mean of the level below (≤ 3e-16), NaN exactly where a lower unit is NaN; n: outer 3, overall 5, pooled 4, inner 6–7 donors, donor 1–5 samples (sd NaN for single-sample donors).
+  - DGCyTOF p-value tables contain exactly the configs complete in that split.
+  - Row counts = m(m−1)/2 per method × scope; rank_a < rank_b ⇔ mean_a ≥ mean_b; p_holm ≥ p.
+- **Findings:**
+  - Atoms: 4157 ok, 268 failed (none started / missing).
+    - DGCyTOF: 124 failed in `predict` (calibration: `spearmanr` / IndexError / float64 item assignment). Complete configs per outer split 20 / 48 / 42 / 20 / 24, overall 3 of 54; the default config is not complete.
+    - GateMeClass: 144 failed (the 9 V configs entirely; partial E failures); 3 configs complete.
+  - `cap_hit`: HGB 110 / 405 atoms reach `max_iter=1000` (mostly lr 0.01); GMM all converged; MLP with early stopping never reaches the 1000-epoch cap. LogReg stores no `n_iter` (unchecked).
+  - Overall best mean macro F1 (SD over the 5 outer splits): RF 0.9665, HGB 0.9639, MLP 0.9634, kNN 0.9608, DGCyTOF 0.9597 (3 complete configs), SOM 0.9517, LogReg 0.9500, GMM-Mocking 0.9445, DeepCyTOF 0.9373, LDA-sklearn 0.9173, LDA-Abdelaal 0.9171, GateMeClass 0.8905.
+  - Configs not significantly different from the best (`donor_pooled`, Holm 0.05): RF 36 / 54, SOM 25 / 28, MLP 17 / 36, kNN 16 / 20, DeepCyTOF 8 / 24, GMM 7 / 20, HGB 3 / 27.
+- **Runtimes (2026-11-10, after review):** fit and predict wall time kept separate (`fit_s`, `predict_s` per atom; predict summed over the atom's val samples), aggregated like the score to `fit_mean / fit_sd / predict_mean / predict_sd` (outer, overall); NaN for non-ok atoms. Checked: equal to the groupby mean / SD of the level below, NaN aligned with the score.
+- **Best configs (2026-11-10):** `select_best` / `best_configs` in `tune_hyperparameters_eval.py` (Part 3): per method the argmax of `mean` at the outer level (per outer split; Imstat benchmark) and at the overall level (consensus; all other datasets), configs with NaN mean excluded, ties → `is_default`, then lowest `config_id` (no exact ties at the top currently). One JSON per level × method in `best_configs/` (`params_overall_<method>.json`: config_id, params, mean, sd, n, is_default, n_candidates; `params_outer_<method>.json`: the same per split under `splits`). Output layout reorganised: `scores/`, `best_configs/`, later `pvalues/`. Pairwise tests commented out until the test level is decided. Checked: argmax and `n_candidates` equal an independent recomputation, params identical to the config tables, for all 12 methods × (overall + 5 splits). DGCyTOF consensus from 3 complete configs (per split 20 / 48 / 42 / 20 / 24 candidates); GateMeClass from 3.
+- **Pairwise tests removed (2026-11-10):** the commented-out add-on (`rank_and_test`, `TESTS`, Wilcoxon over all config pairs + Holm) was deleted from `tune_hyperparameters_eval.py`. Reason: whether tuning matters is an effect-size question; non-significance in an all-pairs matrix (1431 pairs for RF / DGCyTOF) does not show equivalence. Follow-up as a todo in `PLAN.md` (best vs. default on `donor_pooled`, grid flatness). `fx_plot` keeps scipy / statsmodels. Outputs unchanged (diff of a rerun against `results/` identical).
