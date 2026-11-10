@@ -3,7 +3,7 @@ Hyperparameter tuning on the Imstat inner splits (PLAN.md step 6, working_notes/
 
 One atom = (method, config, outer split, inner split): fit on the inner train samples (all events, TRAIN_FRAC = 1.0),
 predict every inner val sample, store per val sample the evaluation counts and the time / memory of fit and predict.
-Scores and selection (per fold / consensus, D6) are computed later from the atoms (tune_hyperparameters_aggregate.py).
+Scores and selection (per fold / consensus, D6) are computed later from the atoms (tune_hyperparameters_eval.py).
 
 Env: the env of the array (ARRAYS below), e.g. fx_sklearn for 'sklearn_cpu'. Python 3.5-compatible (fx_deepcytof).
 
