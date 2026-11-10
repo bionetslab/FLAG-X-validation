@@ -1,0 +1,110 @@
+### Starting TaskPrologue of job 1865739 on tg06b at Fri Nov  6 02:33:33 PM CET 2026
+Running on cores 2-3,10-11,16,19,26-27 with governor ondemand
+Fri Nov  6 14:33:33 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 620.70.06              KMD Version: 620.70.06     CUDA UMD Version: 13.5     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:AF:00.0 Off |                  N/A |
+| 27%   36C    P8              4W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-06T14:33:36 start dgcytof__95dac49024__split_2_inner_1
+epoch 0 total_correct: 1620568 loss: 0.18710438907146454 total_loss: 1686.9633757770061
+epoch 1 total_correct: 2112772 loss: 0.09949825704097748 total_loss: 266.82739555463195
+epoch 2 total_correct: 2135942 loss: 0.1121516078710556 total_loss: 153.4556039236486
+epoch 3 total_correct: 2141100 loss: 0.08405666798353195 total_loss: 128.00114921107888
+epoch 4 total_correct: 2144110 loss: 0.0818185806274414 total_loss: 116.72308968007565
+epoch 5 total_correct: 2145675 loss: 0.04798268899321556 total_loss: 110.26064603682607
+epoch 6 total_correct: 2146661 loss: 0.03698917478322983 total_loss: 105.89901592582464
+epoch 7 total_correct: 2147386 loss: 0.07477052509784698 total_loss: 102.36945113912225
+epoch 8 total_correct: 2147959 loss: 0.049292873591184616 total_loss: 99.28117588162422
+epoch 9 total_correct: 2148365 loss: 0.05727985501289368 total_loss: 96.68604436703026
+Accuracy: 98.8054
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 98.918
+Accuracy of 1 : 99.868
+Accuracy of 2 : 95.963
+Accuracy of 3 : 93.73
+Accuracy of 4 : 98.767
+Accuracy of 5 : 99.874
+Accuracy of 6 : 99.701
+Accuracy of 7 : 92.11
+2026-11-06T14:37:49 fit done (245.3 s)
+A total of 8  incorrect labeling as been found
+A total of 13  incorrect labeling as been found
+A total of 12  incorrect labeling as been found
+A total of 12  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 36  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 23  incorrect labeling as been found
+A total of 10  incorrect labeling as been found
+A total of 20  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 10  incorrect labeling as been found
+A total of 6  incorrect labeling as been found
+A total of 5  incorrect labeling as been found
+A total of 5  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 23  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 372, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 515, in _calibrate_data
+    DGCyTOFClassifier._active_learning_index(
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 603, in _active_learning_index
+    rho_correct_array = rho_correct[np.triu_indices(correct_size, k=1)]  # array of correlations of correct class
+                        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+IndexError: index 1 is out of bounds for axis 1 with size 1
+
+2026-11-06T14:56:30 failed dgcytof__95dac49024__split_2_inner_1
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov  6 02:56:32 PM CET 2026
+= Job-ID             : 1865739 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:23:02
+= Total RAM usage    : 8.8 GiB of requested  GiB (%)   
+= Node list          : tg06b
+= Subm/Elig/Start/End: 2026-11-06T11:14:53 / 2026-11-06T11:14:53 / 2026-11-06T14:33:30 / 2026-11-06T14:56:32
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.0G  1000.0G  1500.0G        N/A     930K   5,000K   7,500K        N/A    
+    /home/hpc              30.2G   104.9G   209.7G        N/A      57K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA GeForce RTX 2080 Ti, 00000000:AF:00.0, 71213, 0 %, 0 %, 222 MiB, 1365283 ms

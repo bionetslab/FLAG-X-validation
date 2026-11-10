@@ -1,0 +1,95 @@
+### Starting TaskPrologue of job 1866868 on tg06a at Sat Nov  7 12:13:31 AM CET 2026
+Running on cores 2-3,10-11,18-19,26-27 with governor ondemand
+Sat Nov  7 00:13:31 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 620.70.06              KMD Version: 620.70.06     CUDA UMD Version: 13.5     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:3B:00.0 Off |                  N/A |
+| 27%   26C    P8             19W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-07T00:13:34 start dgcytof__8b1fd853c0__split_0_inner_1
+epoch 0 total_correct: 1976311 loss: 0.001815370167605579 total_loss: 1186.9159105779836
+epoch 1 total_correct: 1986875 loss: 0.013467397540807724 total_loss: 918.0197101432132
+epoch 2 total_correct: 1988596 loss: 0.07628009468317032 total_loss: 880.2166486696806
+epoch 3 total_correct: 1988754 loss: 0.034282319247722626 total_loss: 888.9093425866449
+epoch 4 total_correct: 1989645 loss: 0.022821467369794846 total_loss: 853.443039976526
+epoch 5 total_correct: 1990708 loss: 0.024382488802075386 total_loss: 832.7613687219564
+epoch 6 total_correct: 1991121 loss: 0.35964834690093994 total_loss: 824.2324435203336
+epoch 7 total_correct: 1991341 loss: 0.21534280478954315 total_loss: 822.0343562032795
+epoch 8 total_correct: 1992252 loss: 0.04637967050075531 total_loss: 803.1158149888506
+epoch 9 total_correct: 1991447 loss: 0.05747474730014801 total_loss: 831.4468986036954
+Accuracy: 98.3445
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.115
+Accuracy of 1 : 99.913
+Accuracy of 2 : 97.556
+Accuracy of 3 : 87.461
+Accuracy of 4 : 99.662
+Accuracy of 5 : 99.451
+Accuracy of 6 : 99.879
+Accuracy of 7 : 92.976
+2026-11-07T00:22:13 fit done (511.9 s)
+A total of 1  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 4  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 372, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5465, in spearmanr
+    rs[variable_has_nan, :] = np.nan
+    ~~^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'numpy.float64' object does not support item assignment
+
+2026-11-07T00:29:16 failed dgcytof__8b1fd853c0__split_0_inner_1
+=== JOB_STATISTICS ===
+=== current date     : Sat Nov  7 12:29:18 AM CET 2026
+= Job-ID             : 1866868 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:15:50
+= Total RAM usage    : 9.3 GiB of requested  GiB (%)   
+= Node list          : tg06a
+= Subm/Elig/Start/End: 2026-11-06T11:14:53 / 2026-11-06T11:14:53 / 2026-11-07T00:13:28 / 2026-11-07T00:29:18
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.0G  1000.0G  1500.0G        N/A     932K   5,000K   7,500K        N/A    
+    /home/hpc              29.8G   104.9G   209.7G        N/A      57K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA GeForce RTX 2080 Ti, 00000000:3B:00.0, 190763, 5 %, 0 %, 222 MiB, 933985 ms

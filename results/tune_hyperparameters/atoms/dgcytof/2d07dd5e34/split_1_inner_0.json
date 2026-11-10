@@ -1,0 +1,604 @@
+{
+  "atom_id": "dgcytof__2d07dd5e34__split_1_inner_0",
+  "method": "dgcytof",
+  "array": "flagx_gpu",
+  "env": "fx_flagx_gpu",
+  "device": "gpu",
+  "config_id": "2d07dd5e34",
+  "params": {
+    "batch_size": 1024,
+    "layer_sizes": [
+      128,
+      64,
+      32
+    ],
+    "lr": 0.01,
+    "n_epochs": 50,
+    "val_size": 0.2
+  },
+  "status": "ok",
+  "error": null,
+  "dataset": "imstat",
+  "split": 1,
+  "inner": 0,
+  "split_column": "split_1_inner_0",
+  "train_frac": 1.0,
+  "val_frac": 1.0,
+  "stratified": true,
+  "smoke": false,
+  "seeds": {
+    "model": 1161303748,
+    "data": "derive_seed('tune', dataset, split, inner, sample)",
+    "join": "derive_seed('tune', dataset, split, inner, 'join')"
+  },
+  "start": "2026-11-06T23:08:50",
+  "end": "2026-11-06T23:51:30",
+  "metadata": {
+    "python": "3.12.16",
+    "versions": {
+      "numpy": "2.5.4",
+      "torch": "2.5.1.post303",
+      "sklearn": "1.9.1",
+      "pandas": "2.3.3"
+    },
+    "conda_env": "fx_flagx_gpu",
+    "git_commit": "588e625dd9247e3aa86a3f4047a4a4f7af48f72a",
+    "git_dirty": false,
+    "host": "tg080",
+    "platform": "Linux-6.12.115-0612115-generic-x86_64-with-glibc2.39",
+    "cpu_model": "Intel(R) Xeon(R) Gold 6226R CPU @ 2.90GHz",
+    "cpu_count": 64,
+    "n_threads": 8,
+    "gpus": [
+      "NVIDIA GeForce RTX 3080, 10240 MiB"
+    ],
+    "slurm": {
+      "SLURM_JOB_ID": "1866770",
+      "SLURM_ARRAY_JOB_ID": "1865035",
+      "SLURM_ARRAY_TASK_ID": "1068",
+      "SLURM_CLUSTER_NAME": "tinygpu",
+      "SLURM_JOB_PARTITION": "work",
+      "SLURM_CPUS_PER_TASK": "8",
+      "SLURM_MEM_PER_NODE": null,
+      "CUDA_VISIBLE_DEVICES": "0"
+    }
+  },
+  "train_samples": [
+    "sample_001",
+    "sample_007",
+    "sample_008",
+    "sample_009",
+    "sample_010",
+    "sample_011",
+    "sample_012",
+    "sample_013",
+    "sample_014",
+    "sample_015",
+    "sample_016",
+    "sample_017",
+    "sample_018",
+    "sample_019",
+    "sample_020",
+    "sample_021",
+    "sample_022",
+    "sample_023",
+    "sample_024",
+    "sample_025",
+    "sample_026",
+    "sample_032",
+    "sample_033",
+    "sample_034",
+    "sample_035",
+    "sample_036",
+    "sample_052",
+    "sample_053",
+    "sample_054",
+    "sample_055",
+    "sample_056",
+    "sample_057",
+    "sample_058",
+    "sample_059",
+    "sample_060",
+    "sample_066",
+    "sample_067",
+    "sample_068",
+    "sample_069",
+    "sample_070",
+    "sample_071",
+    "sample_072",
+    "sample_073",
+    "sample_074",
+    "sample_075",
+    "sample_086",
+    "sample_087",
+    "sample_088",
+    "sample_089",
+    "sample_090",
+    "sample_091",
+    "sample_092",
+    "sample_093",
+    "sample_094",
+    "sample_095",
+    "sample_116",
+    "sample_117",
+    "sample_118",
+    "sample_119",
+    "sample_120",
+    "sample_121",
+    "sample_122",
+    "sample_123",
+    "sample_124",
+    "sample_125"
+  ],
+  "val_samples": [
+    "sample_002",
+    "sample_003",
+    "sample_004",
+    "sample_005",
+    "sample_006",
+    "sample_037",
+    "sample_038",
+    "sample_039",
+    "sample_040",
+    "sample_041",
+    "sample_076",
+    "sample_077",
+    "sample_078",
+    "sample_079",
+    "sample_080",
+    "sample_081",
+    "sample_082",
+    "sample_083",
+    "sample_084",
+    "sample_085",
+    "sample_101",
+    "sample_102",
+    "sample_103",
+    "sample_104",
+    "sample_105",
+    "sample_106",
+    "sample_107",
+    "sample_108",
+    "sample_109",
+    "sample_110",
+    "sample_111",
+    "sample_112",
+    "sample_113",
+    "sample_114",
+    "sample_115"
+  ],
+  "labels": [
+    {
+      "label": 0,
+      "label_original": "1",
+      "name": "B",
+      "description": "B cells"
+    },
+    {
+      "label": 1,
+      "label_original": "2",
+      "name": "Th",
+      "description": "T helper cells"
+    },
+    {
+      "label": 2,
+      "label_original": "3",
+      "name": "NK",
+      "description": "NK cells"
+    },
+    {
+      "label": 3,
+      "label_original": "4",
+      "name": "M16",
+      "description": "atypical CD16+ monocytes"
+    },
+    {
+      "label": 4,
+      "label_original": "5",
+      "name": "M",
+      "description": "other monocytes"
+    },
+    {
+      "label": 5,
+      "label_original": "6",
+      "name": "G",
+      "description": "granulocytes"
+    },
+    {
+      "label": 6,
+      "label_original": "7",
+      "name": "X",
+      "description": "sorted out"
+    },
+    {
+      "label": 7,
+      "label_original": "8",
+      "name": "O",
+      "description": "unclassified"
+    }
+  ],
+  "n_train_events": 2444476,
+  "n_train_events_per_class": {
+    "0": 90223,
+    "1": 192721,
+    "2": 69534,
+    "3": 30036,
+    "4": 151620,
+    "5": 1122503,
+    "6": 456274,
+    "7": 331565
+  },
+  "input_arm": "shared",
+  "n_threads": 8,
+  "preprocessor": {
+    "trafo": "log10_cutoff",
+    "trafo_params": {
+      "cutoff": {
+        "FS_INT": 100000,
+        "SS_INT": 20000,
+        "CD16_FITC": 250,
+        "CD56_PE": 450,
+        "CD3_ECD": 700,
+        "CD4_PC7": 1200,
+        "CD19_APC": 1700,
+        "CD14_APC700": 900,
+        "CD8_PB": 450,
+        "CD45_CO": 500
+      }
+    },
+    "scaling": "none",
+    "scaling_params": {},
+    "center_": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale_": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "resources": {
+    "fit": {
+      "wall_s": 744.8229099819946,
+      "cpu_rss_baseline_mb": 759.0859375,
+      "cpu_rss_peak_mb": 2815.3515625,
+      "cpu_rss_peak_increase_mb": 2056.265625,
+      "gpu_baseline_mb": 1.0,
+      "gpu_peak_mb": 303.0,
+      "gpu_peak_increase_mb": 302.0
+    },
+    "predict": {
+      "sample_002": {
+        "wall_s": 70.14592928099592,
+        "cpu_rss_baseline_mb": 1247.70703125,
+        "cpu_rss_peak_mb": 9210.609375,
+        "cpu_rss_peak_increase_mb": 7962.90234375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_003": {
+        "wall_s": 38.357653494997066,
+        "cpu_rss_baseline_mb": 1259.43359375,
+        "cpu_rss_peak_mb": 7062.7265625,
+        "cpu_rss_peak_increase_mb": 5803.29296875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_004": {
+        "wall_s": 40.4384857920013,
+        "cpu_rss_baseline_mb": 1286.2109375,
+        "cpu_rss_peak_mb": 7068.32421875,
+        "cpu_rss_peak_increase_mb": 5782.11328125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_005": {
+        "wall_s": 41.392964806000236,
+        "cpu_rss_baseline_mb": 1289.203125,
+        "cpu_rss_peak_mb": 7137.44921875,
+        "cpu_rss_peak_increase_mb": 5848.24609375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_006": {
+        "wall_s": 40.30936405099783,
+        "cpu_rss_baseline_mb": 1279.859375,
+        "cpu_rss_peak_mb": 7101.6953125,
+        "cpu_rss_peak_increase_mb": 5821.8359375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_037": {
+        "wall_s": 76.94025822899857,
+        "cpu_rss_baseline_mb": 1250.41015625,
+        "cpu_rss_peak_mb": 9168.89453125,
+        "cpu_rss_peak_increase_mb": 7918.484375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_038": {
+        "wall_s": 50.42554574800306,
+        "cpu_rss_baseline_mb": 1252.2421875,
+        "cpu_rss_peak_mb": 7078.27734375,
+        "cpu_rss_peak_increase_mb": 5826.03515625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_039": {
+        "wall_s": 57.01862186899962,
+        "cpu_rss_baseline_mb": 1293.29296875,
+        "cpu_rss_peak_mb": 7001.95703125,
+        "cpu_rss_peak_increase_mb": 5708.6640625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_040": {
+        "wall_s": 46.473883765997016,
+        "cpu_rss_baseline_mb": 1268.84375,
+        "cpu_rss_peak_mb": 6964.265625,
+        "cpu_rss_peak_increase_mb": 5695.421875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_041": {
+        "wall_s": 51.31596504100162,
+        "cpu_rss_baseline_mb": 1254.44921875,
+        "cpu_rss_peak_mb": 7033.390625,
+        "cpu_rss_peak_increase_mb": 5778.94140625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_076": {
+        "wall_s": 58.86496658899705,
+        "cpu_rss_baseline_mb": 1275.5078125,
+        "cpu_rss_peak_mb": 6950.48828125,
+        "cpu_rss_peak_increase_mb": 5674.98046875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_077": {
+        "wall_s": 44.61515564000001,
+        "cpu_rss_baseline_mb": 1255.81640625,
+        "cpu_rss_peak_mb": 6845.39453125,
+        "cpu_rss_peak_increase_mb": 5589.578125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_078": {
+        "wall_s": 60.94032306500594,
+        "cpu_rss_baseline_mb": 1256.03515625,
+        "cpu_rss_peak_mb": 7301.60546875,
+        "cpu_rss_peak_increase_mb": 6045.5703125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_079": {
+        "wall_s": 43.4096025109975,
+        "cpu_rss_baseline_mb": 1311.34375,
+        "cpu_rss_peak_mb": 6834.05859375,
+        "cpu_rss_peak_increase_mb": 5522.71484375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_080": {
+        "wall_s": 46.6658963919981,
+        "cpu_rss_baseline_mb": 1312.765625,
+        "cpu_rss_peak_mb": 6938.0703125,
+        "cpu_rss_peak_increase_mb": 5625.3046875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_081": {
+        "wall_s": 76.3313590329999,
+        "cpu_rss_baseline_mb": 1256.765625,
+        "cpu_rss_peak_mb": 9146.62109375,
+        "cpu_rss_peak_increase_mb": 7889.85546875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_082": {
+        "wall_s": 43.14348179499939,
+        "cpu_rss_baseline_mb": 1260.10546875,
+        "cpu_rss_peak_mb": 6983.86328125,
+        "cpu_rss_peak_increase_mb": 5723.7578125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_083": {
+        "wall_s": 42.36577867799497,
+        "cpu_rss_baseline_mb": 1260.11328125,
+        "cpu_rss_peak_mb": 6967.91015625,
+        "cpu_rss_peak_increase_mb": 5707.796875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_084": {
+        "wall_s": 43.23973512399971,
+        "cpu_rss_baseline_mb": 1260.11328125,
+        "cpu_rss_peak_mb": 6979.85546875,
+        "cpu_rss_peak_increase_mb": 5719.7421875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_085": {
+        "wall_s": 43.450250747999235,
+        "cpu_rss_baseline_mb": 1260.1171875,
+        "cpu_rss_peak_mb": 6982.9609375,
+        "cpu_rss_peak_increase_mb": 5722.84375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_101": {
+        "wall_s": 55.378541321006196,
+        "cpu_rss_baseline_mb": 1260.1171875,
+        "cpu_rss_peak_mb": 6938.24609375,
+        "cpu_rss_peak_increase_mb": 5678.12890625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_102": {
+        "wall_s": 39.22314084900427,
+        "cpu_rss_baseline_mb": 1299.1015625,
+        "cpu_rss_peak_mb": 6901.09765625,
+        "cpu_rss_peak_increase_mb": 5601.99609375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_103": {
+        "wall_s": 63.49811431299895,
+        "cpu_rss_baseline_mb": 1293.55078125,
+        "cpu_rss_peak_mb": 9128.109375,
+        "cpu_rss_peak_increase_mb": 7834.55859375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_104": {
+        "wall_s": 43.376013785004034,
+        "cpu_rss_baseline_mb": 1260.73046875,
+        "cpu_rss_peak_mb": 6946.48828125,
+        "cpu_rss_peak_increase_mb": 5685.7578125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_105": {
+        "wall_s": 42.99794737199409,
+        "cpu_rss_baseline_mb": 1320.40234375,
+        "cpu_rss_peak_mb": 6948.0546875,
+        "cpu_rss_peak_increase_mb": 5627.65234375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_106": {
+        "wall_s": 93.10553600099956,
+        "cpu_rss_baseline_mb": 1260.734375,
+        "cpu_rss_peak_mb": 9819.11328125,
+        "cpu_rss_peak_increase_mb": 8558.37890625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_107": {
+        "wall_s": 43.597831869999936,
+        "cpu_rss_baseline_mb": 1304.546875,
+        "cpu_rss_peak_mb": 6825.52734375,
+        "cpu_rss_peak_increase_mb": 5520.98046875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_108": {
+        "wall_s": 62.78369580399885,
+        "cpu_rss_baseline_mb": 1304.546875,
+        "cpu_rss_peak_mb": 7741.796875,
+        "cpu_rss_peak_increase_mb": 6437.25,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_109": {
+        "wall_s": 46.87617398900329,
+        "cpu_rss_baseline_mb": 1305.2265625,
+        "cpu_rss_peak_mb": 6826.359375,
+        "cpu_rss_peak_increase_mb": 5521.1328125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_110": {
+        "wall_s": 68.12145315299858,
+        "cpu_rss_baseline_mb": 1305.4453125,
+        "cpu_rss_peak_mb": 7925.33984375,
+        "cpu_rss_peak_increase_mb": 6619.89453125,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_111": {
+        "wall_s": 48.25891926599434,
+        "cpu_rss_baseline_mb": 1305.4453125,
+        "cpu_rss_peak_mb": 7043.95703125,
+        "cpu_rss_peak_increase_mb": 5738.51171875,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_112": {
+        "wall_s": 35.244995649001794,
+        "cpu_rss_baseline_mb": 1299.40625,
+        "cpu_rss_peak_mb": 6967.1328125,
+        "cpu_rss_peak_increase_mb": 5667.7265625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_113": {
+        "wall_s": 56.82926831999794,
+        "cpu_rss_baseline_mb": 1317.109375,
+        "cpu_rss_peak_mb": 9093.609375,
+        "cpu_rss_peak_increase_mb": 7776.5,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_114": {
+        "wall_s": 46.95627242799674,
+        "cpu_rss_baseline_mb": 1262.05078125,
+        "cpu_rss_peak_mb": 7051.89453125,
+        "cpu_rss_peak_increase_mb": 5789.84375,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      },
+      "sample_115": {
+        "wall_s": 44.20044981800311,
+        "cpu_rss_baseline_mb": 1298.70703125,
+        "cpu_rss_peak_mb": 7023.18359375,
+        "cpu_rss_peak_increase_mb": 5724.4765625,
+        "gpu_baseline_mb": 303.0,
+        "gpu_peak_mb": 303.0,
+        "gpu_peak_increase_mb": 0.0
+      }
+    }
+  }
+}

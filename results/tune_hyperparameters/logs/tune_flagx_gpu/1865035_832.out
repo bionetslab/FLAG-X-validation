@@ -1,0 +1,92 @@
+### Starting TaskPrologue of job 1866115 on tg071 at Fri Nov  6 06:24:15 PM CET 2026
+Running on cores 4-5,12-13,20-21,28-29 with governor ondemand
+Fri Nov  6 18:24:15 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.196.07             Driver Version: 580.196.07     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           On  |   00000000:86:00.0 Off |                    0 |
+| N/A   35C    P0             42W /  250W |       0MiB /  32768MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-06T18:24:18 start dgcytof__a7fc24dc32__split_2_inner_1
+epoch 0 total_correct: 2101417 loss: 0.01587315835058689 total_loss: 2053.5250037768856
+epoch 1 total_correct: 2149058 loss: 0.003840334014967084 total_loss: 715.8235472175293
+epoch 2 total_correct: 2151124 loss: 0.004083686042577028 total_loss: 636.1700012125075
+epoch 3 total_correct: 2152577 loss: 0.0032779406756162643 total_loss: 587.7879118984565
+epoch 4 total_correct: 2153642 loss: 0.03763165324926376 total_loss: 553.776501791086
+epoch 5 total_correct: 2154430 loss: 0.02078983187675476 total_loss: 528.9548915073974
+epoch 6 total_correct: 2154927 loss: 0.009250053204596043 total_loss: 510.26116299128626
+epoch 7 total_correct: 2155353 loss: 0.06609845161437988 total_loss: 494.6596175567247
+epoch 8 total_correct: 2155772 loss: 0.002654704498127103 total_loss: 479.80369414330926
+epoch 9 total_correct: 2156194 loss: 0.003246886655688286 total_loss: 465.1935246985522
+Accuracy: 99.1717
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.336
+Accuracy of 1 : 99.914
+Accuracy of 2 : 96.409
+Accuracy of 3 : 94.384
+Accuracy of 4 : 98.56
+Accuracy of 5 : 99.967
+Accuracy of 6 : 99.775
+Accuracy of 7 : 95.046
+2026-11-06T18:33:33 fit done (546.7 s)
+A total of 1  incorrect labeling as been found
+A total of 5  incorrect labeling as been found
+A total of 6  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 372, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5465, in spearmanr
+    rs[variable_has_nan, :] = np.nan
+    ~~^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'numpy.float64' object does not support item assignment
+
+2026-11-06T18:36:09 failed dgcytof__a7fc24dc32__split_2_inner_1
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov  6 06:36:11 PM CET 2026
+= Job-ID             : 1866115 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : v100
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:11:59
+= Total RAM usage    : 6.5 GiB of requested  GiB (%)   
+= Node list          : tg071
+= Subm/Elig/Start/End: 2026-11-06T11:14:53 / 2026-11-06T11:14:53 / 2026-11-06T18:24:12 / 2026-11-06T18:36:11
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.0G  1000.0G  1500.0G        N/A     931K   5,000K   7,500K        N/A    
+    /home/hpc              29.8G   104.9G   209.7G        N/A      57K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+Tesla V100-PCIE-32GB, 00000000:86:00.0, 200304, 5 %, 0 %, 406 MiB, 702432 ms

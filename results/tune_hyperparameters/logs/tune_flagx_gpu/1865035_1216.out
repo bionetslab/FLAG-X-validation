@@ -1,0 +1,103 @@
+### Starting TaskPrologue of job 1867028 on tg067 at Sat Nov  7 01:04:44 AM CET 2026
+Running on cores 6-7,14-15,22-23,30-31 with governor ondemand
+Sat Nov  7 01:04:44 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 620.70.06              KMD Version: 620.70.06     CUDA UMD Version: 13.5     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:18:00.0 Off |                  N/A |
+| 30%   26C    P8              5W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-07T01:04:46 start dgcytof__680eeb9ed9__split_0_inner_1
+epoch 0 total_correct: 1954275 loss: 0.047420527786016464 total_loss: 224.44230072759092
+epoch 1 total_correct: 1992457 loss: 0.07001936435699463 total_loss: 98.62479821778834
+epoch 2 total_correct: 1996159 loss: 0.02668073959648609 total_loss: 84.86270526610315
+epoch 3 total_correct: 1998058 loss: 0.03381934389472008 total_loss: 76.74334408342838
+epoch 4 total_correct: 1999090 loss: 0.011661579832434654 total_loss: 72.62269122246653
+epoch 5 total_correct: 2000162 loss: 0.03778925538063049 total_loss: 69.25669062044472
+epoch 6 total_correct: 2000186 loss: 0.04789697006344795 total_loss: 68.40773189533502
+epoch 7 total_correct: 2000837 loss: 0.02364111877977848 total_loss: 66.72827351093292
+epoch 8 total_correct: 2000824 loss: 0.02582329511642456 total_loss: 66.00900362432003
+epoch 9 total_correct: 2001164 loss: 0.022619161754846573 total_loss: 65.07243435177952
+epoch 10 total_correct: 2001495 loss: 0.02627062425017357 total_loss: 64.26663663424551
+epoch 11 total_correct: 2001541 loss: 0.03366175666451454 total_loss: 64.13838204927742
+epoch 12 total_correct: 2001917 loss: 0.020522506907582283 total_loss: 62.715864799916744
+epoch 13 total_correct: 2001830 loss: 0.021752120926976204 total_loss: 62.36233217548579
+epoch 14 total_correct: 2002083 loss: 0.02050916850566864 total_loss: 61.77478276565671
+epoch 15 total_correct: 2002273 loss: 0.021052286028862 total_loss: 61.260970225557685
+epoch 16 total_correct: 2002445 loss: 0.0201259795576334 total_loss: 60.82963340356946
+epoch 17 total_correct: 2002093 loss: 0.03436822444200516 total_loss: 61.514206622727215
+epoch 18 total_correct: 2002648 loss: 0.02900620549917221 total_loss: 59.85749821178615
+epoch 19 total_correct: 2002510 loss: 0.045540884137153625 total_loss: 59.89587854873389
+Accuracy: 98.915
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.776
+Accuracy of 1 : 99.953
+Accuracy of 2 : 98.278
+Accuracy of 3 : 96.521
+Accuracy of 4 : 97.302
+Accuracy of 5 : 99.243
+Accuracy of 6 : 99.86
+Accuracy of 7 : 97.224
+2026-11-07T01:12:16 fit done (442.1 s)
+A total of 12  incorrect labeling as been found
+A total of 9  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 372, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 515, in _calibrate_data
+    DGCyTOFClassifier._active_learning_index(
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 603, in _active_learning_index
+    rho_correct_array = rho_correct[np.triu_indices(correct_size, k=1)]  # array of correlations of correct class
+                        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+IndexError: index 1 is out of bounds for axis 1 with size 1
+
+2026-11-07T01:19:24 failed dgcytof__680eeb9ed9__split_0_inner_1
+=== JOB_STATISTICS ===
+=== current date     : Sat Nov  7 01:19:26 AM CET 2026
+= Job-ID             : 1867028 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:14:47
+= Total RAM usage    : 9.3 GiB of requested  GiB (%)   
+= Node list          : tg067
+= Subm/Elig/Start/End: 2026-11-06T11:14:53 / 2026-11-06T11:14:53 / 2026-11-07T01:04:39 / 2026-11-07T01:19:26
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.0G  1000.0G  1500.0G        N/A     932K   5,000K   7,500K        N/A    
+    /home/hpc              29.8G   104.9G   209.7G        N/A      57K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA GeForce RTX 2080 Ti, 00000000:18:00.0, 66450, 1 %, 0 %, 226 MiB, 869499 ms

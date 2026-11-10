@@ -1,0 +1,103 @@
+### Starting TaskPrologue of job 1865770 on tg06b at Fri Nov  6 02:56:36 PM CET 2026
+Running on cores 2-3,10-11,16,19,26-27 with governor ondemand
+Fri Nov  6 14:56:36 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 620.70.06              KMD Version: 620.70.06     CUDA UMD Version: 13.5     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:AF:00.0 Off |                  N/A |
+| 27%   26C    P8              4W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-06T14:56:39 start dgcytof__4501ef9413__split_3_inner_1
+epoch 0 total_correct: 2067611 loss: 0.02415047585964203 total_loss: 1022.1780804230366
+epoch 1 total_correct: 2084624 loss: 0.004485889337956905 total_loss: 523.844509824994
+epoch 2 total_correct: 2086317 loss: 0.01679203286767006 total_loss: 463.871799150249
+epoch 3 total_correct: 2087080 loss: 0.007603412494063377 total_loss: 433.14598720596405
+epoch 4 total_correct: 2087672 loss: 0.10888269543647766 total_loss: 411.2234942362993
+epoch 5 total_correct: 2088157 loss: 0.09691464155912399 total_loss: 396.88967303570826
+epoch 6 total_correct: 2088401 loss: 0.020987113937735558 total_loss: 385.71239137806697
+epoch 7 total_correct: 2088652 loss: 0.04074768349528313 total_loss: 378.9764627459517
+epoch 8 total_correct: 2088775 loss: 0.002926478162407875 total_loss: 370.2638497206499
+epoch 9 total_correct: 2088902 loss: 0.013937844894826412 total_loss: 365.9361267996719
+Accuracy: 99.2907
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.023
+Accuracy of 1 : 99.937
+Accuracy of 2 : 97.102
+Accuracy of 3 : 96.175
+Accuracy of 4 : 98.997
+Accuracy of 5 : 99.848
+Accuracy of 6 : 99.627
+Accuracy of 7 : 97.026
+2026-11-06T15:05:39 fit done (532.4 s)
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 372, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5386, in spearmanr
+    raise ValueError("`spearmanr` needs at least 2 "
+ValueError: `spearmanr` needs at least 2 variables to compare
+
+2026-11-06T15:19:17 failed dgcytof__4501ef9413__split_3_inner_1
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov  6 03:19:19 PM CET 2026
+= Job-ID             : 1865770 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:22:47
+= Total RAM usage    : 8.6 GiB of requested  GiB (%)   
+= Node list          : tg06b
+= Subm/Elig/Start/End: 2026-11-06T11:14:53 / 2026-11-06T11:14:53 / 2026-11-06T14:56:32 / 2026-11-06T15:19:19
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.0G  1000.0G  1500.0G        N/A     930K   5,000K   7,500K        N/A    
+    /home/hpc              30.2G   104.9G   209.7G        N/A      57K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA GeForce RTX 2080 Ti, 00000000:AF:00.0, 72758, 2 %, 0 %, 220 MiB, 1349501 ms
