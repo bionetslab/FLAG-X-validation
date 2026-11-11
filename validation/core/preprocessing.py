@@ -18,10 +18,16 @@ Scalings (scaling, scaling_params), fitted on the pooled transformed training ev
 
 A fitted preprocessor is saved as JSON (save / load): constructor arguments plus the fitted scaling parameters as plain
 lists, readable in every env.
+
+shared_preprocessor(dataset, arm) builds the input of the experiments (D3): 'shared' = log10 with the dataset's
+cut-offs (config.LOG10_CUTOFFS), no scaling; 'native' = untransformed (methods with internal preprocessing).
+preprocessor_state(p) gives a fitted preprocessor as a dict for the run JSONs.
 """
 
 import json
 import numpy as np
+
+import config
 
 
 TRAFOS = ('log10_cutoff', 'arcsinh', 'none')
@@ -192,6 +198,33 @@ class Preprocessor(object):
     def __repr__(self):
         return 'Preprocessor(trafo={!r}, trafo_params={!r}, scaling={!r}, scaling_params={!r})'.format(
             self.trafo, self.trafo_params, self.scaling, self.scaling_params)
+
+
+def shared_preprocessor(dataset, arm):
+    """
+    Unfitted preprocessor of an input arm (D3) for a dataset.
+
+    Args:
+        dataset (str): Dataset name (config.DATASETS).
+        arm (str): 'shared' (log10 with the cut-offs of config.LOG10_CUTOFFS[dataset], no scaling) or 'native'
+            (no transformation; the method preprocesses internally). The runners give it via input_arm(params).
+
+    Returns:
+        Preprocessor
+    """
+    if arm == 'shared':
+        return Preprocessor(config.CHANNELS[dataset], 'log10_cutoff', {'cutoff': config.LOG10_CUTOFFS[dataset]})
+    if arm == 'native':
+        return Preprocessor(config.CHANNELS[dataset], 'none')
+    raise ValueError('unknown input arm {!r}'.format(arm))
+
+
+def preprocessor_state(p):
+    """Parameters and fitted scaling of a Preprocessor as a JSON-ready dict (for the run JSONs)."""
+    return {'trafo': p.trafo, 'trafo_params': p.trafo_params, 'scaling': p.scaling,
+            'scaling_params': p.scaling_params,
+            'center_': None if p.center_ is None else p.center_.tolist(),
+            'scale_': None if p.scale_ is None else p.scale_.tolist()}
 
 
 def _to_builtin(obj):

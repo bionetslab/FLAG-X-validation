@@ -1,5 +1,5 @@
 """
-Output and run helpers: atomic writes, run metadata, thread count.
+Output and run helpers: atomic writes, run metadata, thread count, manifests (task lists) and SLURM index ranges.
 
 stdlib only (numpy values are converted if present), Python 3.5-compatible (runs in every method env): no f-strings,
 no variable annotations.
@@ -101,6 +101,29 @@ def run_metadata(modules=()):
             'SLURM_JOB_ID', 'SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID', 'SLURM_CLUSTER_NAME', 'SLURM_JOB_PARTITION',
             'SLURM_CPUS_PER_TASK', 'SLURM_MEM_PER_NODE', 'CUDA_VISIBLE_DEVICES')),
     }
+
+
+def read_manifest(path):
+    """
+    Rows of a manifest (frozen task list CSV of an experiment script) as a list of dicts (all values str).
+    Exits with a hint if the file does not exist.
+    """
+    if not os.path.exists(path):
+        raise SystemExit('no manifest {}: run the "manifest" command of the script first'.format(path))
+    with open(path, newline='') as f:
+        return list(csv.DictReader(f))
+
+
+def index_ranges(indices):
+    """Sorted ints -> SLURM --array range string, e.g. [1, 2, 3, 7] -> '1-3,7'."""
+    parts, start = [], None
+    for k, i in enumerate(indices):
+        if start is None:
+            start = i
+        if k + 1 == len(indices) or indices[k + 1] != i + 1:
+            parts.append(str(i) if i == start else '{}-{}'.format(start, i))
+            start = None
+    return ','.join(parts)
 
 
 # ### Internals ########################################################################################################

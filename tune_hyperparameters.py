@@ -69,9 +69,10 @@ import numpy as np
 import config
 from validation.core.data import load_meta_labels, load_sample, load_split
 from validation.core.evaluation import class_counts, confusion_counts
-from validation.core.preprocessing import Preprocessor
+from validation.core.preprocessing import preprocessor_state, shared_preprocessor
 from validation.core.resources import track_resources
-from validation.core.runs import n_threads, now, run_metadata, save_csv, save_json
+from validation.core.runs import index_ranges, n_threads, now, read_manifest as _read_manifest, run_metadata, \
+    save_csv, save_json
 from validation.core.sampling import downsample_indices, join_samples
 from validation.core.seeding import derive_seed
 
@@ -259,24 +260,7 @@ def write_manifest(array, out):
 
 
 def read_manifest(array, out):
-    import csv
-    path = os.path.join(out, 'manifests', array + '.csv')
-    if not os.path.exists(path):
-        raise SystemExit('no manifest {}: run "python tune_hyperparameters.py manifest {}" first'.format(path, array))
-    with open(path, newline='') as f:
-        return list(csv.DictReader(f))
-
-
-def index_ranges(indices):
-    """Sorted ints -> SLURM range string, e.g. [1, 2, 3, 7] -> '1-3,7'."""
-    parts, start = [], None
-    for k, i in enumerate(indices):
-        if start is None:
-            start = i
-        if k + 1 == len(indices) or indices[k + 1] != i + 1:
-            parts.append(str(i) if i == start else '{}-{}'.format(start, i))
-            start = None
-    return ','.join(parts)
+    return _read_manifest(os.path.join(out, 'manifests', array + '.csv'))
 
 
 def print_missing(array, out):
@@ -293,21 +277,6 @@ def print_missing(array, out):
 def atom_paths(out, method, cid, split, inner):
     base = os.path.join(out, 'atoms', method, cid, 'split_{}_inner_{}'.format(split, inner))
     return base + '.json', base + '_counts.csv'
-
-
-def make_preprocessor(arm):
-    if arm == 'shared':
-        return Preprocessor(config.CHANNELS[DATASET], 'log10_cutoff', {'cutoff': config.LOG10_CUTOFFS[DATASET]})
-    if arm == 'native':
-        return Preprocessor(config.CHANNELS[DATASET], 'none')
-    raise ValueError('unknown input arm {!r}'.format(arm))
-
-
-def preprocessor_state(p):
-    return {'trafo': p.trafo, 'trafo_params': p.trafo_params, 'scaling': p.scaling,
-            'scaling_params': p.scaling_params,
-            'center_': None if p.center_ is None else p.center_.tolist(),
-            'scale_': None if p.scale_ is None else p.scale_.tolist()}
 
 
 def run_atom(array, row, out, smoke=False):
@@ -371,7 +340,7 @@ def run_atom(array, row, out, smoke=False):
 
         arm = runner.input_arm(params)
         info.update([('input_arm', arm), ('n_threads', threads)])
-        pre = make_preprocessor(arm)
+        pre = shared_preprocessor(DATASET, arm)
         with track_resources(gpu=gpu) as res_fit:
             Xt = pre.fit_transform(X)
             model = runner.build(params, model_seed, DATASET, threads)
