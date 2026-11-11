@@ -51,3 +51,43 @@ Each atom writes `results/tune_hyperparameters/atoms/<method>/<config_id>/split_
 Any status other than `ok` puts the config out. To rerun an atom deliberately, delete its JSON.
 
 **Do not run `manifest` again between submission and the end of the array.** The array indices refer to the frozen manifest. After a grid change, write a new manifest and submit again; finished atoms are kept, because `config_id` is a hash of the params.
+
+## Main benchmark (`benchmark.py`, PLAN.md step 7, `working_notes/benchmark_plan.md`)
+
+Same setup as the tuning (clusters, GPU, 24 h, env per array), except that the Woody scripts request 32 cores per task (248 GB, for the memory and runtime of the larger datasets; such jobs run on the Ice Lake nodes `w22xx`–`w25xx`). One array task = one atom = (method, dataset, outer split, model seed).
+
+| Array | Script | Env | Cluster | Methods (seeds) | Atoms (N) |
+|---|---|---|---|---|---|
+| `sklearn_cpu` | `bench_sklearn_cpu.sh` | `fx_sklearn` | Woody | rf, hgb, gmm_mocking (3); logreg, knn, lda_sklearn (1) | 600 |
+| `flagx_cpu` | `bench_flagx_cpu.sh` | `fx_flagx_cpu` | Woody | som (3) | 150 |
+| `flagx_gpu` | `bench_flagx_gpu.sh` | `fx_flagx_gpu` | TinyGPU | mlp, dgcytof (3) | 300 |
+| `gatemeclass_cpu` | `bench_gatemeclass_cpu.sh` | `fx_gatemeclass` | Woody | gatemeclass (3) | 150 |
+| `lda_cpu` | `bench_lda_cpu.sh` | `fx_lda` | Woody | lda_abdelaal (1) | 50 |
+| `deepcytof_cpu` | `bench_deepcytof_cpu.sh` | `fx_deepcytof` | Woody | deepcytof (3) | 150 |
+
+N = 10 datasets × 5 outer splits × seeds per method, from the manifests `results/benchmark/manifests/<array>.csv` (2026-11-11). The parameters are frozen into the manifests from `results/tune_hyperparameters_eval/best_configs/` (Imstat: per outer split; other datasets: consensus). The cluster needs all `data/curated/<dataset>/` directories.
+
+```bash
+# 0. Task lists: committed (results/benchmark/manifests/); rewrite only after a change (prints N, creates the log dirs)
+python benchmark.py manifest sklearn_cpu
+# 1. Pilot: split 0 / seed 0 of every method x dataset, full data (120 atoms); the command prints the index list
+python benchmark.py pilot sklearn_cpu
+sbatch --array=<printed list> slurm_scripts/bench_sklearn_cpu.sh
+sbatch.tinygpu --array=<printed list> slurm_scripts/bench_flagx_gpu.sh     # on tinyx
+# 2. Status per method x dataset: ok / failed / started / missing, max training events, fit time, peak RAM of fit /
+#    predict (also of killed atoms), progress of unfinished atoms (e.g. started:predict 6/22), non-ok SLURM range
+python benchmark.py status sklearn_cpu
+# 3. Caps for the datasets with failures (see below), then the final run of all atoms
+python benchmark.py cap blast110_p1 20000000          # per-sample cap n for <= 20M training events in every split
+mv results/benchmark results/benchmark_pilot          # after editing TRAIN_DOWNSAMPLING and committing
+python benchmark.py manifest sklearn_cpu              # new manifests in results/benchmark (also the log dirs)
+sbatch slurm_scripts/bench_sklearn_cpu.sh             # full array range (as in the script)
+```
+
+Outputs per atom (`<stem>` = `split_<i>_seed_<r>[__ds_<tag>]`): `atoms/<method>/<dataset>/<stem>.json` (status as in the tuning: `ok` / `failed` / `started` = killed by timeout, OOM or node failure; plus `phase` `fit` / `predict` / `done` and `n_test_done`: the JSON is rewritten after the fit and after each test sample, so a job killed during prediction keeps its fit resources and progress), `counts/<method>/<dataset>/<stem>.csv` (rewritten after each test sample; complete only if the JSON is `ok`), `predictions/<method>/<dataset>/<stem>/<sample>.npz` (predicted labels; git-ignored). Logs: `results/benchmark/logs/bench_<array>/`.
+
+**Caps (after the pilot).** Finding the exact feasible size per dataset is too expensive, so:
+- Every dataset on which a pilot atom failed gets one per-sample event cap `{'n': n}` in `TRAIN_DOWNSAMPLING`, for **all** methods of that dataset (the data seeds do not depend on the method, so all methods train on the same subsets).
+- The training budget is the largest size that went through, scaled with a margin by the measured fit time / peak RAM of the binding method (`status`); `cap` turns it into `n`.
+- The pilot is moved to `results/benchmark_pilot/` as a record; the final run writes new manifests into `results/benchmark/` and runs all atoms (also those of uncapped datasets). The row order is unchanged (same indices); capped atoms get the suffix `__ds_n<n>`.
+- A failure during prediction (`started:predict k/n`, or `failed` in phase `predict`) is a result and is reported; the cap only addresses the fit.

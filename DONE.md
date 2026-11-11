@@ -177,3 +177,56 @@ All grids reviewed one by one with the user; justification of every grid (tuned 
   - Outputs: `results/tune_hyperparameters_eval/effect_of_tuning/effect_{overall,outer}.csv`, `effect_units_{overall,outer}.csv`; `figures/tune_hyperparameters_eval/effect_{outer,overall}_box.pdf`.
   - Checks: Δ mean = best_mean − default_mean (≤ 2e-16); best IDs = the JSONs; mean / SD / min / flatness and the per-unit tables equal an independent recomputation; earlier outputs unchanged.
   - Findings (overall Δ macro F1, mean ± SD over splits): DeepCyTOF +0.030 ± 0.011, GateMeClass +0.027 ± 0.004, GMM-Mocking +0.013 ± 0.003, HGB +0.008 ± 0.003; all others ≤ 0.002 (SOM +0.001, MLP +0.001, RF +0.001, kNN +0.001, DGCyTOF +0.002, LogReg / LDA ≈ 0). Flat grids: RF 54 / 54, SOM 28 / 28, MLP 31 / 36 configs within 0.01 of the best. So tuning barely changes the FLAG-X methods; the earlier untuned MLP was not handicapped (R2.15, R3.m2, R4.3).
+
+## Step 7: Main benchmark, run script (2026-11-11)
+- **Plan:** `working_notes/benchmark_plan.md` (reviewed; implemented as planned).
+- **Implemented:**
+  - `benchmark.py` (root, Py3.5, every env): same structure and arrays as `tune_hyperparameters.py`; atom = method × dataset × outer split × model seed; commands `manifest` / `run` / `missing` / `status`.
+  - `slurm_scripts/bench_<array>.sh` ×6 (copies of the tuning scripts) and a benchmark section in `slurm_scripts/README.md`.
+  - Helpers moved to `validation/core/` (second user): `shared_preprocessor(dataset, arm)` and `preprocessor_state` (`preprocessing.py`), `read_manifest` and `index_ranges` (`runs.py`). `tune_hyperparameters.py` now imports them.
+  - `.gitignore`: `results/benchmark/predictions/`.
+- **Decisions:**
+  - Parameters (D6): Imstat `params_outer_<method>.json` per outer split, other datasets `params_overall_<method>.json`; frozen into the manifests (`config_id`, `param_source`, `params`).
+  - Model seeds: 3 for the stochastic methods (som, mlp, dgcytof, deepcytof, gatemeclass, rf, hgb, gmm_mocking), 1 for the deterministic ones (logreg, knn, lda_sklearn, lda_abdelaal). Model seed `derive_seed('benchmark', method, dataset, split, seed)`; data seeds (downsampling, join shuffle) `derive_seed('benchmark', dataset, split, seed, sample | 'join')`, the same for all methods.
+  - No training downsampling in the first run. `TRAIN_DOWNSAMPLING` per (method, dataset), with `{'n': cap}` or `{'frac': f}` per sample (stratified), is reserved for a second run of atoms that hit OOM / timeout. A downsampled atom gets its own files (suffix `__ds_<tag>`), so the failed full-data atom stays as a record. Test samples are always predicted in full.
+  - Per test sample: counts (incl. `pred_abstained`, as in the tuning) in `counts/`; predicted labels (`SAVE_LABELS`, int16 `.npz`) in `predictions/` (git-ignored); probabilities off (`SAVE_PROBA`).
+  - The repeated-CV robustness check (FLAG-X only) was dropped.
+- **Outputs:** `results/benchmark/manifests/<array>.csv`: sklearn_cpu 600, flagx_cpu 150, flagx_gpu 300, gatemeclass_cpu 150, lda_cpu 50, deepcytof_cpu 150 (1400 atoms).
+- **Checks:**
+  - All 1400 manifest params / config_ids equal the best-config JSONs.
+  - The tuning manifests regenerated after the helper move are byte-identical to the committed ones; a tuning smoke atom (lda_cpu 0) is ok.
+  - Smoke (`--smoke`: 3 train / 2 test samples, 1 % of the events) of every method on Imstat and BLAST110 p1 in its env (MLP / DGCyTOF in `fx_flagx_cpu`): 23 / 24 ok. GMM-Mocking on Imstat failed only because the 1 % subsample left 12 events in one class for 20 components; this config ran all 15 tuning atoms on full data.
+  - A full Imstat LDA-Abdelaal atom with `{'n': 2000}`: atom ID `…__ds_n2000`, 198,000 training events (99 × 2000), manifest indices unchanged, shown by `status`. Its counts equal the saved labels for all 26 test samples.
+- **Expected in the first run** (projected from the best-config tuning atoms at ~2.5M training events): SOM timeout / OOM from LT on; GateMeClass OOM from LT / Flowcyt on; kNN, DeepCyTOF and DGCyTOF prediction time / memory on BLAST110 / Flowcyt. Downsampling and memory are to be discussed after the run.
+
+## Step 7 (cont.): Run setup: 32 cores, progress per atom, pilot and caps (2026-11-11)
+- **Resources:**
+  - The Woody scripts `slurm_scripts/bench_*_cpu.sh` request `--cpus-per-task=32` (248 GB). Such jobs run on the Ice Lake nodes; no `--constraint` needed. TinyGPU is unchanged (1 GPU, 22 GB host RAM).
+  - Reason: the 5-fold training sets (Imstat 4.0M, LT 7.7M, Flowcyt 17.6M, BLAST110 53–65M events) exceed what 4 cores / 31 GB allow.
+- **Extrapolation** (from the best-config tuning atoms, cross-checked with `legacy/results/time_table_aggregation/`):
+  - Legacy (one split, all events, 32 cores / 240 GB): SOM 1000 epochs Flowcyt 2 h 50 m / 61.5 GB; GateMeClass Flowcyt 54 GB fit / 46 GB predict; FCNN Flowcyt 20.7 GB host RAM.
+  - SOM ~5.3–5.9 GB and GateMeClass ~4.6 GB of RAM per million training events, independent of the number of cores. 32 vs. 4 cores ≈ 5.5× faster for the SOM.
+  - Expected with 32 cores:
+    - Imstat / LT / Flowcyt run for all CPU methods.
+    - BLAST110: SOM (~320–345 GB, ~47–50 h) and GateMeClass (~285–305 GB) fail; MLP (~60 GB) and DGCyTOF (~46–49 GB) exceed the 22 GB host RAM of TinyGPU. DeepCyTOF (~16–19 h, per-test-sample calibration) and kNN (1–24 h) are borderline.
+    - MLP × Flowcyt is borderline (18–30 GB).
+- **Strategy:**
+  - A pilot (split 0 / seed 0 of every method × dataset, full data) measures what fits.
+  - Every dataset with a failure gets one per-sample event cap for all methods. The budget is the largest size that went through, scaled with a margin by the measured fit time / peak RAM of the binding method.
+  - The pilot results are then moved to `results/benchmark_pilot/` (record) and the final run starts from scratch in `results/benchmark/` with new manifests: a clean division between pilot and final results.
+  - The cap addresses the fit only; prediction failures are reported as results. All methods must be fitted.
+  - Rejected: splitting fit and predict into separate steps (model storage: kNN keeps the training data, RF trees on 60M events reach GB per model; rpy2 / Keras 1.2 models do not pickle reliably; twice the jobs). If a prediction timeout occurs and the atom must be completed, a temporary checkpoint for the affected method only (deleted once the atom is ok) is the fallback.
+- **Implemented in `benchmark.py`:**
+  - Progress per atom: `phase` (`fit` / `predict` / `done`). After the fit the JSON is saved with the fit resources; after each test sample the counts CSV (all rows so far) and the JSON (`n_test_done`, prediction resources) are rewritten. A job killed during prediction keeps fit time / RAM and its progress. Counts are complete only if the JSON is `ok`.
+  - `status`: also max training events, fit time, peak RAM of fit / predict, and the progress of unfinished atoms.
+  - `pilot <array>`: index list of split 0 / seed 0 per method × dataset (120 atoms).
+  - `cap <dataset> <total>`: largest per-sample cap `n` with at most `<total>` training events in every split (binary search over the `.npy` header sizes).
+  - CLI with subcommands (unchanged for the existing commands).
+  - `K_OUTER` replaced by the split columns of `data/splits/<dataset>.csv` (`outer_splits`).
+- **Checks:**
+  - Rerun of deterministic / seeded smoke atoms (logreg, lda_sklearn on Imstat + BLAST110 p1, rf on Imstat): counts CSVs byte-identical to the earlier run; JSONs differ only in `phase`, `n_test_done`, timings and `git_commit`.
+  - A full Imstat kNN atom killed with SIGKILL during prediction: JSON `started` / `predict`, fit resources present, 6 / 26 test samples in JSON, counts and `.npz`; `status` shows `started:predict 6/26`.
+  - `pilot` over the six arrays: 120 rows, all split 0 / seed 0, one per method × dataset.
+  - `cap`: for 5 datasets / targets, `n` is maximal (n + 1 exceeds the target in some split, checked by brute force); a target above the full size gives no cap.
+  - DeepCyTOF smoke atom, `pilot`, `cap` and `status` run in `fx_deepcytof` (Python 3.5).
+  - Manifests unchanged (byte-identical after the `outer_splits` change).

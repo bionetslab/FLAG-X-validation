@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–6 done (2026-11-11); next: step 7. Built from `NOTES.md`.
+Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, first cluster run next. Built from `NOTES.md`.
 
 This file holds the rules, the open todos and a one-line summary of each decision. What was done, with outputs, checks, findings and the reasoning behind each decision, is logged in `DONE.md` (append only). Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
@@ -66,9 +66,13 @@ Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 confi
 - [x] Effect of tuning (2026-11-11): best vs. default per method, Δ per unit one level below the selection level (overall: per outer split; outer: per inner fold), partial results used; grid flatness; box plots (`plot_effect_of_tuning.py`; `DONE.md`).
 
 ### Step 7: Main benchmark
+- [x] `benchmark.py` (2026-11-11): atoms = method × dataset × outer split × model seed (1400 in 6 arrays, `slurm_scripts/bench_<array>.sh`), counts + predicted labels per test sample, optional training downsampling per (method, dataset) (`TRAIN_DOWNSAMPLING`, off) for a second run after OOM / timeout (`working_notes/benchmark_plan.md`, `DONE.md`).
+- [x] Run setup (2026-11-11): Woody arrays with 32 cores (248 GB); per-atom progress (`phase`, fit resources and counts written after the fit and after each test sample); commands `pilot` and `cap` (`DONE.md`).
+- [ ] Pilot on the cluster: split 0 / seed 0 of every method × dataset with full data (`benchmark.py pilot <array>`).
+- [ ] Caps: every dataset with a failed pilot atom gets one per-sample event cap for all methods (budget = largest size that went through, scaled with a margin by the measured resources of the binding method; `benchmark.py cap`). Prediction failures are reported as results. Then move `results/benchmark` to `results/benchmark_pilot` (record), write the manifests again and run all atoms (final config).
+- [ ] `benchmark_eval.py`: aggregation (as in the tuning eval).
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.
-- Model seeds (R4.4, R4.m3 seed variability): 3 seeds per fold for stochastic methods (FLAG-X MLP/SOM, DGCyTOF, DeepCyTOF; initialization and on-the-fly downsampling), 1 for deterministic ones (e.g. LDA). Seeds are derived from `config.SEED` + task identity. Report the mean and SD over seeds. If BLAST110 is too expensive, reduce its seeds or downsample harder and state this. The splits stay unchanged (1 CV repetition); tuning uses a single seed (stated as a limitation).
-- Optional robustness check: a repeated CV with a different partition seed, for the FLAG-X methods only.
+- Model seeds (R4.4, R4.m3 seed variability): 3 seeds per fold for stochastic methods (FLAG-X MLP/SOM, DGCyTOF, DeepCyTOF, GateMeClass, RF, HGB, GMM-Mocking; initialization, internal sampling / validation splits, training order and on-the-fly downsampling), 1 for deterministic ones (LogReg, kNN, LDA-sklearn, LDA-Abdelaal; 2026-11-11). Seeds are derived from `config.SEED` + task identity. Report the mean and SD over seeds. If BLAST110 is too expensive, reduce its seeds or downsample harder and state this. The splits stay unchanged (1 CV repetition); tuning uses a single seed (stated as a limitation).
 - **[D8, decided] Abstention:** the task is full assignment of every cell.
   - Where abstention is only an option of a method, it is switched off: LDA `rejection_threshold=0` (default), GateMeClass `reject_option=False` (default), DeepCyTOF `rejection_threshold=0` (the 0.4 rejection exists only in the code, not in the paper; it also filters the cells used for the MMD calibration). The FLAG-X MLP never abstains.
   - Where it is built into the method (DGCyTOF's calibration step; FLAG-X SOM: cells whose best-matching unit has no labelled training events), the method is run as published and its abstentions are scored as below.
