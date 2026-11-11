@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–5 done; step 6 in progress: tuning runs finished, evaluation and best configs done, effect-of-tuning analysis open (2026-11-10). Built from `NOTES.md`.
+Status: steps 0–6 done (2026-11-11); next: step 7. Built from `NOTES.md`.
 
 This file holds the rules, the open todos and a one-line summary of each decision. What was done, with outputs, checks, findings and the reasoning behind each decision, is logged in `DONE.md` (append only). Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
@@ -59,11 +59,11 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 - run metadata: parameters, seed, env versions, git commit, hardware.
 - Downsampling is applied to the training samples; test samples are predicted in full unless an experiment states otherwise.
 
-### Step 6: Hyperparameter tuning (Imstat) -- IN PROGRESS
+### Step 6: Hyperparameter tuning (Imstat) -- DONE
 Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`); envs and Imstat data on the cluster; all 4425 atoms run (4157 ok, 268 failed; 2026-11-10).
 - [x] `tune_hyperparameters_eval.py` (2026-11-10): aggregation chain sample → donor → inner → outer → overall, mean / SD / n per level, NaN for failed atoms propagates (`working_notes/tuning_plan.md` section 8, `DONE.md`).
 - [x] Best configs (D6, 2026-11-10): argmax mean at the outer level (per outer split, Imstat) and the overall level (consensus); incomplete configs excluded; ties → default, then lowest config_id → `results/tune_hyperparameters_eval/best_configs/params_{outer,overall}_<method>.json` (read by step 7).
-- [ ] Effect of tuning (replaces the dropped pairwise config tests): best vs. default config per method on the selection levels: outer (paired Δ per outer split with that split's best; mean / SD / min over the 5 splits) and overall (Δ of the consensus config; SD / min of its per-split Δ), descriptive only; plus grid flatness (range of overall config means, number of configs within 0.01 of the best). Δ is optimistic (selected on the same scores).
+- [x] Effect of tuning (2026-11-11): best vs. default per method, Δ per unit one level below the selection level (overall: per outer split; outer: per inner fold), partial results used; grid flatness; box plots (`plot_effect_of_tuning.py`; `DONE.md`).
 
 ### Step 7: Main benchmark
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.

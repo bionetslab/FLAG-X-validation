@@ -19,6 +19,19 @@ benchmark) and at the overall level (consensus, for all other datasets). Configs
 excluded; ties go to the default config, then to the lowest config_id (SELECTION_RULE). Stored as JSON, so the
 benchmark (step 7) loads the params dict directly.
 
+Effect of tuning: best vs. default config per method, at the levels the best configs are selected on. The paired
+difference delta = best - default is computed per unit one level below the selection level and summarized by mean,
+SD and min over these units:
+    overall   consensus best vs. default, delta per outer split (5 units)                 (method)
+    outer     split i's best vs. default, delta per inner fold of split i (3 units)       (method, split)
+Unlike the chain, this step uses partial results: units where best or default is NaN (failed atom) are dropped, and
+best_mean, default_mean and the delta stats are taken over the remaining n_valid of n units (paired, so delta_mean =
+best_mean - default_mean; equal to the selection-level means if both are complete). This keeps methods whose default
+config fails in some units (DGCyTOF, GateMeClass). The best config itself is complete by the selection rule (D6).
+Grid flatness at the selection level,
+over the complete configs: range of the config means and the number of configs within FLAT_TOL of the best. Purely
+descriptive (no tests); delta is optimistic, since best is selected on the same scores.
+
 Env: fx_plot (pandas).
 
 Usage:
@@ -40,6 +53,12 @@ Outputs (<out> = results/tune_hyperparameters_eval by default):
     best_configs/params_outer_<method>.json     per outer split: {method, level, rule, splits: {"<split>": {config_id,
                        params, mean, sd, n, is_default, n_candidates}}}
                        Load: json.load(f)['params'] or json.load(f)['splits'][str(split)]['params'].
+    effect_of_tuning/effect_{overall,outer}.csv   one row per method (overall) or method x split (outer):
+                       default_id, best_id, best_is_default, default_mean, best_mean, delta_mean, delta_sd,
+                       delta_min, n, n_valid, n_configs, n_complete, range, n_within
+    effect_of_tuning/effect_units_{overall,outer}.csv   the paired units before averaging (plotted by
+                       plot_effect_of_tuning.py): method, split (+ inner for outer), best_id, default_id, best,
+                       default, delta (NaN if best or default is NaN)
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -64,6 +83,7 @@ OVERWRITE = False
 LEVELS = ['sample', 'donor', 'inner', 'outer', 'overall']
 SELECTION_RULE = 'argmax mean; configs with NaN mean excluded; ties: is_default first, then lowest config_id'
 CONFIG_KEYS = ['method', 'config_id']
+FLAT_TOL = 0.01  # Grid flatness: configs whose mean is within FLAT_TOL of the best
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -381,6 +401,126 @@ def best_configs(tables):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Part 4: effect of tuning
+# ---------------------------------------------------------------------------------------------------------------
+
+def unit_deltas(below, unit, best_id, default_id):
+    """
+    Paired difference best - default per unit of the level below the selection level.
+
+    Args:
+        below (pd.DataFrame): Rows of one method (and one outer split) of the level below: one row per config x unit
+            with config_id, the unit column and mean.
+        unit (str): Unit column ('split' below the overall level, 'inner' below the outer level).
+        best_id (str or None): config_id of the best config (None if no config is complete).
+        default_id (str): config_id of the default config.
+
+    Returns:
+        pd.DataFrame: One row per unit: the unit column, best, default, delta (NaN where best or default is NaN).
+    """
+    m = below.pivot(index=unit, columns='config_id', values='mean')
+    best = m[best_id] if best_id is not None else pd.Series(np.nan, index=m.index)
+    pair = pd.DataFrame({'best': best, 'default': m[default_id]})
+    pair['delta'] = pair['best'] - pair['default']
+    return pair.rename_axis(unit).reset_index()
+
+
+def paired_delta(pair):
+    """
+    Summary of the paired differences of one method (and one outer split).
+
+    Args:
+        pair (pd.DataFrame): Output of unit_deltas.
+
+    Returns:
+        dict: best_mean, default_mean, delta_mean, delta_sd (ddof=1; NaN if n_valid < 2), delta_min over the valid
+        units (partial results: units where best or default is NaN are dropped; all NaN if none is valid), n (units)
+        and n_valid (units with both values).
+    """
+    valid = pair.dropna(subset=['best', 'default'])
+    d = valid['best'] - valid['default']
+    return {'best_mean': valid['best'].mean(), 'default_mean': valid['default'].mean(),
+            'delta_mean': d.mean(), 'delta_sd': d.std(ddof=1), 'delta_min': d.min(),
+            'n': int(len(pair)), 'n_valid': int(len(valid))}
+
+
+def flatness(sel):
+    """
+    Flatness of one grid at the selection level.
+
+    Args:
+        sel (pd.DataFrame): Rows of one method (and one outer split) of the selection level, one row per config.
+
+    Returns:
+        dict: n_configs (grid size), n_complete (configs with a non-NaN mean), range (max - min of the complete
+        means) and n_within (complete configs with mean >= best mean - FLAT_TOL); NaN / 0 if none is complete.
+    """
+    m = sel['mean'].dropna()
+    return {'n_configs': int(len(sel)), 'n_complete': int(len(m)),
+            'range': m.max() - m.min() if len(m) else np.nan,
+            'n_within': int((m >= m.max() - FLAT_TOL).sum()) if len(m) else 0}
+
+
+def effect_row(sel, below, unit, best_id):
+    """
+    One row of the effect-of-tuning table: best vs. default of one method (and one outer split).
+
+    Args:
+        sel (pd.DataFrame): Rows of the selection level (one row per config, incl. is_default).
+        below (pd.DataFrame): Rows of the level below (see paired_delta).
+        unit (str): Unit column of the level below.
+        best_id (str or None): config_id of the selected best config.
+
+    Returns:
+        tuple: (dict: default_id, best_id, best_is_default, then paired_delta (means over the valid units) and
+        flatness; pd.DataFrame: the units of unit_deltas with best_id and default_id).
+    """
+    default = sel[sel['is_default']]
+    assert len(default) == 1, 'expected one default config'
+    default_id = default['config_id'].iloc[0]
+    pair = unit_deltas(below, unit, best_id, default_id)
+    row = {'default_id': default_id, 'best_id': best_id, 'best_is_default': best_id == default_id}
+    row.update(paired_delta(pair))
+    row.update(flatness(sel))
+    pair.insert(0, 'best_id', best_id)
+    pair.insert(1, 'default_id', default_id)
+    return row, pair
+
+
+def effect_of_tuning(tables, best):
+    """
+    Effect of tuning at both selection levels.
+
+    Args:
+        tables (dict): Output of build_chain (uses 'inner', 'outer', 'overall').
+        best (dict): Output of best_configs.
+
+    Returns:
+        dict of pd.DataFrame: 'overall' (one row per method, delta over the outer splits), 'outer' (one row per
+        method x split, delta over the inner folds of the split), 'units_overall' (one row per method x split) and
+        'units_outer' (one row per method x split x inner): the paired units before averaging.
+    """
+    overall, units_overall = [], []
+    for method, sel in tables['overall'].groupby('method', sort=True):
+        below = tables['outer'][tables['outer']['method'] == method]
+        row, pair = effect_row(sel, below, 'split', best[('overall', method)]['config_id'])
+        overall.append(dict([('method', method)], **row))
+        units_overall.append(pair.assign(method=method))
+    outer, units_outer = [], []
+    for (method, split), sel in tables['outer'].groupby(['method', 'split'], sort=True):
+        inner = tables['inner']
+        below = inner[(inner['method'] == method) & (inner['split'] == split)]
+        row, pair = effect_row(sel, below, 'inner', best[('outer', method)]['splits'][str(split)]['config_id'])
+        outer.append(dict([('method', method), ('split', split)], **row))
+        units_outer.append(pair.assign(method=method, split=split))
+    cols_overall = ['method', 'split', 'best_id', 'default_id', 'best', 'default', 'delta']
+    cols_outer = ['method', 'split', 'inner', 'best_id', 'default_id', 'best', 'default', 'delta']
+    return {'overall': pd.DataFrame(overall), 'outer': pd.DataFrame(outer),
+            'units_overall': pd.concat(units_overall)[cols_overall],
+            'units_outer': pd.concat(units_outer)[cols_outer]}
+
+
+# ---------------------------------------------------------------------------------------------------------------
 
 def main(out_dir):
     """
@@ -431,6 +571,15 @@ def main(out_dir):
         if any(e['config_id'] is None for e in entries):
             print('WARNING: no complete config for', method, level)
     print('best configs:', len(best), 'files')
+
+    # --- Part 4: effect of tuning (best vs. default, grid flatness)
+    os.makedirs(os.path.join(out_dir, 'effect_of_tuning'), exist_ok=True)
+    p_eff = dict((l, os.path.join(out_dir, 'effect_of_tuning', 'effect_{}.csv'.format(l)))
+                 for l in ('overall', 'outer', 'units_overall', 'units_outer'))
+    if not done(*p_eff.values()):
+        for l, t in effect_of_tuning(tables, best).items():
+            write_csv(t, p_eff[l])
+    print('effect of tuning:', ', '.join(p_eff.values()))
 
 
 if __name__ == '__main__':
