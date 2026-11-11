@@ -61,9 +61,9 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 
 ### Step 6: Hyperparameter tuning (Imstat) -- IN PROGRESS
 Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 configs, 4425 atoms), frozen manifests (committed), SLURM scripts and resources (Woody 4 cores, TinyGPU 1 GPU: RTX 2080 Ti / RTX 3080 / V100; `DONE.md`, `working_notes/tuning_plan.md`, `slurm_scripts/README.md`); envs and Imstat data on the cluster; all 4425 atoms run (4157 ok, 268 failed; 2026-11-10).
-- [x] `tune_hyperparameters_eval.py` (2026-11-10): aggregation chain sample → donor → inner → outer → overall (+ donor_pooled), mean / SD / n per level, NaN for failed atoms propagates (`working_notes/tuning_plan.md` section 8, `DONE.md`).
+- [x] `tune_hyperparameters_eval.py` (2026-11-10): aggregation chain sample → donor → inner → outer → overall, mean / SD / n per level, NaN for failed atoms propagates (`working_notes/tuning_plan.md` section 8, `DONE.md`).
 - [x] Best configs (D6, 2026-11-10): argmax mean at the outer level (per outer split, Imstat) and the overall level (consensus); incomplete configs excluded; ties → default, then lowest config_id → `results/tune_hyperparameters_eval/best_configs/params_{outer,overall}_<method>.json` (read by step 7).
-- [ ] Effect of tuning (replaces the dropped pairwise config tests): best vs. default config per method (paired difference over the 26 donors of `donor_pooled`, bootstrap CI, optionally one Wilcoxon per method + Holm over methods) and the flatness of each grid (range of config means, share of configs within 0.01 of the best); to be decided.
+- [ ] Effect of tuning (replaces the dropped pairwise config tests): best vs. default config per method on the selection levels: outer (paired Δ per outer split with that split's best; mean / SD / min over the 5 splits) and overall (Δ of the consensus config; SD / min of its per-split Δ), descriptive only; plus grid flatness (range of overall config means, number of configs within 0.01 of the best). Δ is optimistic (selected on the same scores).
 
 ### Step 7: Main benchmark
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.

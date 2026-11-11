@@ -7,7 +7,6 @@ Core: a chain of aggregation tables from the per-val-sample counts of the tuning
     inner         over the donors of one inner val set                    (method, config_id, split, inner)
     outer         over the 3 inner folds of one outer split               (method, config_id, split)
     overall       over the 5 outer splits                                 (method, config_id)
-    donor_pooled  side table: each donor over the outer splits it is validated in (4)   (method, config_id, donor_id)
 Every level holds mean, sd (ddof=1, NaN if n = 1) and n (number of units of the level below that enter mean and sd)
 of the level below's 'mean' (sample level: 'score'). A non-ok atom (failed / started / missing) gives NaN scores for
 its val samples; the NaN propagates upwards (no nanmean), so a config is NaN at every level its failed atom enters.
@@ -34,7 +33,7 @@ Outputs (<out> = results/tune_hyperparameters_eval by default):
                        cap_hit (HGB n_iter reached max_iter; GMM a class not converged; MLP with early stopping
                        reached n_epochs; empty if not applicable)
     failures.csv       atom counts per method x status x error line
-    scores/scores_<level>.csv   the aggregation chain (sample, donor, inner, outer, overall, donor_pooled);
+    scores/scores_<level>.csv   the aggregation chain (sample, donor, inner, outer, overall);
                        is_default in all tables, the params JSON from the inner level upwards
     best_configs/params_overall_<method>.json   consensus config: {method, level, rule, config_id, params, mean, sd,
                        n, is_default, n_candidates}; params / config_id are null if no config is complete
@@ -62,7 +61,7 @@ TUNE_DIR = os.path.join(config.RESULTS, 'tune_hyperparameters')
 OUT_DIR = os.path.join(config.RESULTS, 'tune_hyperparameters_eval')
 OVERWRITE = False
 
-LEVELS = ['sample', 'donor', 'inner', 'outer', 'overall', 'donor_pooled']
+LEVELS = ['sample', 'donor', 'inner', 'outer', 'overall']
 SELECTION_RULE = 'argmax mean; configs with NaN mean excluded; ties: is_default first, then lowest config_id'
 CONFIG_KEYS = ['method', 'config_id']
 
@@ -299,7 +298,6 @@ def build_chain(sample, atoms, configs):
                                                                    atom's status, fit_s, predict_s
         outer        (method, config_id, split)                   over the 3 inner folds; + fit_/predict_ mean, sd
         overall      (method, config_id)                          over the 5 outer splits; + fit_/predict_ mean, sd
-        donor_pooled (method, config_id, donor_id)                over the outer splits the donor is validated in
 
     Args:
         sample (pd.DataFrame): Output of score_samples.
@@ -307,9 +305,8 @@ def build_chain(sample, atoms, configs):
         configs (pd.DataFrame): Output of load_configs.
 
     Returns:
-        dict: level name ('sample', 'donor', 'inner', 'outer', 'overall', 'donor_pooled') -> pd.DataFrame with the
-        key columns, mean, sd, n (sample level: score, abstention_rate), is_default, and params from the inner
-        level upwards.
+        dict: level name ('sample', 'donor', 'inner', 'outer', 'overall') -> pd.DataFrame with the key columns,
+        mean, sd, n (sample level: score, abstention_rate), is_default, and params from the inner level upwards.
     """
     cfg = CONFIG_KEYS
     donor = aggregate(sample, cfg + ['split', 'inner', 'donor_id'], 'score')
@@ -322,9 +319,7 @@ def build_chain(sample, atoms, configs):
         outer = outer.merge(aggregate(inner, cfg + ['split'], t + '_s', t + '_').drop(columns=t + '_n'),
                             on=cfg + ['split'])
         overall = overall.merge(aggregate(outer, cfg, t + '_mean', t + '_').drop(columns=t + '_n'), on=cfg)
-    pooled = aggregate(donor, cfg + ['donor_id'], 'mean')
-    tables = {'sample': sample, 'donor': donor, 'inner': inner, 'outer': outer, 'overall': overall,
-              'donor_pooled': pooled}
+    tables = {'sample': sample, 'donor': donor, 'inner': inner, 'outer': outer, 'overall': overall}
     for level, t in tables.items():
         cols = ['is_default'] if level in ('sample', 'donor') else ['is_default', 'params']
         tables[level] = t.merge(configs[cfg + cols], on=cfg, how='left', validate='many_to_one')
