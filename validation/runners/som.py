@@ -1,8 +1,10 @@
 """
 Runner: FLAG-X SOM classifier (flagx.gating.SOMClassifier, flagx 0.2.1). Env fx_flagx_cpu (Somoclu, CPU).
 
-- flagx has no seed argument; with initialization='pca' the training is deterministic (the grid keeps 'pca'). numpy is
-  seeded anyway.
+- flagx has no seed argument; numpy is seeded anyway. With initialization='pca' the initialization is deterministic,
+  but the multithreaded Somoclu training is not: two identical fits give different codebooks (smoke test 2026-11-12,
+  max abs diff ~0.03). SOM is therefore a stochastic method in the benchmark (3 model seeds); the seed does not
+  control this variation, so single runs are not bit-reproducible.
 - A fresh instance is built per fit: SOMClassifier.fit overwrites radius_0 (flagx som_classifier.py L147-151, L203).
 - predict returns -1 for events whose best-matching unit has no labelled training events (built-in abstention of the
   method, kept and scored as abstention, D8).
