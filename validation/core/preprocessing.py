@@ -128,12 +128,12 @@ class Preprocessor(object):
                 list of such arrays, which are pooled (row order kept). Columns in the order of channels.
 
         Returns:
-            np.ndarray: float32 array of shape (n_events, n_channels); for a list, the rows of all arrays stacked.
+            np.ndarray: float64 array of shape (n_events, n_channels); for a list, the rows of all arrays stacked.
         """
         if self.center_ is None:
             raise RuntimeError('Preprocessor is not fitted')
         X = self._transform(self._stack(X))
-        return ((X - self.center_) / self.scale_).astype(np.float32)
+        return (X - self.center_) / self.scale_
 
     def fit_transform(self, X):
         """fit(X) followed by transform(X); same input and output as transform."""
