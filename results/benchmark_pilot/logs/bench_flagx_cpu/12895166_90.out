@@ -1,0 +1,48 @@
+### Starting TaskPrologue of job 12896129 on w2325 at Wed Nov 11 16:45:05 CET 2026
+#   SLURM_JOB_NODELIST=w2325
+#   SLURM_JOB_NUM_NODES=1
+#   SLURM_NTASKS=1
+#   SLURM_NPROCS=1
+#   SLURM_TASKS_PER_NODE=1
+#   SLURM_JOB_CPUS_PER_NODE=32
+#   SLURM_EXPORT_ENV=NONE
+Running on cores 0-31 with govenor powersave
+### Finished TaskPrologue
+2026-11-11T16:45:11 start som__blast110_p1__split_0_seed_0
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/benchmark.py", line 420, in run_atom
+    model = runner.fit(model, Xt, y, sample_ids)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/_sklearn_common.py", line 13, in fit
+    return model.fit(X, y)
+           ^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_cpu/lib/python3.12/site-packages/flagx/gating/som_classifier.py", line 226, in fit
+    self.annotate_som(X=X, y=y)
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_cpu/lib/python3.12/site-packages/flagx/gating/som_classifier.py", line 395, in annotate_som
+    bmus = self._custom_get_bmus(activation_map=self._custom_get_surface_state(data=x_labeled))
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_cpu/lib/python3.12/site-packages/flagx/gating/som_classifier.py", line 869, in _custom_get_surface_state
+    activation_map = self._compute_distances(data, codebook_reshaped)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+MemoryError: Allocation failed (probably too large).
+
+2026-11-12T10:09:38 failed som__blast110_p1__split_0_seed_0
+=== JOB_STATISTICS ===
+=== current date     : Thu Nov 12 10:09:40 CET 2026
+= Job-ID             : 12896129 on woody
+= Job-Name           : bench_flagx_cpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/bench_flagx_cpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 17:24:41
+= Total RAM usage    : 24.2 GiB of requested  GiB (%)   
+= Node list          : w2325
+= Subm/Elig/Start/End: 2026-11-11T15:35:04 / 2026-11-11T15:35:05 / 2026-11-11T16:44:58 / 2026-11-12T10:09:39
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.2G  1000.0G  1500.0G        N/A     936K   5,000K   7,500K        N/A    
+    /home/hpc              29.5G   104.9G   209.7G        N/A      52K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    

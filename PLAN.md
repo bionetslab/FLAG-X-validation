@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, first cluster run next. Built from `NOTES.md`.
+Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, pilot done (2026-11-12), final run next. Built from `NOTES.md`.
 
 This file holds the rules, the open todos and a one-line summary of each decision. What was done, with outputs, checks, findings and the reasoning behind each decision, is logged in `DONE.md` (append only). Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
@@ -68,8 +68,9 @@ Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 confi
 ### Step 7: Main benchmark
 - [x] `benchmark.py` (2026-11-11): atoms = method × dataset × outer split × model seed (1400 in 6 arrays, `slurm_scripts/bench_<array>.sh`), counts + predicted labels per test sample, optional training downsampling per (method, dataset) (`TRAIN_DOWNSAMPLING`, off) for a second run after OOM / timeout (`working_notes/benchmark_plan.md`, `DONE.md`).
 - [x] Run setup (2026-11-11): Woody arrays with 32 cores (248 GB); per-atom progress (`phase`, fit resources and counts written after the fit and after each test sample); commands `pilot` and `cap` (`DONE.md`).
-- [ ] Pilot on the cluster: split 0 / seed 0 of every method × dataset with full data (`benchmark.py pilot <array>`).
-- [ ] Caps: every dataset with a failed pilot atom gets one per-sample event cap for all methods (budget = largest size that went through, scaled with a margin by the measured resources of the binding method; `benchmark.py cap`). Prediction failures are reported as results. Then move `results/benchmark` to `results/benchmark_pilot` (record), write the manifests again and run all atoms (final config).
+- [x] Pilot (2026-11-12): 116 / 120 ok; SOM × BLAST110 OOM in flagx's unit annotation (full events × units distance matrix), fixed in the runner by a chunk-wise BMU computation with identical results; SOM training is not deterministic (already 3 seeds) (`DONE.md`).
+- [x] Caps (2026-11-12): none needed; with the SOM fix every method fits on every dataset at full size, `TRAIN_DOWNSAMPLING` stays off.
+- [ ] Final run: move `results/benchmark` to `results/benchmark_pilot` (record), write the manifests again and run all 1400 atoms (est. ~3000 Woody node-h, ~500 TinyGPU GPU-h; longest atom SOM × BLAST110 ~18 h). Prediction failures are reported as results.
 - [ ] `benchmark_eval.py`: aggregation (as in the tuning eval).
 - Tasks: method × dataset × outer fold × model seed. Each task trains on the training samples and predicts every test sample.
 - Model seeds (R4.4, R4.m3 seed variability): 3 seeds per fold for stochastic methods (FLAG-X MLP/SOM, DGCyTOF, DeepCyTOF, GateMeClass, RF, HGB, GMM-Mocking; initialization, internal sampling / validation splits, training order and on-the-fly downsampling), 1 for deterministic ones (LogReg, kNN, LDA-sklearn, LDA-Abdelaal; 2026-11-11). Seeds are derived from `config.SEED` + task identity. Report the mean and SD over seeds. If BLAST110 is too expensive, reduce its seeds or downsample harder and state this. The splits stay unchanged (1 CV repetition); tuning uses a single seed (stated as a limitation).

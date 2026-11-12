@@ -230,3 +230,29 @@ All grids reviewed one by one with the user; justification of every grid (tuned 
   - `cap`: for 5 datasets / targets, `n` is maximal (n + 1 exceeds the target in some split, checked by brute force); a target above the full size gives no cap.
   - DeepCyTOF smoke atom, `pilot`, `cap` and `status` run in `fx_deepcytof` (Python 3.5).
   - Manifests unchanged (byte-identical after the `outer_splits` change).
+
+## Step 7 (cont.): Pilot run and SOM memory fix (2026-11-11 to 2026-11-12)
+- **Run:** `benchmark.py pilot <array>` (split 0 / seed 0 of every method × dataset, full data, 120 atoms), submitted 2026-11-11 15:35 (Woody, 32 cores / 248 GB; TinyGPU from tinyx, RTX 2080 Ti); last atom finished 2026-11-12 10:34. Commit `983657d4`.
+- **Result:** 116 / 120 ok. The 4 failures are SOM × BLAST110 p1–p4, all out of memory in the fit (p3 / p4 killed by SLURM after 14.7 / 15.7 h, `OUT_OF_MEMORY`, atom JSON stays `started:fit`; p1 / p2 `MemoryError` after 17.4 / 17.8 h, JSON `failed`). Every other method went through on every dataset at full size, incl. BLAST110 (52–63M training events).
+- **Resources** (split 0; fit / predict = peak CPU RSS; total = start to end of the atom):
+
+  | method | Imstat (3.9M) | LT (7.4–7.6M) | Flowcyt (15.8M) | BLAST110 (51.9–63.3M) |
+  |---|---|---|---|---|
+  | som | 1.2 h, 20 GB | 3.7 h, 38–39 GB | 6.3 h, 80 GB | OOM after 14.7–17.8 h |
+  | mlp (GPU) | 0.15 h, 4 GB | 0.2–0.4 h, 6 GB | 0.4 h, 11 GB | 1.8–4.0 h, 27–32 GB |
+  | dgcytof (GPU) | 1.4 h, 3 / 9 GB | 0.7–0.8 h, 5 / 9–21 GB | 1.4 h, 9 / 17 GB | 3.5–4.2 h, 21–26 / 11–12 GB |
+  | gatemeclass | 0.4 h, 17 GB | 0.6–0.8 h, 28–34 GB | 3.1 h, 71 GB | 7.1–9.1 h, 162–211 GB |
+  | deepcytof | 0.5 h, 1.5 GB | 1.1–1.4 h, 3 GB | 3.8 h, 6 GB | 9.0–11.1 h (prediction 8–10 h), 16–20 GB |
+  | knn | 0.2 h, 1 GB | 0.7–1.0 h, 3 GB | 6.1 h (prediction), 6 GB | 4.8–6.2 h (prediction), 16–20 GB |
+  | rf | <0.1 h, 8 GB | <0.1 h, 12 GB | 0.1 h, 27 GB | 0.3–0.4 h, 82–101 GB |
+  | gmm_mocking | <0.1 h, 3 GB | <0.1 h, 9–10 GB | 0.1 h, 19 GB | 0.2–0.5 h, 60–74 GB |
+  | lda_abdelaal | <0.1 h, 4 GB | <0.1 h, 8 GB | <0.1 h, 16 GB | 0.1 h, 45–48 GB |
+  | hgb, logreg, lda_sklearn | ≤0.2 h, ≤2 GB | ≤0.2 h, ≤3 GB | ≤0.7 h, ≤7 GB | ≤0.6 h, ≤22 GB |
+
+  - Tightest on memory after the SOM fix: GateMeClass on BLAST110 p1 (211 GB of 248 GB). Longest atom: SOM on BLAST110 (~18 h expected with the fix, 24 h limit). Host RAM of MLP / DGCyTOF on TinyGPU up to 32 GB went through; GPU memory ≤0.4 GB.
+  - The projections of the run setup were too pessimistic for most methods (e.g. SOM BLAST110 ~17.5 h of training instead of 47–50 h; MLP / DGCyTOF fit on TinyGPU).
+  - Imstat atoms of the other outer splits use other configs (per-split best configs, e.g. split 1 SOM 30×30 / 100 epochs); the pilot only covers split 0.
+- **SOM memory problem (cause):** not the Somoclu training (float32 data + BMUs, small), but the unit annotation in `SOMClassifier.fit` → `annotate_som` (flagx 0.2.1 `som_classifier.py` L226 / L395): `_custom_get_surface_state` → `_compute_distances` (L848–884) allocates the full float64 distance matrix training events × SOM units, of which `_custom_get_bmus` only takes the row-wise argmin. 25×25 units × 8 B = 5 GB per 1M events, matching the measured fit RAM exactly (Imstat 19.5 vs. 20.0 GB, LT 37 vs. 38 GB, Flowcyt 79 vs. 80 GB) and 260–317 GB on BLAST110. It is allocated only after the training, hence the OOM after 15–18 h. The chunked branch (L859–866) only applies to ≤10×10 SOMs with ≤100k events and stacks the chunks back into the full matrix (upstream issue for flagx). `predict` uses the same path but per test sample (≤7 GB). Fewer epochs would not help; a smaller grid only proportionally.
+- **Fix** (`validation/runners/som.py`, commit `10116c13`): `_ChunkedBMUSOMClassifier(SOMClassifier)` overrides the two helpers (marked `# MOD:`): `_custom_get_surface_state` passes the data through, `_custom_get_bmus` computes the distances in chunks of `BMU_CHUNK_SIZE = 100000` events with flagx's own `_compute_distances` and keeps only the argmin. Somoclu training and flagx are untouched; `topographic_error` / `transform` are not supported by the subclass (not used). Checks (imstat, 3 samples, 25×25, uneven chunks of 7777 events): on the same trained SOM, unit class counts, unit labels, `predict` and `predict_proba` (train and a test sample) are identical to the original path. Memory: 10M events 6 GB peak with 1M chunks vs. +50 GB for the full matrix (constant in N; 100k chunks: ~0.5 GB per chunk). Time equal or faster (40k events 0.18 vs. 0.20 s, 3M events 14.0 vs. 16.1 s, 8 threads).
+- **SOM is not deterministic** (commit `7f1df6f8`): two identical fits (`initialization='pca'`) give different Somoclu codebooks (max abs diff ~0.03), likely from the multithreaded OpenMP updates. SOM already is a stochastic method with 3 seeds in `N_SEEDS`; only the runner docstring was wrong. The seed does not control this variation, so a single SOM atom is not bit-reproducible (to be stated in the methods).
+- **Consequence:** no caps needed: with the SOM fix every method fits on every dataset at full size, so `TRAIN_DOWNSAMPLING` stays off. Estimated final run (pilot total time × 5 splits × seeds; SOM BLAST110 at 18 h): Woody ~3000 node-h (flagx_cpu 1415, deepcytof_cpu 738, gatemeclass_cpu 575, sklearn_cpu 266, lda_cpu 3), TinyGPU ~500 GPU-h.
