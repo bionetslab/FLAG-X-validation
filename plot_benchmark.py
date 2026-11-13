@@ -34,6 +34,15 @@ Supplementary figures: predicted vs. true population sizes (as legacy fig2s_popu
     bland_altman_binary.pdf   the same for the binary datasets, positive class (label 1: B, Blast) only: one row per
                      method, one column per dataset.
 
+Supplementary figures: class-wise F1 (multi-class datasets; the binary datasets' main-figure score is already the F1
+of the positive class, and the F1 of the other class adds nothing).
+
+    class_scores_box_{imstat,flowcyt,lt}.pdf   (CLASS_FIGURES; Lt1 and Lt2 stacked in one figure) one row per class,
+                     one box per method, style of scores_box.pdf; one point per test sample: per-class F1 (f1_<l>,
+                     D8) averaged over the seeds; samples where the class is neither present nor predicted (F1
+                     undefined) are left out, so no 'k/n' annotation. Row label: class (median share in the test
+                     samples).
+
 Order, names and colors of the datasets, methods and classes: config.py, section Plotting (PLOT_DATASETS,
 DATASET_NAMES, PLOT_METHODS, METHOD_NAMES, METHOD_COLORS, CLASS_ORDER, CLASS_COLORS).
 
@@ -45,7 +54,7 @@ Usage:
         --out: figure directory (default figures/benchmark; pilot: e.g. figures/benchmark_pilot)
 
 Inputs: <in>/scores/<dataset>.csv, <in>/populations/<dataset>.csv
-Outputs: <out>/scores_box.pdf, <out>/population_<dataset>.pdf, <out>/bland_altman_<dataset>.pdf (multi-class),
+Outputs: <out>/scores_box.pdf, <out>/class_scores_box_*.pdf, <out>/population_<dataset>.pdf, <out>/bland_altman_<dataset>.pdf (multi-class),
     <out>/bland_altman_binary.pdf
 """
 
@@ -59,7 +68,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from scipy.stats import pearsonr
 
-from config import (RESULTS, FIGURES, PLOT_DATASETS, DATASET_NAMES, PLOT_METHODS, METHOD_NAMES,
+from config import (DATA_CURATED, RESULTS, FIGURES, PLOT_DATASETS, DATASET_NAMES, PLOT_METHODS, METHOD_NAMES,
                     METHOD_COLORS, CLASS_ORDER, CLASS_COLORS)
 from validation.eval_helpers import ba_stats, population_seed_mean
 
@@ -78,6 +87,13 @@ JITTER = 0.15  # Half-width of the horizontal point jitter (deterministic, seed 
 POP_N_COLS = 4  # Method panels per row
 SHOW_R2 = True  # R^2 of predicted vs. true % (agreement with the diagonal) in each panel
 SHOW_PEARSON = False  # Pearson r in each panel
+# Class-wise figures (multi-class datasets only; binary datasets: the main figure already shows the positive class):
+# output file -> datasets stacked in it (one row per class)
+CLASS_FIGURES = [
+    ('class_scores_box_imstat.pdf', ['imstat']),
+    ('class_scores_box_flowcyt.pdf', ['flowcyt']),
+    ('class_scores_box_lt.pdf', ['lt1', 'lt2']),
+]
 SHOW_BA_TEXT = True  # Bland-Altman panels: 'bias [lower, upper limit of agreement]' in pp
 
 
@@ -108,7 +124,7 @@ def load_scores(in_dir, dataset):
     return scores, y_label
 
 
-def plot_panel(ax, scores, methods, rng):
+def plot_panel(ax, scores, methods, rng, show_counts=True):
     """
     Boxes per method (colored), the samples as points (marker = outer split), 'k/n' / 'n/a' annotations.
 
@@ -117,6 +133,7 @@ def plot_panel(ax, scores, methods, rng):
         scores (pd.DataFrame): load_scores output of the dataset.
         methods (list of str): Methods on the x-axis, in order (position i = methods[i]).
         rng (np.random.Generator): For the jitter.
+        show_counts (bool): Annotate incomplete boxes with 'k/n'.
     """
     for i, m in enumerate(methods):
         s = scores[scores['method'] == m]
@@ -133,7 +150,7 @@ def plot_panel(ax, scores, methods, rng):
             ax.scatter(i + rng.uniform(-JITTER, JITTER, len(g)), g['score'], s=10,
                        marker=FOLD_MARKERS[int(split) % len(FOLD_MARKERS)], color=color, edgecolors='black',
                        linewidths=0.4, alpha=0.6, zorder=3)
-        if len(valid) < len(s):
+        if show_counts and len(valid) < len(s):
             ax.text(i, 1.01, '{}/{}'.format(len(valid), len(s)), ha='center', va='bottom', fontsize=6, color='0.3')
 
 
@@ -173,7 +190,14 @@ def plot_scores_box(in_dir, path):
     ax_last = axes.flat[len(datasets) - 1]  # Bottom panel of an odd grid gets the tick labels too
     ax_last.tick_params(axis='x', labelbottom=True)
 
-    # Legend under the figure: methods (colors) in rows of N_LEGEND_COLS, then the test folds (markers) in one row
+    method_fold_legend(fig, methods, splits)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def method_fold_legend(fig, methods, splits):
+    """Legend under the figure: methods (colors) in rows of N_LEGEND_COLS, then the test folds (markers) in one row."""
     method_handles = [Patch(facecolor=METHOD_COLORS[m], edgecolor='black', linewidth=0.8, label=METHOD_NAMES[m])
                       for m in methods]
     fold_handles = [Line2D([], [], linestyle='', marker=FOLD_MARKERS[int(s) % len(FOLD_MARKERS)], color='0.5',
@@ -188,9 +212,6 @@ def plot_scores_box(in_dir, path):
     handles = [r[c] for c in range(N_LEGEND_COLS) for r in grid]  # matplotlib fills the legend column by column
     fig.legend(handles=handles, labels=[h.get_label() for h in handles], loc='outside lower center',
                ncol=N_LEGEND_COLS, frameon=False, fontsize=8)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fig.savefig(path)
-    plt.close(fig)
 
 
 def load_populations(in_dir, dataset):
@@ -378,6 +399,67 @@ def plot_bland_altman_binary(in_dir, datasets, path):
                           'bias [95 % limits of agreement] (pp)', path, col_width=1.35)
 
 
+def load_class_scores(in_dir, dataset):
+    """
+    Per-class F1 per test sample, averaged over the model seeds.
+
+    Returns:
+        list of (str, float, pd.DataFrame): Per class (CLASS_ORDER): short name, median share of the class in the test
+        samples (%), and one row per method x outer split x test sample with column score (seed mean of f1_<l>; NaN
+        if no seed predicted the sample or the class is neither in the sample nor predicted).
+    """
+    t = pd.read_csv(os.path.join(in_dir, 'scores', dataset + '.csv'))
+    labels = pd.read_csv(os.path.join(DATA_CURATED, dataset, 'meta_labels.csv'))
+    name_of = dict(zip(labels['name'], labels['label']))
+    out = []
+    for name in [c for c in CLASS_ORDER if c in name_of] + sorted(set(name_of) - set(CLASS_ORDER)):
+        l = name_of[name]
+        t['score'] = t['f1_{}'.format(l)].where(t['predicted'])
+        sc = t.groupby(['method', 'split', 'sample'])['score'].mean().reset_index()
+        share = (100.0 * t['n_{}'.format(l)] / t['n_cells']).groupby(t['sample']).first().median()
+        out.append((name, share, sc))
+    return out
+
+
+def plot_class_scores(in_dir, datasets, path):
+    """
+    Class-wise box plots: one row per dataset x class (stacked), one box per method; style of scores_box.pdf.
+
+    Args:
+        in_dir (str): Output directory of benchmark_eval.py.
+        datasets (list of str): Datasets stacked in the figure.
+        path (str): Output PDF.
+    """
+    rows = [(d, name, share, sc) for d in datasets for name, share, sc in load_class_scores(in_dir, d)]
+    present = set().union(*(set(r[3]['method']) for r in rows))
+    methods = [m for m in PLOT_METHODS if m in present]
+    splits = sorted(set().union(*(set(r[3].dropna(subset=['score'])['split']) for r in rows)))
+    fig, axes = plt.subplots(len(rows), 1, figsize=(7.5, 1.35 * len(rows) + 1.6), sharex=True, sharey=True,
+                             squeeze=False, layout='constrained')
+    rng = np.random.default_rng(0)
+    for ax, (d, name, share, sc) in zip(axes[:, 0], rows):
+        plot_panel(ax, sc, methods, rng, show_counts=False)
+        label = '{} ({:#.3g} %)'.format(name, share)  # 3 significant digits, e.g. 59.4 %, 0.183 %
+        ax.set_ylabel(label if len(datasets) == 1 else '{}: {}'.format(DATASET_NAMES[d], label), fontsize=8)
+        ax.set_ylim(0, 1.05)
+        ax.set_yticks([0, 0.5, 1])
+        ax.tick_params(labelsize=7)
+        ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_axisbelow(True)
+        for side in ('top', 'right'):
+            ax.spines[side].set_visible(False)
+    axes[-1, 0].set_xticks(range(len(methods)), [METHOD_NAMES[m] for m in methods], rotation=45, ha='right',
+                           rotation_mode='anchor', fontsize=8)
+    title = ' and '.join(DATASET_NAMES[d] for d in datasets)
+    fig.suptitle('{}: class-wise F1 per test sample (class: median share in the test samples)'.format(title),
+                 fontsize=9)
+    fig.supylabel('F1', fontsize=8)
+    method_fold_legend(fig, methods, splits)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def main(in_dir, out_dir):
     path = os.path.join(out_dir, 'scores_box.pdf')
     if os.path.exists(path) and not OVERWRITE:
@@ -394,6 +476,16 @@ def main(in_dir, out_dir):
             print('exists, skipped:', path)
             continue
         plot_populations(in_dir, dataset, path)
+        print('written:', path)
+
+    for name, datasets in CLASS_FIGURES:
+        if not all(os.path.exists(os.path.join(in_dir, 'scores', d + '.csv')) for d in datasets):
+            continue
+        path = os.path.join(out_dir, name)
+        if os.path.exists(path) and not OVERWRITE:
+            print('exists, skipped:', path)
+            continue
+        plot_class_scores(in_dir, datasets, path)
         print('written:', path)
 
     # Bland-Altman: one figure per multi-class dataset, one for all binary datasets
