@@ -85,7 +85,7 @@ These are estimates only. As requested, the plan is to run everything at full si
 - `atoms.csv` (fit table): one row per manifest atom with status, phase, failure type (`python_error` / `oom` / `timeout` / `node_failure` / `killed_unknown` / `missing`), failure phase, error line, SLURM log, test samples done, training size, fit time and peak memory, host, threads, `cap_hit`, `fit_info`.
   - The failure type of a killed atom comes from its SLURM log, found via the line `start <atom_id>`; the latest log counts.
 - `scores/<dataset>.csv` (wide, one per dataset because label ids differ in meaning between datasets): one row per atom × test sample, including unpredicted samples as NaN rows (`predicted` = False).
-  - Columns: identifiers incl. split (fold) and seed, status / failure, `n_cells`, abstention, prediction time and peak memory, and per class `n_<l>`, `prec_<l>`, `rec_<l>`, `f1_<l>`.
+  - Columns: identifiers incl. split (fold) and seed, status / failure, `n_cells`, abstention, prediction time and peak memory, and per class `n_<l>` (true count), `npred_<l>` (predicted count = tp + fp), `prec_<l>`, `rec_<l>`, `f1_<l>`. True / predicted fractions: `n_<l>` / `npred_<l>` divided by `n_cells` (predicted fractions + `abstention_rate` = 1).
   - Class scores follow D8; NaN where the denominator is 0.
   - The NaN-skipping mean of `f1_*` per row = the macro F1 of the tuning (`f1_from_counts`); weighted F1 with `n_<l>`; binary datasets `f1_1`.
 - `failures.csv`: atoms per method × dataset × failure × phase × error.

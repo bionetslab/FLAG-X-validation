@@ -37,7 +37,9 @@ Outputs (<out> = results/benchmark_eval by default):
                 method, dataset, split, seed, atom_id, config_id, train_downsampling, sample, atom_status, failure,
                 failure_phase, predicted, n_cells, n_abstained, abstention_rate, pred_s, pred_peak_mb,
                 pred_peak_increase_mb, pred_gpu_peak_mb, then per label l (order of meta_labels.csv):
-                n_<l> (true events of class l), prec_<l>, rec_<l>, f1_<l>.
+                n_<l> (true events of class l), npred_<l> (events predicted as l = tp + fp), prec_<l>, rec_<l>,
+                f1_<l>. True / predicted class fractions: n_<l> / n_cells and npred_<l> / n_cells (the predicted
+                fractions plus abstention_rate sum to 1).
                 predicted = the sample was predicted (also the finished samples of a killed atom; check atom_status);
                 otherwise all scores / prediction resources are NaN. n_cells is always filled.
                 Class scores (D8: an abstained event is an FN of its true class and an FP of no class):
@@ -223,8 +225,11 @@ def score_table(dataset, manifest, atoms, in_dir):
                 n_true = g['n_true'].to_numpy()
                 n_abst = int(g['n_abstained'].sum())
                 # n_cells = curated sample size; the counts cover n_events_used events (= n_cells, except --smoke)
+                n_pred = g['n_pred'].to_numpy()
                 if (int(g['n_events_sample'].iloc[0]) != row['n_cells']
-                        or int(n_true.sum()) != int(g['n_events_used'].iloc[0])):
+                        or int(n_true.sum()) != int(g['n_events_used'].iloc[0])
+                        or int(n_pred.sum()) + n_abst != int(n_true.sum())
+                        or not (n_pred == g['tp'].to_numpy() + g['fp'].to_numpy()).all()):
                     raise ValueError('event count mismatch for {} in {}'.format(s, counts_path))
                 prec, rec, f1 = class_scores(g['tp'], g['fp'], g['fn'])
                 row.update({'n_abstained': n_abst, 'abstention_rate': n_abst / float(n_true.sum()),
@@ -232,19 +237,20 @@ def score_table(dataset, manifest, atoms, in_dir):
                             'pred_peak_increase_mb': p.get('cpu_rss_peak_increase_mb'),
                             'pred_gpu_peak_mb': p.get('gpu_peak_mb')})
                 for i, l in enumerate(labels):
-                    row.update({'n_{}'.format(l): int(n_true[i]), 'prec_{}'.format(l): prec[i],
+                    row.update({'n_{}'.format(l): int(n_true[i]), 'npred_{}'.format(l): int(n_pred[i]),
+                                'prec_{}'.format(l): prec[i],
                                 'rec_{}'.format(l): rec[i], 'f1_{}'.format(l): f1[i]})
             rows.append(row)
     cols = (['method', 'dataset', 'split', 'seed', 'atom_id', 'config_id', 'train_downsampling', 'sample',
              'atom_status', 'failure', 'failure_phase', 'predicted', 'n_cells', 'n_abstained', 'abstention_rate',
              'pred_s', 'pred_peak_mb', 'pred_peak_increase_mb', 'pred_gpu_peak_mb']
-            + ['{}_{}'.format(m, l) for l in labels for m in ('n', 'prec', 'rec', 'f1')])
+            + ['{}_{}'.format(m, l) for l in labels for m in ('n', 'npred', 'prec', 'rec', 'f1')])
     t = pd.DataFrame(rows)
     for c in cols:
         if c not in t:
             t[c] = np.nan
     t = t[cols]
-    for c in ['n_abstained'] + ['n_{}'.format(l) for l in labels]:
+    for c in ['n_abstained'] + ['{}_{}'.format(m, l) for l in labels for m in ('n', 'npred')]:
         t[c] = t[c].astype('Int64')  # Integer counts, NA where not predicted
     return t
 
