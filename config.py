@@ -108,3 +108,12 @@ METHOD_COLORS = {  # Colorblind-friendly, muted: Paul Tol's 'muted' scheme (9) +
     'lda_abdelaal': '#CC6677', 'gmm_mocking': '#882255', 'rf': '#AA4499', 'hgb': '#332288', 'knn': '#EE8866',
     'logreg': '#77AADD', 'lda_sklearn': '#DDDDDD',
 }
+# Cell classes (short names, meta_labels.csv column 'name'): legend order and one color per class, the same in every
+# dataset. Colorblind-friendly, muted (Paul Tol's muted scheme + vibrant red for blasts); X (sorted out) and O (others)
+# in greys.
+CLASS_ORDER = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'Blast', 'X', 'O']
+CLASS_COLORS = {
+    'HSPC': '#882255', 'M': '#CC6677', 'M16': '#EE8866', 'Ma': '#AA4499', 'T': '#332288', 'Th': '#88CCEE',
+    'NK': '#44AA99', 'G': '#DDCC77', 'B': '#117733', 'dyB': '#999933', 'Blast': '#CC3311', 'X': '#777777',
+    'O': '#DDDDDD',
+}

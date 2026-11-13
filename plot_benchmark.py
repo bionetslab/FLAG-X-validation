@@ -1,6 +1,8 @@
 """
-Main benchmark figure (PLAN.md step 7 / 10): box plots of the sample-wise scores, one panel per dataset, one box per
-method, the individual test samples jittered on top, the outer test fold shown by the marker.
+Benchmark figures (PLAN.md step 7 / 10).
+
+Main figure: box plots of the sample-wise scores, one panel per dataset, one box per method, the individual test
+samples jittered on top, the outer test fold shown by the marker.
 
     scores_box.pdf   one point = one test sample: its score averaged over the model seeds (stochastic methods: 3
                      seeds, deterministic: 1); box = distribution over all test samples (all outer folds pooled):
@@ -13,8 +15,18 @@ Unpredicted samples (failed / killed / missing atoms) are left out; a seed mean 
 sample. A box with fewer samples than expected is annotated with 'k/n' (n = test samples of the dataset over all
 outer splits); a method without any predicted sample is marked 'n/a'.
 
-Order, names and colors of the datasets and methods: config.py, section Plotting (PLOT_DATASETS, DATASET_NAMES,
-PLOT_METHODS, METHOD_NAMES, METHOD_COLORS).
+Supplementary figures: predicted vs. true population sizes (as legacy fig2s_population_sizes), one figure per dataset.
+
+    population_<dataset>.pdf   one panel per method (3 x 4 grid); x = true share of a class in a test sample (%),
+                     y = predicted share (%, events predicted as the class / all events of the sample, averaged over
+                     the seeds that predicted the sample); one point per test sample x class, colored by class;
+                     dashed diagonal = perfect agreement. Abstained events belong to no class, so the predicted
+                     shares of a sample can sum to < 100 %. Statistics pooled over the points of a panel (SHOW_R2,
+                     SHOW_PEARSON): R^2 = 1 - sum (pred - true)^2 / sum (true - mean true)^2 (agreement with the
+                     diagonal, not a fitted line; as legacy r2_score(true, pred)) and Pearson r.
+
+Order, names and colors of the datasets, methods and classes: config.py, section Plotting (PLOT_DATASETS,
+DATASET_NAMES, PLOT_METHODS, METHOD_NAMES, METHOD_COLORS, CLASS_ORDER, CLASS_COLORS).
 
 Env: fx_plot (envs/plot.yml)
 
@@ -23,8 +35,8 @@ Usage:
         --in: output of benchmark_eval.py (default results/benchmark_eval; pilot: results/benchmark_pilot_eval)
         --out: figure directory (default figures/benchmark; pilot: e.g. figures/benchmark_pilot)
 
-Inputs: <in>/scores/<dataset>.csv
-Outputs: <out>/scores_box.pdf
+Inputs: <in>/scores/<dataset>.csv, data/curated/<dataset>/meta_labels.csv (class names)
+Outputs: <out>/scores_box.pdf, <out>/population_<dataset>.pdf
 """
 
 import argparse
@@ -35,8 +47,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from scipy.stats import pearsonr
 
-from config import RESULTS, FIGURES, PLOT_DATASETS, DATASET_NAMES, PLOT_METHODS, METHOD_NAMES, METHOD_COLORS
+from config import (DATA_CURATED, RESULTS, FIGURES, PLOT_DATASETS, DATASET_NAMES, PLOT_METHODS, METHOD_NAMES,
+                    METHOD_COLORS, CLASS_ORDER, CLASS_COLORS)
 
 
 OVERWRITE = True  # If False, existing figures are skipped
@@ -48,6 +62,11 @@ FOLD_MARKERS = ['o', 's', '^', 'D', 'v']  # Marker of outer split 0, 1, ...
 N_COLS = 2  # Panels per row
 N_LEGEND_COLS = 6  # Methods per legend row
 JITTER = 0.15  # Half-width of the horizontal point jitter (deterministic, seed 0)
+
+# Population figures
+POP_N_COLS = 4  # Method panels per row
+SHOW_R2 = True  # R^2 of predicted vs. true % (agreement with the diagonal) in each panel
+SHOW_PEARSON = False  # Pearson r in each panel
 
 
 def load_scores(in_dir, dataset):
@@ -162,13 +181,122 @@ def plot_scores_box(in_dir, path):
     plt.close(fig)
 
 
+def load_populations(in_dir, dataset):
+    """
+    True and predicted population sizes per test sample and class, averaged over the model seeds.
+
+    Args:
+        in_dir (str): Output directory of benchmark_eval.py.
+        dataset (str): Dataset name.
+
+    Returns:
+        pd.DataFrame: One row per method x outer split x predicted test sample x class with columns method, split,
+        sample, label, name (class short name), true_pct (100 n_<l> / n_cells), pred_pct (100 npred_<l> / n_cells,
+        mean over the seeds that predicted the sample). Methods without any predicted sample have no rows.
+    """
+    t = pd.read_csv(os.path.join(in_dir, 'scores', dataset + '.csv'))
+    t = t[t['predicted']]
+    names = pd.read_csv(os.path.join(DATA_CURATED, dataset, 'meta_labels.csv'))
+    parts = []
+    for l, name in zip(names['label'], names['name']):
+        parts.append(pd.DataFrame({
+            'method': t['method'], 'split': t['split'], 'sample': t['sample'], 'label': l, 'name': name,
+            'true_pct': 100.0 * t['n_{}'.format(l)] / t['n_cells'],
+            'pred_pct': 100.0 * t['npred_{}'.format(l)] / t['n_cells'],
+        }))
+    long = pd.concat(parts, ignore_index=True)
+    return (long.groupby(['method', 'split', 'sample', 'label', 'name'], sort=False)[['true_pct', 'pred_pct']]
+            .mean().reset_index())
+
+
+def agreement_text(true, pred):
+    """Statistics text of one panel (SHOW_R2, SHOW_PEARSON); R^2 against the diagonal (true as reference)."""
+    lines = []
+    if SHOW_R2:
+        r2 = 1.0 - np.sum((pred - true) ** 2) / np.sum((true - true.mean()) ** 2)
+        lines.append('$R^2$ = {:.3f}'.format(r2))
+    if SHOW_PEARSON:
+        lines.append('$r$ = {:.3f}'.format(pearsonr(true, pred)[0]))
+    return '\n'.join(lines)
+
+
+def plot_populations(in_dir, dataset, path):
+    """
+    Predicted vs. true population sizes of one dataset: one panel per method (columns: module docstring).
+
+    Args:
+        in_dir (str): Output directory of benchmark_eval.py.
+        dataset (str): Dataset name.
+        path (str): Output PDF.
+    """
+    pop = load_populations(in_dir, dataset)
+    present = set(pd.read_csv(os.path.join(in_dir, 'scores', dataset + '.csv'), usecols=['method'])['method'])
+    methods = [m for m in PLOT_METHODS if m in present]
+    classes = [c for c in CLASS_ORDER if c in set(pop['name'])] + sorted(set(pop['name']) - set(CLASS_ORDER))
+
+    n_rows = int(np.ceil(len(methods) / float(POP_N_COLS)))
+    fig, axes = plt.subplots(n_rows, POP_N_COLS, figsize=(9, 2.3 * n_rows + 1.0), sharex=True, sharey=True,
+                             squeeze=False, layout='constrained')
+    for k, ax in enumerate(axes.flat):
+        if k >= len(methods):
+            ax.set_visible(False)
+            continue
+        p = pop[pop['method'] == methods[k]]
+        ax.plot([0, 100], [0, 100], linestyle='--', color='0.5', linewidth=0.8, zorder=1)
+        if p.empty:
+            ax.text(0.75, 0.25, 'n/a', transform=ax.transAxes, ha='center', va='center', fontsize=8, color='0.5')
+        else:
+            for c in classes:  # Classes in legend order; later ones on top
+                g = p[p['name'] == c]
+                ax.scatter(g['true_pct'], g['pred_pct'], s=12, color=CLASS_COLORS.get(c, '0.5'), edgecolors='black',
+                           linewidths=0.3, alpha=0.8, zorder=2)
+            text = agreement_text(p['true_pct'].to_numpy(), p['pred_pct'].to_numpy())
+            if text:
+                ax.text(0.04, 0.96, text, transform=ax.transAxes, ha='left', va='top', fontsize=7,
+                        bbox={'facecolor': 'white', 'alpha': 0.7, 'edgecolor': 'none', 'pad': 1.5})
+        ax.set_title(METHOD_NAMES[methods[k]], fontsize=9)
+        ax.set_xlim(-3, 103)
+        ax.set_ylim(-3, 103)
+        ax.set_xticks([0, 50, 100])
+        ax.set_yticks([0, 50, 100])
+        ax.set_aspect('equal')
+        ax.tick_params(labelsize=7)
+        ax.grid(linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_axisbelow(True)
+        for side in ('top', 'right'):
+            ax.spines[side].set_visible(False)
+        if k % POP_N_COLS == 0:
+            ax.set_ylabel('Predicted (%)', fontsize=8)
+        if k >= len(methods) - POP_N_COLS:  # Bottom panel of each column
+            ax.set_xlabel('True (%)', fontsize=8)
+            ax.tick_params(axis='x', labelbottom=True)
+    fig.suptitle(DATASET_NAMES[dataset] + ': predicted vs. true population size per test sample', fontsize=10)
+    handles = [Line2D([], [], linestyle='', marker='o', color=CLASS_COLORS.get(c, '0.5'), markeredgecolor='black',
+                      markeredgewidth=0.3, label=c) for c in classes]
+    fig.legend(handles=handles, loc='outside lower center', ncol=len(handles), frameon=False, fontsize=8,
+               title='Class', title_fontsize=8)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def main(in_dir, out_dir):
     path = os.path.join(out_dir, 'scores_box.pdf')
     if os.path.exists(path) and not OVERWRITE:
         print('exists, skipped:', path)
-        return
-    plot_scores_box(in_dir, path)
-    print('written:', path)
+    else:
+        plot_scores_box(in_dir, path)
+        print('written:', path)
+
+    for dataset in PLOT_DATASETS:
+        if not os.path.exists(os.path.join(in_dir, 'scores', dataset + '.csv')):
+            continue
+        path = os.path.join(out_dir, 'population_{}.pdf'.format(dataset))
+        if os.path.exists(path) and not OVERWRITE:
+            print('exists, skipped:', path)
+            continue
+        plot_populations(in_dir, dataset, path)
+        print('written:', path)
 
 
 if __name__ == '__main__':
