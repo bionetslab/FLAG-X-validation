@@ -94,7 +94,7 @@ DATASET_NAMES = {
     'blast110_p4': 'BLAST110 P4',
 }
 PLOT_METHODS = [
-    'deepcytof', 'dgcytof', 'mlp', 'som', 'gatemeclass', 'gmm_mocking', 'lda_abdelaal',
+    'mlp', 'dgcytof', 'deepcytof', 'som', 'gatemeclass', 'gmm_mocking', 'lda_abdelaal',
     'lda_sklearn', 'logreg', 'knn', 'rf', 'hgb'  
 ]
 METHOD_NAMES = {
