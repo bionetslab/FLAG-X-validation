@@ -27,19 +27,13 @@ import matplotlib.transforms as mtransforms
 from matplotlib.lines import Line2D
 from matplotlib.ticker import ScalarFormatter
 
-from config import DATA_CURATED, RESULTS, FIGURES, DATASETS
+from config import DATA_CURATED, RESULTS, FIGURES, DATASETS, PLOT_DATASETS, DATASET_NAMES
 
 
-OVERWRITE = False  # If False, existing CSVs of part 1 are reused
+OVERWRITE = True  # If False, existing CSVs of part 1 are reused
 
 RES_DIR = os.path.join(RESULTS, 'dataset_overview')
 FIG_DIR = os.path.join(FIGURES, 'dataset_overview')
-
-DATASET_NAMES = {
-    'imstat': 'Imstat', 'lt1': 'Lt1', 'lt2': 'Lt2', 'lt1b': 'Lt1b', 'lt2b': 'Lt2b', 'flowcyt': 'Flowcyt',
-    'blast110_p1': 'BLAST110 P1', 'blast110_p2': 'BLAST110 P2', 'blast110_p3': 'BLAST110 P3',
-    'blast110_p4': 'BLAST110 P4',
-}
 
 # Order of the class labels (short names from meta_labels.csv) on the x-axis of the class balance panels
 LABEL_ORDER = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'Blast', 'X', 'O']
@@ -122,7 +116,7 @@ def plot_sample_sizes(hue: list[str] | None = None):
         """
     )
 
-    for dataset, key in zip(DATASETS, 'ABCDEFGHIJ'):
+    for dataset, key in zip(PLOT_DATASETS, 'ABCDEFGHIJ'):
         df_dataset = df[df['dataset'] == dataset]
         hue_col = get_hue_column(df_dataset, hue)
         sample_sizes_panel(
@@ -148,7 +142,7 @@ def plot_sample_sizes_box(hue: list[str] | None = None, log_scale: bool = True):
 
     styles = get_hue_styles(df['group'])
     box_strip_panel(
-        data=df, x='dataset_name', y='n_events', order=[DATASET_NAMES[d] for d in DATASETS], styles=styles,
+        data=df, x='dataset_name', y='n_events', order=[DATASET_NAMES[d] for d in PLOT_DATASETS], styles=styles,
         log_scale=log_scale, ax=ax,
     )
     if styles:

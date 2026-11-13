@@ -22,21 +22,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from config import RESULTS, FIGURES
+from config import RESULTS, FIGURES, PLOT_METHODS, METHOD_NAMES
 
 
-OVERWRITE = False  # If False, existing figures are skipped
+OVERWRITE = True  # If False, existing figures are skipped
 
 RES_DIR = os.path.join(RESULTS, 'tune_hyperparameters_eval', 'effect_of_tuning')
 FIG_DIR = os.path.join(FIGURES, 'tune_hyperparameters_eval')
-
-# x-axis order: FLAG-X, published methods, tabular baselines
-METHOD_NAMES = {
-    'som': 'FLAG-X SOM', 'mlp': 'FLAG-X MLP',
-    'dgcytof': 'DGCyTOF', 'deepcytof': 'DeepCyTOF', 'gatemeclass': 'GateMeClass', 'lda_abdelaal': 'LDA-Abdelaal',
-    'gmm_mocking': 'GMM-Mocking',
-    'rf': 'RF', 'hgb': 'HGB', 'knn': 'kNN', 'logreg': 'LogReg', 'lda_sklearn': 'LDA-sklearn',
-}
 
 BOX_COLOR = '#4C72B0'
 POINT_COLOR = '#333333'
@@ -52,7 +44,7 @@ def plot_box(units, title, path):
         title (str): Axes title.
         path (str): Output PDF.
     """
-    methods = [m for m in METHOD_NAMES if m in set(units['method'])]
+    methods = [m for m in PLOT_METHODS if m in set(units['method'])]  # x-axis order: config.PLOT_METHODS
     data, labels = [], []
     for m in methods:
         d = units.loc[units['method'] == m, 'delta']
