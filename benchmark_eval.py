@@ -48,6 +48,16 @@ Outputs (<out> = results/benchmark_eval by default):
                 So the NaN-skipping row mean of f1_* is the macro F1 of validation.core.scores.f1_from_counts (as in
                 the tuning); weighted F1 uses n_<l> as weights; binary datasets use f1_1.
     failures.csv   number of atoms per method x dataset x failure x failure_phase x error
+    populations/<dataset>.csv   population sizes, one row per predicted atom x test sample x class (all classes,
+                also the negative class O of the binary datasets; seeds separate): method, dataset, split, seed, atom_id,
+                sample, label, name (class short name, meta_labels.csv), n_cells, true_pct = 100 n_<l> / n_cells,
+                pred_pct = 100 npred_<l> / n_cells, d_pp = pred_pct - true_pct (error in percentage points),
+                mean_pct = (pred_pct + true_pct) / 2, present = n_<l> + npred_<l> > 0. Abstained events belong to no
+                class, so per sample the d_pp of all classes sum to -100 abstention_rate.
+    population_agreement.csv   Bland-Altman statistics per method x dataset x class (validation.eval_helpers.ba_stats)
+                on the seed means (population_seed_mean: one point per test sample x class, as in plot_benchmark.py),
+                only present points (class in the sample or predicted): n, bias_pp, sd_pp, mae_pp, loa_low_pp,
+                loa_high_pp (bias -/+ 1.96 SD).
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -64,7 +74,7 @@ import config
 from benchmark import atom_paths
 from validation.core.runs import read_manifest
 from validation.core.scores import class_scores
-from validation.eval_helpers import cap_hit, failure_type, write_csv
+from validation.eval_helpers import ba_stats, cap_hit, failure_type, population_seed_mean, write_csv
 
 IN_DIR = os.path.join(config.RESULTS, 'benchmark')
 OUT_DIR = os.path.join(config.RESULTS, 'benchmark_eval')
@@ -266,11 +276,67 @@ def failure_table(atoms):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Part 4: population sizes (long) and Part 5: their agreement (Bland-Altman statistics)
+# ---------------------------------------------------------------------------------------------------------------
+
+def population_table(dataset, scores):
+    """
+    One row per predicted atom x test sample x class (columns: module docstring).
+
+    Args:
+        dataset (str): Dataset name.
+        scores (pd.DataFrame): Score table of the dataset (Part 2).
+    """
+    t = scores[scores['predicted'].astype(bool)]
+    names = pd.read_csv(os.path.join(config.DATA_CURATED, dataset, 'meta_labels.csv'))
+    parts = []
+    for l, name in zip(names['label'], names['name']):
+        n_true = t['n_{}'.format(l)].astype(float)
+        n_pred = t['npred_{}'.format(l)].astype(float)
+        parts.append(pd.DataFrame({
+            'method': t['method'], 'dataset': dataset, 'split': t['split'], 'seed': t['seed'],
+            'atom_id': t['atom_id'], 'sample': t['sample'], 'label': l, 'name': name, 'n_cells': t['n_cells'],
+            'true_pct': 100.0 * n_true / t['n_cells'], 'pred_pct': 100.0 * n_pred / t['n_cells'],
+            'present': (n_true + n_pred) > 0,
+        }))
+    cols = ['method', 'dataset', 'split', 'seed', 'atom_id', 'sample', 'label', 'name', 'n_cells', 'true_pct',
+            'pred_pct', 'd_pp', 'mean_pct', 'present']
+    if not parts or t.empty:
+        return pd.DataFrame(columns=cols)
+    pop = pd.concat(parts).sort_index(kind='stable').reset_index(drop=True)  # Atom x sample, then classes
+    pop['d_pp'] = pop['pred_pct'] - pop['true_pct']
+    pop['mean_pct'] = (pop['pred_pct'] + pop['true_pct']) / 2.0
+    return pop[cols]
+
+
+def agreement_table(pops):
+    """
+    Bland-Altman statistics per method x dataset x class on the seed means, present points only.
+
+    Args:
+        pops (list of pd.DataFrame): Population tables (Part 4) of the datasets.
+    """
+    rows = []
+    for pop in pops:
+        if pop.empty:
+            continue
+        m = population_seed_mean(pop)
+        m = m[m['present']]
+        for (method, dataset, label, name), g in m.groupby(['method', 'dataset', 'label', 'name'], sort=False):
+            row = {'method': method, 'dataset': dataset, 'label': label, 'name': name}
+            row.update(ba_stats(g['d_pp']))
+            rows.append(row)
+    return pd.DataFrame(rows, columns=['method', 'dataset', 'label', 'name', 'n', 'bias_pp', 'sd_pp', 'mae_pp',
+                                       'loa_low_pp', 'loa_high_pp'])
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------------------------
 
 def main(in_dir, out_dir):
     os.makedirs(os.path.join(out_dir, 'scores'), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, 'populations'), exist_ok=True)
     manifest = load_manifest(in_dir)
 
     # --- Part 1: fit table
@@ -298,6 +364,24 @@ def main(in_dir, out_dir):
     if not done(p_fail):
         write_csv(failure_table(atoms), p_fail)
     print('failures:', p_fail)
+
+    # --- Part 4: population sizes
+    pops = []
+    for dataset in datasets:
+        path = os.path.join(out_dir, 'populations', dataset + '.csv')
+        if done(path):
+            pops.append(pd.read_csv(path))
+            continue
+        pop = population_table(dataset, pd.read_csv(os.path.join(out_dir, 'scores', dataset + '.csv')))
+        write_csv(pop, path)
+        pops.append(pop)
+        print('populations {}: {} rows'.format(dataset, len(pop)))
+
+    # --- Part 5: agreement of the population sizes
+    p_agree = os.path.join(out_dir, 'population_agreement.csv')
+    if not done(p_agree):
+        write_csv(agreement_table(pops), p_agree)
+    print('population agreement:', p_agree)
 
 
 if __name__ == '__main__':
