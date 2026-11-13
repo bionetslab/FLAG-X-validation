@@ -37,6 +37,28 @@ def f1_from_counts(tp, fp, fn, binary=False):
     return float(np.mean(2 * tp[present] / denom[present]))
 
 
+def class_scores(tp, fp, fn):
+    """
+    Per-class precision, recall and F1 of one sample from its per-class counts (scoring rule D8 is in the counts).
+
+    Args:
+        tp, fp, fn (array-like): Per-class counts of one sample, shape (K,), in label order (meta_labels.csv).
+
+    Returns:
+        (np.ndarray, np.ndarray, np.ndarray): precision = tp / (tp + fp), NaN if tp + fp = 0 (class not predicted);
+        recall = tp / (tp + fn), NaN if tp + fn = 0 (class not in the sample); F1 = 2 tp / (2 tp + fp + fn), NaN if
+        the class is neither in the sample nor predicted. The NaN-skipping mean of F1 equals f1_from_counts (macro).
+    """
+    tp = np.asarray(tp, dtype=np.float64)
+    fp = np.asarray(fp, dtype=np.float64)
+    fn = np.asarray(fn, dtype=np.float64)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        prec = np.where(tp + fp > 0, tp / (tp + fp), np.nan)
+        rec = np.where(tp + fn > 0, tp / (tp + fn), np.nan)
+        f1 = np.where(2 * tp + fp + fn > 0, 2 * tp / (2 * tp + fp + fn), np.nan)
+    return prec, rec, f1
+
+
 def abstention_rate(n_abstained, n_true):
     """Share of the sample's events with abstention (-1): sum(n_abstained) / sum(n_true); NaN for an empty sample."""
     n = float(np.sum(n_true))
