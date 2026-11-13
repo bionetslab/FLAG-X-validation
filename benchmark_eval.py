@@ -58,6 +58,15 @@ Outputs (<out> = results/benchmark_eval by default):
                 on the seed means (population_seed_mean: one point per test sample x class, as in plot_benchmark.py),
                 only present points (class in the sample or predicted): n, bias_pp, sd_pp, mae_pp, loa_low_pp,
                 loa_high_pp (bias -/+ 1.96 SD).
+    fold_seed_scores.csv   one row per manifest atom (method x dataset x outer split = fold x seed) x metric: method,
+                dataset, split, seed, metric (f1 / prec / rec), average ('macro' for multi-class datasets: NaN-mean of
+                the per-class <metric>_<l> of a sample; 'binary' for datasets with 2 labels: <metric>_1, the positive
+                class), m (mean of the sample scores over the fold's test samples), n_samples (test samples),
+                n_valid (samples with a score). Missingness propagates: m is NaN if any test sample of the fold has
+                no score (not predicted: failed / killed / missing atom, or the score is undefined).
+    fold_seed_variability.csv   one row per method x dataset x metric: method, dataset, metric, average, mean,
+                fold_sd, seed_sd (formulas: fold_seed_stats; seed_sd empty for deterministic methods with 1 seed),
+                n_folds, n_seeds. NaN propagates from any NaN m.
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -331,6 +340,82 @@ def agreement_table(pops):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Part 6: fold x seed means and the fold / seed variability
+# ---------------------------------------------------------------------------------------------------------------
+
+METRICS = ['f1', 'prec', 'rec']
+
+
+def fold_seed_table(dataset, scores):
+    """
+    Mean score per fold x seed (atom) and metric (columns: module docstring).
+
+    Args:
+        dataset (str): Dataset name.
+        scores (pd.DataFrame): Score table of the dataset (Part 2): one row per manifest atom x test sample.
+    """
+    labels = [c[3:] for c in scores.columns if c.startswith('f1_')]
+    average = 'binary' if len(labels) == 2 else 'macro'
+    rows = []
+    for metric in METRICS:
+        if average == 'binary':
+            sample = scores['{}_1'.format(metric)]
+        else:
+            sample = scores[['{}_{}'.format(metric, l) for l in labels]].mean(axis=1, skipna=True)
+        sample = sample.where(scores['predicted'].astype(bool))
+        g = sample.groupby([scores['method'], scores['split'], scores['seed']], sort=False)
+        t = pd.DataFrame({'m': g.mean(), 'n_samples': g.size(), 'n_valid': g.count()}).reset_index()
+        t.loc[t['n_valid'] < t['n_samples'], 'm'] = np.nan  # Missingness propagates
+        t.insert(1, 'dataset', dataset)
+        t.insert(4, 'metric', metric)
+        t.insert(5, 'average', average)
+        rows.append(t)
+    return pd.concat(rows, ignore_index=True)
+
+
+def fold_seed_stats(m):
+    """
+    Overall mean and the fold / seed standard deviations of a fold x seed table of mean scores.
+
+    With m_{f,s} the mean score over the test samples of fold f (f = 1..F) and seed s (s = 1..S):
+
+        M        = 1/(F S) sum_f sum_s m_{f,s}                                  overall mean
+        m_f      = 1/S sum_s m_{f,s}                                            fold mean (over the seeds)
+        sd_fold  = sqrt( 1/(F-1) sum_f (m_f - M)^2 )                            fold SD
+        sd_seed  = sqrt( 1/(F (S-1)) sum_f sum_s (m_{f,s} - m_f)^2 )            seed SD (pooled within-fold variance)
+
+    sd_seed is NaN for S = 1 (deterministic methods). Any NaN m_{f,s} makes all three NaN.
+
+    Args:
+        m (np.ndarray): Shape (F, S).
+
+    Returns:
+        (float, float, float): M, sd_fold, sd_seed.
+    """
+    m = np.asarray(m, dtype=np.float64)
+    f, s = m.shape
+    if np.isnan(m).any():
+        return np.nan, np.nan, np.nan
+    mean = m.mean()
+    m_f = m.mean(axis=1)
+    sd_fold = np.sqrt(np.sum((m_f - mean) ** 2) / (f - 1)) if f > 1 else np.nan
+    sd_seed = np.sqrt(np.sum((m - m_f[:, None]) ** 2) / (f * (s - 1))) if s > 1 else np.nan
+    return float(mean), float(sd_fold), float(sd_seed)
+
+
+def variability_table(fold_seed):
+    """One row per method x dataset x metric with mean, fold_sd, seed_sd (fold_seed_stats)."""
+    rows = []
+    for (method, dataset, metric, average), g in fold_seed.groupby(['method', 'dataset', 'metric', 'average'],
+                                                                     sort=False):
+        mat = g.pivot(index='split', columns='seed', values='m').sort_index().sort_index(axis=1)
+        mean, sd_fold, sd_seed = fold_seed_stats(mat.to_numpy())
+        rows.append({'method': method, 'dataset': dataset, 'metric': metric, 'average': average, 'mean': mean,
+                     'fold_sd': sd_fold, 'seed_sd': sd_seed, 'n_folds': mat.shape[0], 'n_seeds': mat.shape[1]})
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -382,6 +467,19 @@ def main(in_dir, out_dir):
     if not done(p_agree):
         write_csv(agreement_table(pops), p_agree)
     print('population agreement:', p_agree)
+
+    # --- Part 6: fold x seed means and their variability
+    p_fs = os.path.join(out_dir, 'fold_seed_scores.csv')
+    if done(p_fs):
+        fold_seed = pd.read_csv(p_fs)
+    else:
+        fold_seed = pd.concat([fold_seed_table(d, pd.read_csv(os.path.join(out_dir, 'scores', d + '.csv')))
+                               for d in datasets], ignore_index=True)
+        write_csv(fold_seed, p_fs)
+    p_var = os.path.join(out_dir, 'fold_seed_variability.csv')
+    if not done(p_var):
+        write_csv(variability_table(fold_seed), p_var)
+    print('fold / seed variability:', p_var)
 
 
 if __name__ == '__main__':
