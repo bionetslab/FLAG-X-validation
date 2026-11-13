@@ -73,6 +73,7 @@ import pandas as pd
 import config
 from validation.core.runs import save_json
 from validation.core.scores import abstention_rate, f1_from_counts
+from validation.eval_helpers import cap_hit, last_line, write_csv
 
 
 DATASET = 'imstat'
@@ -89,19 +90,6 @@ FLAT_TOL = 0.01  # Grid flatness: configs whose mean is within FLAT_TOL of the b
 # ---------------------------------------------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------------------------------------------
-
-def write_csv(df, path):
-    """
-    Writes a table atomically: first to <path>.tmp, then os.replace, so a killed run never leaves a half-written file.
-
-    Args:
-        df (pd.DataFrame): Table to write (the index is not written).
-        path (str): Output CSV file; its directory must exist.
-    """
-    tmp = path + '.tmp'
-    df.to_csv(tmp, index=False)
-    os.replace(tmp, path)
-
 
 def done(*paths):
     """
@@ -139,42 +127,6 @@ def aggregate(df, by, value, prefix=''):
     has_nan = df[value].isna().groupby([df[c] for c in by], sort=True).any()
     out.loc[has_nan.values, [prefix + 'mean', prefix + 'sd']] = np.nan
     return out.reset_index()
-
-
-def last_line(text):
-    """
-    Args:
-        text (str or None): A traceback (the 'error' field of the atom results JSON).
-
-    Returns:
-        str: Its last non-empty line (the exception, e.g. "ValueError: ..."), or '' if there is none.
-    """
-    lines = [l for l in (text or '').strip().splitlines() if l.strip()]
-    return lines[-1] if lines else ''
-
-
-def cap_hit(method, params, fit_info):
-    """
-    Whether training stopped at the iteration cap instead of converging / early stopping.
-
-    Args:
-        method (str): Method name.
-        params (dict): Params of the atom's config (atom results JSON 'params').
-        fit_info (dict or None): The atom results JSON 'fit_info' (only HGB, GMM-Mocking and MLP store one).
-
-    Returns:
-        bool or None: HGB: n_iter >= max_iter; GMM-Mocking: a per-class mixture did not converge; MLP with early
-        stopping: epochs_trained >= n_epochs. None for every other method / config (no cap or nothing stored).
-    """
-    if not fit_info:
-        return None
-    if method == 'hgb':
-        return bool(fit_info['n_iter'] >= params['max_iter'])
-    if method == 'gmm_mocking':
-        return not all(fit_info['converged'])
-    if method == 'mlp':
-        return bool(fit_info['epochs_trained'] >= params['n_epochs']) if params['early_stopping'] else None
-    return None
 
 
 # ---------------------------------------------------------------------------------------------------------------
