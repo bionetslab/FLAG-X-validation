@@ -256,3 +256,38 @@ All grids reviewed one by one with the user; justification of every grid (tuned 
 - **Fix** (`validation/runners/som.py`, commit `10116c13`): `_ChunkedBMUSOMClassifier(SOMClassifier)` overrides the two helpers (marked `# MOD:`): `_custom_get_surface_state` passes the data through, `_custom_get_bmus` computes the distances in chunks of `BMU_CHUNK_SIZE = 100000` events with flagx's own `_compute_distances` and keeps only the argmin. Somoclu training and flagx are untouched; `topographic_error` / `transform` are not supported by the subclass (not used). Checks (imstat, 3 samples, 25×25, uneven chunks of 7777 events): on the same trained SOM, unit class counts, unit labels, `predict` and `predict_proba` (train and a test sample) are identical to the original path. Memory: 10M events 6 GB peak with 1M chunks vs. +50 GB for the full matrix (constant in N; 100k chunks: ~0.5 GB per chunk). Time equal or faster (40k events 0.18 vs. 0.20 s, 3M events 14.0 vs. 16.1 s, 8 threads).
 - **SOM is not deterministic** (commit `7f1df6f8`): two identical fits (`initialization='pca'`) give different Somoclu codebooks (max abs diff ~0.03), likely from the multithreaded OpenMP updates. SOM already is a stochastic method with 3 seeds in `N_SEEDS`; only the runner docstring was wrong. The seed does not control this variation, so a single SOM atom is not bit-reproducible (to be stated in the methods).
 - **Consequence:** no caps needed: with the SOM fix every method fits on every dataset at full size, so `TRAIN_DOWNSAMPLING` stays off. Estimated final run (pilot total time × 5 splits × seeds; SOM BLAST110 at 18 h): Woody ~3000 node-h (flagx_cpu 1415, deepcytof_cpu 738, gatemeclass_cpu 575, sklearn_cpu 266, lda_cpu 3), TinyGPU ~500 GPU-h.
+
+## Step 7 (cont.): Evaluation tables, `benchmark_eval.py` (2026-11-11)
+- **Implemented:**
+  - `benchmark_eval.py` (env `fx_plot`, parts skipped if their outputs exist), `--in` for the pilot (`results/benchmark_pilot`).
+  - `validation/eval_helpers.py`: `write_csv`, `last_line`, `cap_hit` moved from `tune_hyperparameters_eval.py` (which imports them now), plus `failure_type`.
+  - `validation/core/scores.py`: `class_scores(tp, fp, fn)` (per-class precision / recall / F1, NaN for a zero denominator; numpy, Py3.5), for reuse beyond the eval.
+- **Decisions:**
+  - Score tables wide, one per dataset: one row per atom × test sample, per class `n_<l>` / `prec_<l>` / `rec_<l>` / `f1_<l>`, so macro (NaN-mean), weighted (`n_<l>`) or binary (`f1_1`) aggregation can be chosen later. One file per dataset because label ids mean different classes in different datasets.
+  - Class scores follow D8, with NaN for a zero denominator (F1: class neither present nor predicted, the sklearn / legacy convention of `f1_from_counts`).
+  - Unpredicted test samples (failed, killed, missing atoms) are NaN rows with `predicted = False`, as in the tuning eval.
+  - Failure type per atom, with the patterns in `validation/eval_helpers.py`:
+    - `python_error` (traceback last line);
+    - `oom` (MemoryError / CUDA OOM in the traceback, or an OOM kill in the SLURM log);
+    - `timeout` (`DUE TO TIME LIMIT`);
+    - `node_failure`;
+    - `killed_unknown`;
+    - `missing`.
+
+    The phase (`fit` / `predict`) comes from the JSON. A killed atom's log is found via `start <atom_id>`; the latest job id counts.
+  - Fit table `atoms.csv` separate from the score tables (fit time, peak / increase RSS, GPU peak, training size, status, failure).
+- **Checks** (scratch input: smoke atoms, the full downsampled LDA-Abdelaal Imstat atom, the kNN atom killed after 6 / 26 test samples, fake SLURM logs):
+  - Row count per dataset = Σ manifest atoms × test samples; `n_cells` = curated sample sizes; all scores / prediction resources NaN for unpredicted rows.
+  - Macro F1 as NaN-mean of `f1_*` = `f1_from_counts` and `n_<l>` = `n_true` for all 44 predicted rows.
+  - Precision / recall / F1 = sklearn `precision_recall_fscore_support` on the saved labels (26 full test samples, max |diff| 1e-16).
+  - Killed kNN atom: `timeout` / `predict` from the newer of two logs (the older one reported an OOM kill), 6 predicted + 20 NaN rows.
+  - GMM smoke error → `python_error`. `failure_type` unit cases: node failure, OOM kill, MemoryError, CUDA OOM, IndexError, no reason → `killed_unknown`.
+  - `tune_hyperparameters_eval.py` after the helper move: rerun into scratch, `diff -r` against `results/tune_hyperparameters_eval/` identical.
+- **Addition (2026-11-13): predicted counts per class.** `scores/<dataset>.csv` got `npred_<l>` (events predicted as class l = tp + fp, from the counts' `n_pred`) after `n_<l>`, for true vs. predicted class fractions (`/ n_cells`). It could not be recovered from prec / rec when tp = 0 and fp > 0 (7 such cells in the pilot). Checks on the pilot (`--in results/benchmark_pilot`, into scratch): all other columns and `atoms.csv` / `failures.csv` identical to the earlier output; `npred_<l>` = `n_pred` = tp + fp; Σ `npred_<l>` + `n_abstained` = Σ `n_<l>` = `n_cells` for every predicted row; NA in unpredicted rows; `npred_<l>` = rec · n / prec where prec > 0, and prec NaN ⇔ `npred_<l>` = 0.
+
+## Step 7 (cont.): Benchmark box plot, `plot_benchmark.py` (2026-11-13)
+- **Implemented:** `plot_benchmark.py` (env `fx_plot`, `--in` / `--out`, figure skipped if it exists): `scores_box.pdf`, one panel per dataset (5 × 2 grid, shared axes), one box per method (colored, alpha 0.9, no fliers; style of legacy `plot_performance_score_box_plot`), the points jittered on top (deterministic, seed 0) with one marker per outer test fold, 'k/n' above incomplete boxes and 'n/a' for methods without predictions, legend under the figure (methods in rows of 6, then the folds).
+- **Global order and colors** (user request): new section Plotting in `config.py`: `PLOT_DATASETS`, `DATASET_NAMES`, `PLOT_METHODS` (FLAG-X, published methods, baselines), `METHOD_NAMES`, `METHOD_COLORS` (colorblind-friendly, muted: Paul Tol's muted scheme + 3 of his light scheme, as hex). Separate from `DATASETS`, the run order: `benchmark.py` numbers the manifest rows by looping over `DATASETS`, so reordering it would change the array indices (atom ids, seeds and results would not change); the plot order can be changed freely. `plot_effect_of_tuning.py` and `plot_dataset_overview.py` (panel order) import the names from there (same values and order as before, so no output change).
+- **Decisions (with the user):** panel per dataset (not the legacy single axis with 120 boxes); score as in the tuning (macro F1 = NaN-mean of `f1_*`, binary datasets `f1_1`); one point = one test sample, averaged over the model seeds that predicted it; the box pools all outer folds.
+- **Checks** (pilot, `--in results/benchmark_pilot_eval`): all 2246 plotted points equal an independent recomputation with `f1_from_counts` from the pilot counts CSVs (binary for lt1b / lt2b / BLAST110); seed averaging on a synthetic table (2 predicted seeds + 1 failed seed: mean of the two, failed one skipped); figure inspected (10 panels, SOM × BLAST110 'n/a' from the pilot OOM, split-0 marker only).
+- **Y-axis labels** (user request): `F1 macro` for multi-class datasets, `F1 binary` (F1 of the positive class, label 1) for the datasets with 2 labels (lt1b, lt2b, BLAST110); binary is decided by the number of labels, as in the eval scripts.

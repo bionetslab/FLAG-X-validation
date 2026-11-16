@@ -18,7 +18,7 @@ FIGURES = os.path.join(ROOT, 'figures')
 # ### Randomness
 SEED = 42
 
-# ### Datasets
+# ### Datasets (run order of the pipeline: curation, splits, benchmark manifests; plot order: PLOT_DATASETS)
 DATASETS = [
     'imstat', 'lt1', 'lt2', 'lt1b', 'lt2b', 'flowcyt', 'blast110_p1', 'blast110_p2', 'blast110_p3', 'blast110_p4',
 ]
@@ -80,3 +80,40 @@ LOG10_CUTOFFS = {
 }
 LOG10_CUTOFFS['lt1b'] = LOG10_CUTOFFS['lt1']
 LOG10_CUTOFFS['lt2b'] = LOG10_CUTOFFS['lt2']
+
+
+# ### Plotting
+# Order, display names and colors of the datasets and methods in all figures. Only plot scripts use these, so they can be
+# changed freely (DATASETS above is the run order: changing it would change the benchmark manifest indices).
+PLOT_DATASETS = [
+    'imstat', 'flowcyt', 'lt1', 'lt2', 'lt1b', 'lt2b', 'blast110_p1', 'blast110_p2', 'blast110_p3', 'blast110_p4',
+]
+DATASET_NAMES = {
+    'imstat': 'Imstat', 'lt1': 'Lt1', 'lt2': 'Lt2', 'lt1b': 'Lt1b', 'lt2b': 'Lt2b', 'flowcyt': 'Flowcyt',
+    'blast110_p1': 'BLAST110 P1', 'blast110_p2': 'BLAST110 P2', 'blast110_p3': 'BLAST110 P3',
+    'blast110_p4': 'BLAST110 P4',
+}
+PLOT_METHODS = [
+    'mlp', 'dgcytof', 'deepcytof', 'som', 'gatemeclass', 'gmm_mocking', 'lda_abdelaal',
+    'lda_sklearn', 'logreg', 'knn', 'rf', 'hgb'  
+]
+METHOD_NAMES = {
+    'som': 'SOM classifier', 'mlp': 'MLP classifier',
+    'dgcytof': 'DGCyTOF', 'deepcytof': 'DeepCyTOF', 'gatemeclass': 'GateMeClass', 'lda_abdelaal': 'LDA-Abdelaal',
+    'gmm_mocking': 'GMM-Mocking',
+    'rf': 'RF', 'hgb': 'HGB', 'knn': 'kNN', 'logreg': 'LogReg', 'lda_sklearn': 'LDA-sklearn',
+}
+METHOD_COLORS = {  # Colorblind-friendly, muted: Paul Tol's 'muted' scheme (9) + 3 of his 'light' scheme
+    'som': '#88CCEE', 'mlp': '#44AA99', 'dgcytof': '#117733', 'deepcytof': '#999933', 'gatemeclass': '#DDCC77',
+    'lda_abdelaal': '#CC6677', 'gmm_mocking': '#882255', 'rf': '#AA4499', 'hgb': '#332288', 'knn': '#EE8866',
+    'logreg': '#77AADD', 'lda_sklearn': '#DDDDDD',
+}
+# Cell classes (short names, meta_labels.csv column 'name'): legend order and one color per class, the same in every
+# dataset. Colorblind-friendly, muted (Paul Tol's muted scheme + vibrant red for blasts); X (sorted out) and O (others)
+# in greys.
+CLASS_ORDER = ['HSPC', 'M', 'M16', 'Ma', 'T', 'Th', 'NK', 'G', 'B', 'dyB', 'Blast', 'X', 'O']
+CLASS_COLORS = {
+    'HSPC': '#882255', 'M': '#CC6677', 'M16': '#EE8866', 'Ma': '#AA4499', 'T': '#332288', 'Th': '#88CCEE',
+    'NK': '#44AA99', 'G': '#DDCC77', 'B': '#117733', 'dyB': '#999933', 'Blast': '#CC3311', 'X': '#777777',
+    'O': '#DDDDDD',
+}
