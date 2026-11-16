@@ -1,0 +1,98 @@
+### Starting TaskPrologue of job 1875257 on tg071 at Fri Nov 13 11:21:29 AM CET 2026
+Running on cores 0-1,8-9,17-18,24-25 with governor ondemand
+Fri Nov 13 11:21:29 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.196.07             Driver Version: 580.196.07     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           On  |   00000000:18:00.0 Off |                    0 |
+| N/A   31C    P0             30W /  250W |       0MiB /  32768MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-13T11:21:32 start dgcytof__0c54b8775d__split_0_inner_2
+epoch 0 total_correct: 2146337 loss: 0.04587255045771599 total_loss: 157.98666971176863
+epoch 1 total_correct: 2166580 loss: 0.05064200237393379 total_loss: 94.76357913762331
+epoch 2 total_correct: 2168397 loss: 0.04735072702169418 total_loss: 88.67300016246736
+epoch 3 total_correct: 2169564 loss: 0.027668870985507965 total_loss: 84.47159679699689
+epoch 4 total_correct: 2170809 loss: 0.04637616500258446 total_loss: 80.44414491765201
+epoch 5 total_correct: 2171323 loss: 0.03669062629342079 total_loss: 78.25894632190466
+epoch 6 total_correct: 2171743 loss: 0.03555728867650032 total_loss: 77.31916543934494
+epoch 7 total_correct: 2172190 loss: 0.019978707656264305 total_loss: 75.59745597373694
+epoch 8 total_correct: 2172341 loss: 0.04596846550703049 total_loss: 74.85861432366073
+epoch 9 total_correct: 2172526 loss: 0.030222279950976372 total_loss: 74.50792445335537
+Accuracy: 98.8444
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.42
+Accuracy of 1 : 99.944
+Accuracy of 2 : 98.32
+Accuracy of 3 : 95.769
+Accuracy of 4 : 98.577
+Accuracy of 5 : 98.931
+Accuracy of 6 : 99.896
+Accuracy of 7 : 96.642
+2026-11-13T11:25:52 fit done (252.1 s)
+A total of 0  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 4  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 367, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5386, in spearmanr
+    raise ValueError("`spearmanr` needs at least 2 "
+ValueError: `spearmanr` needs at least 2 variables to compare
+
+2026-11-13T11:35:15 failed dgcytof__0c54b8775d__split_0_inner_2
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov 13 11:35:16 AM CET 2026
+= Job-ID             : 1875257 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : v100
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:13:50
+= Total RAM usage    : 9.0 GiB of requested  GiB (%)   
+= Node list          : tg071
+= Subm/Elig/Start/End: 2026-11-12T18:10:54 / 2026-11-12T18:10:54 / 2026-11-13T11:21:26 / 2026-11-13T11:35:16
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.1G  1000.0G  1500.0G        N/A     937K   5,000K   7,500K        N/A    
+    /home/hpc              30.7G   104.9G   209.7G        N/A      52K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+Tesla V100-PCIE-32GB, 00000000:18:00.0, 618219, 1 %, 0 %, 410 MiB, 814030 ms

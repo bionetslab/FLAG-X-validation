@@ -1,0 +1,101 @@
+### Starting TaskPrologue of job 1875395 on tg084 at Fri Nov 13 12:30:55 PM CET 2026
+Running on cores 14-15,30-31,46-47,62-63 with governor powersave
+Fri Nov 13 12:30:55 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 620.70.06              KMD Version: 620.70.06     CUDA UMD Version: 13.5     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 3080        On  |   00000000:1A:00.0 Off |                  N/A |
+| 30%   37C    P8             14W /  300W |       1MiB /  10240MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-13T12:30:58 start dgcytof__ee59307f0c__split_0_inner_0
+epoch 0 total_correct: 1963074 loss: 0.021328935399651527 total_loss: 110.70306549407542
+epoch 1 total_correct: 1976047 loss: 0.031178530305624008 total_loss: 66.50710607971996
+epoch 2 total_correct: 1974740 loss: 0.08428727835416794 total_loss: 72.38673981837928
+epoch 3 total_correct: 1977929 loss: 0.015218174085021019 total_loss: 58.982238980941474
+epoch 4 total_correct: 1978693 loss: 0.01939271204173565 total_loss: 55.55690572177991
+epoch 5 total_correct: 1979060 loss: 0.0216686874628067 total_loss: 54.05480516795069
+epoch 6 total_correct: 1979524 loss: 0.03219172731041908 total_loss: 52.19058884168044
+epoch 7 total_correct: 1979565 loss: 0.017169814556837082 total_loss: 51.61144820647314
+epoch 8 total_correct: 1979732 loss: 0.053542159497737885 total_loss: 51.132188411429524
+epoch 9 total_correct: 1979805 loss: 0.038184598088264465 total_loss: 50.755162354093045
+epoch 10 total_correct: 1980100 loss: 0.022913208231329918 total_loss: 49.69064314616844
+epoch 11 total_correct: 1980041 loss: 0.02209814451634884 total_loss: 49.34658928960562
+epoch 12 total_correct: 1980276 loss: 0.03749517723917961 total_loss: 49.31605792604387
+epoch 13 total_correct: 1980296 loss: 0.01736810989677906 total_loss: 48.816808260045946
+epoch 14 total_correct: 1980414 loss: 0.008834623731672764 total_loss: 48.58335303934291
+epoch 15 total_correct: 1980502 loss: 0.05127542093396187 total_loss: 47.79194467375055
+epoch 16 total_correct: 1980548 loss: 0.018907960504293442 total_loss: 47.52687734365463
+epoch 17 total_correct: 1980510 loss: 0.03010966069996357 total_loss: 47.67575171170756
+epoch 18 total_correct: 1980756 loss: 0.03435508906841278 total_loss: 47.188190875109285
+epoch 19 total_correct: 1980654 loss: 0.020544949918985367 total_loss: 47.24789728084579
+Accuracy: 99.2217
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.78
+Accuracy of 1 : 99.925
+Accuracy of 2 : 98.136
+Accuracy of 3 : 97.647
+Accuracy of 4 : 98.09
+Accuracy of 5 : 99.969
+Accuracy of 6 : 99.886
+Accuracy of 7 : 95.638
+2026-11-13T12:36:51 fit done (348.3 s)
+A total of 3  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 0  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 367, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5386, in spearmanr
+    raise ValueError("`spearmanr` needs at least 2 "
+ValueError: `spearmanr` needs at least 2 variables to compare
+
+2026-11-13T12:40:06 failed dgcytof__ee59307f0c__split_0_inner_0
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov 13 12:40:08 PM CET 2026
+= Job-ID             : 1875395 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:09:16
+= Total RAM usage    : 6.7 GiB of requested  GiB (%)   
+= Node list          : tg084
+= Subm/Elig/Start/End: 2026-11-12T18:10:54 / 2026-11-12T18:10:54 / 2026-11-13T12:30:52 / 2026-11-13T12:40:08
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.1G  1000.0G  1500.0G        N/A     937K   5,000K   7,500K        N/A    
+    /home/hpc              30.7G   104.9G   209.7G        N/A      52K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA GeForce RTX 3080, 00000000:1A:00.0, 3597480, 2 %, 0 %, 298 MiB, 541927 ms

@@ -1,0 +1,92 @@
+### Starting TaskPrologue of job 1874484 on tg067 at Fri Nov 13 12:23:38 AM CET 2026
+Running on cores 0-1,8-9,17,20,24-25 with governor ondemand
+Fri Nov 13 00:23:38 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 620.70.06              KMD Version: 620.70.06     CUDA UMD Version: 13.5     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:86:00.0 Off |                  N/A |
+| 29%   35C    P8             13W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-13T00:23:41 start dgcytof__0b0393844a__split_2_inner_1
+epoch 0 total_correct: 2047796 loss: 0.2421533316373825 total_loss: 3383.2461518603377
+epoch 1 total_correct: 2145240 loss: 0.0029891987796872854 total_loss: 877.198909947183
+epoch 2 total_correct: 2148287 loss: 0.007439781446009874 total_loss: 765.6395731021184
+epoch 3 total_correct: 2149889 loss: 0.05059674382209778 total_loss: 698.8722883081064
+epoch 4 total_correct: 2150944 loss: 0.021072009578347206 total_loss: 653.781654139515
+epoch 5 total_correct: 2151863 loss: 0.008697248063981533 total_loss: 618.6808985407697
+epoch 6 total_correct: 2152788 loss: 0.0652092918753624 total_loss: 588.6294165555155
+epoch 7 total_correct: 2153538 loss: 0.10750604420900345 total_loss: 564.3633318641223
+epoch 8 total_correct: 2154028 loss: 0.006261802278459072 total_loss: 546.6713981616776
+epoch 9 total_correct: 2154427 loss: 0.07478615641593933 total_loss: 532.9155907515669
+Accuracy: 99.1148
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.354
+Accuracy of 1 : 99.898
+Accuracy of 2 : 96.599
+Accuracy of 3 : 95.842
+Accuracy of 4 : 98.461
+Accuracy of 5 : 99.9
+Accuracy of 6 : 99.734
+Accuracy of 7 : 94.707
+2026-11-13T00:33:37 fit done (587.6 s)
+A total of 6  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 4  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 367, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5465, in spearmanr
+    rs[variable_has_nan, :] = np.nan
+    ~~^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'numpy.float64' object does not support item assignment
+
+2026-11-13T00:36:14 failed dgcytof__0b0393844a__split_2_inner_1
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov 13 12:36:16 AM CET 2026
+= Job-ID             : 1874484 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : work
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:12:42
+= Total RAM usage    : 6.3 GiB of requested  GiB (%)   
+= Node list          : tg067
+= Subm/Elig/Start/End: 2026-11-12T18:10:54 / 2026-11-12T18:10:54 / 2026-11-13T00:23:34 / 2026-11-13T00:36:16
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.1G  1000.0G  1500.0G        N/A     933K   5,000K   7,500K        N/A    
+    /home/hpc              29.9G   104.9G   209.7G        N/A      52K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA GeForce RTX 2080 Ti, 00000000:86:00.0, 406888, 4 %, 0 %, 220 MiB, 744490 ms
