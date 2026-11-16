@@ -1,0 +1,118 @@
+### Starting TaskPrologue of job 1875290 on tg073 at Fri Nov 13 11:34:20 AM CET 2026
+Running on cores 2-3,10-11,18-19,26-27 with governor ondemand
+Fri Nov 13 11:34:20 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.196.07             Driver Version: 580.196.07     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           On  |   00000000:3B:00.0 Off |                    0 |
+| N/A   43C    P0             30W /  250W |       0MiB /  32768MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+2026-11-13T11:34:33 start dgcytof__758f30e6c3__split_4_inner_2
+epoch 0 total_correct: 1867549 loss: 0.008593721315264702 total_loss: 1321.9476256484631
+epoch 1 total_correct: 1893064 loss: 0.0031776169780641794 total_loss: 571.4186063872185
+epoch 2 total_correct: 1894647 loss: 0.2880925238132477 total_loss: 520.0096452423604
+epoch 3 total_correct: 1895599 loss: 0.0036871449556201696 total_loss: 486.1799472187413
+epoch 4 total_correct: 1896400 loss: 0.003528259228914976 total_loss: 457.5661182604963
+epoch 5 total_correct: 1897024 loss: 0.0022294907830655575 total_loss: 431.0230567260878
+epoch 6 total_correct: 1897522 loss: 0.007917673327028751 total_loss: 411.3173297988833
+epoch 7 total_correct: 1898061 loss: 0.4471776485443115 total_loss: 395.70719197258586
+epoch 8 total_correct: 1898646 loss: 0.0011606784537434578 total_loss: 380.82101026101736
+epoch 9 total_correct: 1899113 loss: 0.4377807378768921 total_loss: 369.92222553270403
+epoch 10 total_correct: 1899364 loss: 0.007289471570402384 total_loss: 360.8757921124925
+epoch 11 total_correct: 1899559 loss: 0.002075940603390336 total_loss: 354.4121047905064
+epoch 12 total_correct: 1899791 loss: 0.06988496333360672 total_loss: 347.70217221142957
+epoch 13 total_correct: 1900021 loss: 0.09162964671850204 total_loss: 342.38450024987105
+epoch 14 total_correct: 1900098 loss: 0.00187962269410491 total_loss: 338.13512849394465
+epoch 15 total_correct: 1900236 loss: 0.0011728451354429126 total_loss: 332.97123447907506
+epoch 16 total_correct: 1900412 loss: 0.03620123490691185 total_loss: 329.48951597197447
+epoch 17 total_correct: 1900571 loss: 0.000737707014195621 total_loss: 326.89701542651164
+epoch 18 total_correct: 1900573 loss: 0.00030081241857260466 total_loss: 324.38147341134027
+epoch 19 total_correct: 1900627 loss: 0.0010859068715944886 total_loss: 321.89542684168555
+Accuracy: 99.3037
+----------------------------------------------------------------------------------------------------
+Accuracy of 0 : 99.469
+Accuracy of 1 : 99.926
+Accuracy of 2 : 98.374
+Accuracy of 3 : 92.979
+Accuracy of 4 : 98.799
+Accuracy of 5 : 99.828
+Accuracy of 6 : 99.867
+Accuracy of 7 : 97.114
+2026-11-13T11:50:26 fit done (947.8 s)
+A total of 3  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 6  incorrect labeling as been found
+A total of 6  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+A total of 5  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 2  incorrect labeling as been found
+A total of 4  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 6  incorrect labeling as been found
+A total of 7  incorrect labeling as been found
+A total of 3  incorrect labeling as been found
+A total of 1  incorrect labeling as been found
+Traceback (most recent call last):
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/tune_hyperparameters.py", line 367, in run_atom
+    y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/runners/dgcytof.py", line 48, in predict
+    y_pred = model.predict(X)
+             ^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 178, in predict
+    _, y_pred = DGCyTOFClassifier._calibrate_data(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/validation/gating/dgcytof.py", line 480, in _calibrate_data
+    rho_matrix, _ = spearmanr(np.transpose(test_correct_list[i][-corr_mtrx_dim_limit:] + incorrect_list))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/woody/iwbn/iwbn107h/software/private/conda/envs/fx_flagx_gpu/lib/python3.12/site-packages/scipy/stats/_stats_py.py", line 5465, in spearmanr
+    rs[variable_has_nan, :] = np.nan
+    ~~^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'numpy.float64' object does not support item assignment
+
+2026-11-13T12:09:57 failed dgcytof__758f30e6c3__split_4_inner_2
+=== JOB_STATISTICS ===
+=== current date     : Fri Nov 13 12:09:59 PM CET 2026
+= Job-ID             : 1875290 on tinygpu
+= Job-Name           : tune_flagx_gpu
+= Job-Command        : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation/slurm_scripts/tune_flagx_gpu.sh
+= Initial workdir    : /home/woody/iwbn/iwbn107h/projects/FLAG-X-validation
+= Queue/Partition    : v100
+= Slurm account      : iwbn with QOS=normal
+= Requested resources:  for 1-00:00:00
+= Elapsed runtime    : 00:35:41
+= Total RAM usage    : 9.0 GiB of requested  GiB (%)   
+= Node list          : tg073
+= Subm/Elig/Start/End: 2026-11-12T18:10:54 / 2026-11-12T18:10:54 / 2026-11-13T11:34:17 / 2026-11-13T12:09:58
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           239.1G  1000.0G  1500.0G        N/A     937K   5,000K   7,500K        N/A    
+    /home/hpc              30.7G   104.9G   209.7G        N/A      52K     300K     400K        N/A    
+    /home/vault          3624.1M  1048.6G  2097.2G        N/A     200      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+Tesla V100-PCIE-32GB, 00000000:3B:00.0, 764133, 3 %, 0 %, 408 MiB, 2117569 ms
