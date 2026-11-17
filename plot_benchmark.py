@@ -6,7 +6,8 @@ samples jittered on top, the outer test fold shown by the marker.
 
     scores_box.pdf   one point = one test sample: its score averaged over the model seeds (stochastic methods: 3
                      seeds, deterministic: 1); box = distribution over all test samples (all outer folds pooled):
-                     median and quartiles, whiskers 1.5 IQR, no fliers (all points are drawn).
+                     median and quartiles, whiskers 1.5 IQR, no fliers (all points are drawn). Panel letters A, B, ...
+                     in PLOT_DATASETS order (the same letters as in pairwise_f1.pdf).
 
 Score of a sample (as in the tuning, validation.core.scores.f1_from_counts, scoring rule D8): macro F1 = NaN-mean of
 the per-class f1_<l> columns; datasets with 2 labels (lt1b / lt2b: B cells, BLAST110: blasts) F1 of the positive
@@ -54,7 +55,8 @@ Pairwise comparison (benchmark_eval.py pairwise_deltas.csv, no statistical tests
                      range); grey = not available (a method without a score for some sample). Upper triangle only
                      (the matrix is antisymmetric); methods sorted per dataset by mean score (as in scores_box.pdf),
                      best at the top; the method names stand in the empty lower triangle, ending in the diagonal cell
-                     (name i labels row i and column i).
+                     (name i labels row i and column i). Colorbar and legend in the empty panel slots of the last
+                     row (under the panels if there are none).
 
 Order, names and colors of the datasets, methods and classes: config.py, section Plotting (PLOT_DATASETS,
 DATASET_NAMES, PLOT_METHODS, METHOD_NAMES, METHOD_COLORS, CLASS_ORDER, CLASS_COLORS).
@@ -83,8 +85,12 @@ from matplotlib.patches import Patch
 from scipy.stats import pearsonr
 
 from config import (DATA_CURATED, RESULTS, FIGURES, PLOT_DATASETS, DATASET_NAMES, PLOT_METHODS, METHOD_NAMES,
-                    METHOD_COLORS, CLASS_ORDER, CLASS_COLORS)
+                    METHOD_COLORS, CLASS_ORDER, CLASS_COLORS, PAGE_WIDTH, PAGE_HEIGHT, PLOT_RC, FONT_TICK,
+                    FONT_LABEL, FONT_TITLE, FONT_SUPTITLE, FONT_PANEL, FONT_ANNOT, FONT_MIN)
 from validation.eval_helpers import ba_stats, population_seed_mean
+
+# Final printed size: every figure is PAGE_WIDTH wide and at most PAGE_HEIGHT tall, font sizes FONT_* (config.py)
+plt.rcParams.update(PLOT_RC)
 
 
 OVERWRITE = True  # If False, existing figures are skipped
@@ -111,7 +117,7 @@ CLASS_FIGURES = [
 SHOW_BA_TEXT = True  # Bland-Altman panels: 'bias [lower, upper limit of agreement]' in pp
 # Pairwise heatmaps
 DELTA_LIM = 0.2  # Color scale of the mean paired delta: 0 .. DELTA_LIM (larger values saturate, negative ones red)
-PAIR_N_COLS = 2  # Dataset panels per row
+PAIR_N_COLS = 3  # Dataset panels per row
 
 
 def load_scores(in_dir, dataset):
@@ -158,20 +164,22 @@ def plot_panel(ax, scores, methods, rng, show_counts=True):
         s = scores[scores['method'] == m]
         valid = s.dropna(subset=['score'])
         if valid.empty:
-            ax.text(i, 0.02, 'n/a', ha='center', va='bottom', fontsize=7, color='0.5')
+            ax.text(i, 0.02, 'n/a', ha='center', va='bottom', fontsize=FONT_ANNOT, color='0.5')
             continue
         color = METHOD_COLORS[m]
         ax.boxplot([valid['score'].values], positions=[i], widths=0.6, showfliers=False, patch_artist=True,
-                   boxprops={'facecolor': color, 'alpha': 0.9, 'edgecolor': 'black', 'linewidth': 0.8},
-                   medianprops={'color': 'black', 'linewidth': 1.2},
-                   whiskerprops={'linewidth': 0.8}, capprops={'linewidth': 0.8}, zorder=2)
+                   boxprops={'facecolor': color, 'alpha': 0.9, 'edgecolor': 'black', 'linewidth': 0.6},
+                   medianprops={'color': 'black', 'linewidth': 0.9},
+                   whiskerprops={'linewidth': 0.6}, capprops={'linewidth': 0.6}, zorder=2)
         for split, g in valid.groupby('split'):
-            ax.scatter(i + rng.uniform(-JITTER, JITTER, len(g)), g['score'], s=10,
+            ax.scatter(i + rng.uniform(-JITTER, JITTER, len(g)), g['score'], s=4,
                        marker=FOLD_MARKERS[int(split) % len(FOLD_MARKERS)], color=color, edgecolors='black',
-                       linewidths=0.4, alpha=0.6, zorder=3)
+                       linewidths=0.25, alpha=0.6, zorder=3)
+        if not show_counts:
+            continue
         k, n = int(s['n_seeds'].sum()), int(s['n_seeds_expected'].sum())  # Predictions: test sample x seed
-        if show_counts and k < n:
-            ax.text(i, 1.01, '{}/{}'.format(k, n), ha='center', va='bottom', fontsize=6, color='0.3')
+        if k < n:
+            ax.text(i, 1.01, '{}/{}'.format(k, n), ha='center', va='bottom', fontsize=FONT_MIN, color='0.3')
 
 
 def plot_scores_box(in_dir, path):
@@ -186,7 +194,8 @@ def plot_scores_box(in_dir, path):
     splits = sorted(set().union(*(set(s.dropna(subset=['score'])['split']) for s in scores.values())))
 
     n_rows = int(np.ceil(len(datasets) / float(N_COLS)))
-    fig, axes = plt.subplots(n_rows, N_COLS, figsize=(11, 2.4 * n_rows + 1.2), sharex=True, sharey=True,
+    fig, axes = plt.subplots(n_rows, N_COLS, figsize=(PAGE_WIDTH, min(1.5 * n_rows + 1.3, PAGE_HEIGHT)),
+                             sharex=True, sharey=True,
                              squeeze=False, layout='constrained')
     rng = np.random.default_rng(0)
     for k, ax in enumerate(axes.flat):
@@ -194,18 +203,19 @@ def plot_scores_box(in_dir, path):
             ax.set_visible(False)
             continue
         plot_panel(ax, scores[datasets[k]], methods, rng)
-        ax.set_title(DATASET_NAMES[datasets[k]], fontsize=10)
+        ax.set_title(DATASET_NAMES[datasets[k]])
+        panel_letter(ax, k)
         ax.set_ylim(0, 1.08)
         ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
-        ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.grid(axis='y', linestyle='--', linewidth=0.4, alpha=0.7)
         ax.set_axisbelow(True)
         for side in ('top', 'right'):
             ax.spines[side].set_visible(False)
-        ax.set_ylabel(loaded[datasets[k]][1], fontsize=8)
+        ax.set_ylabel(loaded[datasets[k]][1])
         ax.tick_params(axis='y', labelleft=True)  # Every panel: y label and ticks (score type differs per panel)
     for ax in axes[-1]:
         ax.set_xticks(range(len(methods)), [METHOD_NAMES[m] for m in methods], rotation=45, ha='right',
-                      rotation_mode='anchor', fontsize=8)
+                      rotation_mode='anchor')
         ax.tick_params(axis='x', labelbottom=True)
     ax_last = axes.flat[len(datasets) - 1]  # Bottom panel of an odd grid gets the tick labels too
     ax_last.tick_params(axis='x', labelbottom=True)
@@ -216,12 +226,18 @@ def plot_scores_box(in_dir, path):
     plt.close(fig)
 
 
+def panel_letter(ax, k):
+    """Bold panel letter (A, B, ... for k = 0, 1, ...) at the top left of the panel, level with its title."""
+    ax.set_title('ABCDEFGHIJKLMNOPQRSTUVWXYZ'[k], loc='left', fontweight='bold', fontsize=FONT_PANEL)
+
+
 def method_fold_legend(fig, methods, splits):
     """Legend under the figure: methods (colors) in rows of N_LEGEND_COLS, then the test folds (markers) in one row."""
-    method_handles = [Patch(facecolor=METHOD_COLORS[m], edgecolor='black', linewidth=0.8, label=METHOD_NAMES[m])
+    method_handles = [Patch(facecolor=METHOD_COLORS[m], edgecolor='black', linewidth=0.6, label=METHOD_NAMES[m])
                       for m in methods]
     fold_handles = [Line2D([], [], linestyle='', marker=FOLD_MARKERS[int(s) % len(FOLD_MARKERS)], color='0.5',
-                           markeredgecolor='black', markeredgewidth=0.4, label='Test fold {}'.format(int(s)))
+                           markersize=4, markeredgecolor='black', markeredgewidth=0.3,
+                           label='Test fold {}'.format(int(s)))
                     for s in splits]
     blank = Line2D([], [], linestyle='', label='')
 
@@ -231,7 +247,7 @@ def method_fold_legend(fig, methods, splits):
     grid = rows(method_handles) + rows(fold_handles)
     handles = [r[c] for c in range(N_LEGEND_COLS) for r in grid]  # matplotlib fills the legend column by column
     fig.legend(handles=handles, labels=[h.get_label() for h in handles], loc='outside lower center',
-               ncol=N_LEGEND_COLS, frameon=False, fontsize=8)
+               ncol=N_LEGEND_COLS, frameon=False, columnspacing=1.2, handlelength=1.5)
 
 
 def load_populations(in_dir, dataset):
@@ -265,16 +281,16 @@ def method_grid(in_dir, dataset, pop):
     methods = [m for m in PLOT_METHODS if m in present]
     classes = [c for c in CLASS_ORDER if c in set(pop['name'])] + sorted(set(pop['name']) - set(CLASS_ORDER))
     n_rows = int(np.ceil(len(methods) / float(POP_N_COLS)))
-    fig, axes = plt.subplots(n_rows, POP_N_COLS, figsize=(9, 2.3 * n_rows + 1.0), sharex=True, sharey=True,
+    fig, axes = plt.subplots(n_rows, POP_N_COLS, figsize=(PAGE_WIDTH, min(1.65 * n_rows + 1.0, PAGE_HEIGHT)),
+                             sharex=True, sharey=True,
                              squeeze=False, layout='constrained')
     panels = []
     for k, ax in enumerate(axes.flat):
         if k >= len(methods):
             ax.set_visible(False)
             continue
-        ax.set_title(METHOD_NAMES[methods[k]], fontsize=9)
-        ax.tick_params(labelsize=7)
-        ax.grid(linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_title(METHOD_NAMES[methods[k]])
+        ax.grid(linestyle='--', linewidth=0.4, alpha=0.7)
         ax.set_axisbelow(True)
         for side in ('top', 'right'):
             ax.spines[side].set_visible(False)
@@ -288,11 +304,11 @@ def method_grid(in_dir, dataset, pop):
 
 def finish_figure(fig, classes, title, path):
     """Suptitle, class legend under the figure, save."""
-    fig.suptitle(title, fontsize=10)
-    handles = [Line2D([], [], linestyle='', marker='o', color=CLASS_COLORS.get(c, '0.5'), markeredgecolor='black',
-                      markeredgewidth=0.3, label=c) for c in classes]
-    fig.legend(handles=handles, loc='outside lower center', ncol=len(handles), frameon=False, fontsize=8,
-               title='Class', title_fontsize=8)
+    fig.suptitle(title)
+    handles = [Line2D([], [], linestyle='', marker='o', markersize=4, color=CLASS_COLORS.get(c, '0.5'),
+                      markeredgecolor='black', markeredgewidth=0.3, label=c) for c in classes]
+    fig.legend(handles=handles, loc='outside lower center', ncol=len(handles), frameon=False, title='Class',
+               columnspacing=1.0, handletextpad=0.2)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
@@ -301,7 +317,7 @@ def finish_figure(fig, classes, title, path):
 def scatter_classes(ax, p, classes, x, y):
     for c in classes:  # Classes in legend order; later ones on top
         g = p[p['name'] == c]
-        ax.scatter(g[x], g[y], s=12, color=CLASS_COLORS.get(c, '0.5'), edgecolors='black', linewidths=0.3, alpha=0.8,
+        ax.scatter(g[x], g[y], s=5, color=CLASS_COLORS.get(c, '0.5'), edgecolors='black', linewidths=0.2, alpha=0.8,
                    zorder=2)
 
 
@@ -317,14 +333,15 @@ def plot_populations(in_dir, dataset, path):
     pop = load_populations(in_dir, dataset)
     fig, panels, classes = method_grid(in_dir, dataset, pop)
     for method, ax, p in panels:
-        ax.plot([0, 100], [0, 100], linestyle='--', color='0.5', linewidth=0.8, zorder=1)
+        ax.plot([0, 100], [0, 100], linestyle='--', color='0.5', linewidth=0.6, zorder=1)
         if p.empty:
-            ax.text(0.75, 0.25, 'n/a', transform=ax.transAxes, ha='center', va='center', fontsize=8, color='0.5')
+            ax.text(0.75, 0.25, 'n/a', transform=ax.transAxes, ha='center', va='center', fontsize=FONT_ANNOT,
+                    color='0.5')
         else:
             scatter_classes(ax, p, classes, 'true_pct', 'pred_pct')
             text = agreement_text(p['true_pct'].to_numpy(), p['pred_pct'].to_numpy())
             if text:
-                ax.text(0.04, 0.96, text, transform=ax.transAxes, ha='left', va='top', fontsize=7,
+                ax.text(0.04, 0.96, text, transform=ax.transAxes, ha='left', va='top', fontsize=FONT_ANNOT,
                         bbox={'facecolor': 'white', 'alpha': 0.7, 'edgecolor': 'none', 'pad': 1.5})
         ax.set_xlim(-3, 103)
         ax.set_ylim(-3, 103)
@@ -332,13 +349,13 @@ def plot_populations(in_dir, dataset, path):
         ax.set_yticks([0, 50, 100])
         ax.set_aspect('equal')
         if ax.first_col:
-            ax.set_ylabel('Predicted (%)', fontsize=8)
+            ax.set_ylabel('Predicted (%)')
         if ax.bottom:
-            ax.set_xlabel('True (%)', fontsize=8)
+            ax.set_xlabel('True (%)')
     finish_figure(fig, classes, DATASET_NAMES[dataset] + ': predicted vs. true population size per test sample', path)
 
 
-def plot_ba_grid(columns, title, path, col_width=1.05):
+def plot_ba_grid(columns, title, path):
     """
     Bland-Altman figure: one row per method (PLOT_METHODS), one column per (title, points, color).
 
@@ -347,11 +364,11 @@ def plot_ba_grid(columns, title, path, col_width=1.05):
             method, mean_pct, d_pp), point color.
         title (str): Figure title.
         path (str): Output PDF.
-        col_width (float): Width of one column (inch).
     """
     present = set().union(*(set(c[1]['method']) for c in columns))
     methods = [m for m in PLOT_METHODS if m in present]
-    fig, axes = plt.subplots(len(methods), len(columns), figsize=(col_width * len(columns) + 1.0, 0.85 * len(methods) + 1.2),
+    fig, axes = plt.subplots(len(methods), len(columns),
+                             figsize=(PAGE_WIDTH, min(0.7 * len(methods) + 1.0, PAGE_HEIGHT)),
                              sharex='col', sharey='col', squeeze=False, layout='constrained')
     for j, (col_title, pts, color) in enumerate(columns):
         lim = max(1.0, float(pts['d_pp'].abs().max()) * 1.15) if not pts.empty else 1.0  # Symmetric per column
@@ -360,9 +377,10 @@ def plot_ba_grid(columns, title, path, col_width=1.05):
             p = pts[pts['method'] == m]
             ax.axhline(0, color='0.6', linewidth=0.5, zorder=1)
             if p.empty:
-                ax.text(0.5, 0.5, 'n/a', transform=ax.transAxes, ha='center', va='center', fontsize=6, color='0.5')
+                ax.text(0.5, 0.5, 'n/a', transform=ax.transAxes, ha='center', va='center', fontsize=FONT_ANNOT,
+                        color='0.5')
             else:
-                ax.scatter(p['mean_pct'], p['d_pp'], s=6, color=color, edgecolors='black', linewidths=0.2, alpha=0.8,
+                ax.scatter(p['mean_pct'], p['d_pp'], s=3, color=color, edgecolors='black', linewidths=0.15, alpha=0.8,
                            zorder=2)
                 st = ba_stats(p['d_pp'])
                 ax.axhline(st['bias_pp'], color='black', linewidth=0.7, zorder=3)
@@ -370,23 +388,24 @@ def plot_ba_grid(columns, title, path, col_width=1.05):
                     if np.isfinite(v):
                         ax.axhline(v, color='black', linewidth=0.6, linestyle='--', zorder=3)
                 if SHOW_BA_TEXT:
-                    ax.text(0.03, 0.97, '{:.2f} [{:.2f}, {:.2f}]'.format(st['bias_pp'], st['loa_low_pp'],
-                                                                      st['loa_high_pp']),
-                            transform=ax.transAxes, ha='left', va='top', fontsize=5,
+                    # Two lines (bias, [limits]): one line is wider than a panel at PAGE_WIDTH with 8 classes
+                    ax.text(0.03, 0.97, '{:.2f}\n[{:.2f}, {:.2f}]'.format(st['bias_pp'], st['loa_low_pp'],
+                                                                        st['loa_high_pp']),
+                            transform=ax.transAxes, ha='left', va='top', fontsize=FONT_MIN,
                             bbox={'facecolor': 'white', 'alpha': 0.7, 'edgecolor': 'none', 'pad': 0.8})
             ax.set_ylim(-lim, lim)
-            ax.tick_params(labelsize=5, length=2, pad=1)
+            ax.tick_params(labelsize=FONT_MIN, length=2, pad=1)  # Dense grid: smallest tick labels
             ax.grid(linestyle='--', linewidth=0.4, alpha=0.6)
             ax.set_axisbelow(True)
             for side in ('top', 'right'):
                 ax.spines[side].set_visible(False)
             if i == 0:
-                ax.set_title(col_title, fontsize=8)
+                ax.set_title(col_title)
             if j == 0:
-                ax.set_ylabel(METHOD_NAMES[m], fontsize=7)
-    fig.supxlabel('(Predicted + true) / 2 (%)', fontsize=8)
-    fig.supylabel('Predicted − true (pp)', fontsize=8)
-    fig.suptitle(title, fontsize=9)
+                ax.set_ylabel(METHOD_NAMES[m], fontsize=FONT_ANNOT)  # Row label of a dense grid
+    fig.supxlabel('(Predicted + true) / 2 (%)')
+    fig.supylabel('Predicted − true (pp)')
+    fig.suptitle(title)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
@@ -416,7 +435,7 @@ def plot_bland_altman_binary(in_dir, datasets, path):
         name = pos['name'].iloc[0] if not pos.empty else ''
         columns.append(('{}\n({})'.format(DATASET_NAMES[d], name), pos, CLASS_COLORS.get(name, '0.5')))
     plot_ba_grid(columns, 'Binary datasets: Bland–Altman of the positive-class population size per test sample\n'
-                          'bias [95 % limits of agreement] (pp)', path, col_width=1.35)
+                          'bias [95 % limits of agreement] (pp)', path)
 
 
 def load_class_scores(in_dir, dataset):
@@ -454,26 +473,25 @@ def plot_class_scores(in_dir, datasets, path):
     present = set().union(*(set(r[3]['method']) for r in rows))
     methods = [m for m in PLOT_METHODS if m in present]
     splits = sorted(set().union(*(set(r[3].dropna(subset=['score'])['split']) for r in rows)))
-    fig, axes = plt.subplots(len(rows), 1, figsize=(7.5, 1.35 * len(rows) + 1.6), sharex=True, sharey=True,
+    fig, axes = plt.subplots(len(rows), 1, figsize=(PAGE_WIDTH, min(0.95 * len(rows) + 1.4, PAGE_HEIGHT)),
+                             sharex=True, sharey=True,
                              squeeze=False, layout='constrained')
     rng = np.random.default_rng(0)
     for ax, (d, name, share, sc) in zip(axes[:, 0], rows):
         plot_panel(ax, sc, methods, rng, show_counts=False)
         label = '{} ({:#.3g} %)'.format(name, share)  # 3 significant digits, e.g. 59.4 %, 0.183 %
-        ax.set_ylabel(label if len(datasets) == 1 else '{}: {}'.format(DATASET_NAMES[d], label), fontsize=8)
+        ax.set_ylabel(label if len(datasets) == 1 else '{}: {}'.format(DATASET_NAMES[d], label))
         ax.set_ylim(0, 1.05)
         ax.set_yticks([0, 0.5, 1])
-        ax.tick_params(labelsize=7)
-        ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.grid(axis='y', linestyle='--', linewidth=0.4, alpha=0.7)
         ax.set_axisbelow(True)
         for side in ('top', 'right'):
             ax.spines[side].set_visible(False)
     axes[-1, 0].set_xticks(range(len(methods)), [METHOD_NAMES[m] for m in methods], rotation=45, ha='right',
-                           rotation_mode='anchor', fontsize=8)
+                           rotation_mode='anchor')
     title = ' and '.join(DATASET_NAMES[d] for d in datasets)
-    fig.suptitle('{}: class-wise F1 per test sample (class: median share in the test samples)'.format(title),
-                 fontsize=9)
-    fig.supylabel('F1', fontsize=8)
+    fig.suptitle('{}: class-wise F1 per test sample (class: median share in the test samples)'.format(title))
+    fig.supylabel('F1')
     method_fold_legend(fig, methods, splits)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path)
@@ -493,7 +511,9 @@ def plot_pairwise(in_dir, path, metric='f1'):
     pairs = pairs[pairs['metric'] == metric]
     datasets = [d for d in PLOT_DATASETS if d in set(pairs['dataset'])]
     n_rows = int(np.ceil(len(datasets) / float(PAIR_N_COLS)))
-    fig, axes = plt.subplots(n_rows, PAIR_N_COLS, figsize=(3.6 * PAIR_N_COLS + 0.6, 3.3 * n_rows + 0.8),
+    n_empty = n_rows * PAIR_N_COLS - len(datasets)  # Empty slots of the last row: colorbar and legend go there
+    fig, axes = plt.subplots(n_rows, PAIR_N_COLS,
+                             figsize=(PAGE_WIDTH, min(2.0 * n_rows + (0.2 if n_empty else 0.7), PAGE_HEIGHT)),
                              squeeze=False, layout='constrained')
     # Monochrome: rows are sorted by mean score, so the upper-triangle deltas are (almost always) >= 0
     cmap = plt.get_cmap('Blues').copy()
@@ -536,21 +556,36 @@ def plot_pairwise(in_dir, path, metric='f1'):
         ax.set_ylim(k - 0.5, -0.5)
         ax.set_aspect('equal')
         yy, xx = np.nonzero(same)
-        ax.scatter(xx, yy, s=4, color='black', linewidths=0)
+        ax.scatter(xx, yy, s=1.5, color='black', linewidths=0)
         # Method names in the empty lower triangle, ending in the diagonal cell: name i labels row i (to its right)
         # and column i (above it)
         for i, m in enumerate(methods):
-            ax.text(i + 0.4, i, METHOD_NAMES[m], ha='right', va='center', fontsize=6)
+            ax.text(i + 0.4, i, METHOD_NAMES[m], ha='right', va='center', fontsize=FONT_MIN)
+        panel_letter(ax, n)
         ax.set_title('{} ({})'.format(DATASET_NAMES[datasets[n]], 'binary' if
-                                      (p['average'] == 'binary').any() else 'macro'), fontsize=9)
+                                      (p['average'] == 'binary').any() else 'macro'))
         ax.set_xticks([])
         ax.set_yticks([])
         for side in ax.spines.values():
             side.set_visible(False)
-    cb = fig.colorbar(im, ax=axes, location='bottom', shrink=0.5, extend='both', pad=0.02, aspect=40)
-    cb.set_label('Mean paired Δ{} per test sample (row − column); • = 95 % bootstrap CI contains 0'.format(
-        {'f1': 'F1', 'prec': ' precision', 'rec': ' recall'}[metric]), fontsize=8)
-    cb.ax.tick_params(labelsize=7)
+    label = 'Mean paired Δ{} per test sample\n(row − column)'.format(
+        {'f1': 'F1', 'prec': ' precision', 'rec': ' recall'}[metric])
+    legend = [Line2D([], [], linestyle='', marker='o', markersize=2, color='black',
+                     label='95 % bootstrap CI contains 0'),
+              Patch(facecolor='0.9', edgecolor='none', label='Not available (failed predictions)')]
+    if n_empty:  # Colorbar and legend in the empty slots of the last row (one axes spanning them)
+        gs = axes[-1, 0].get_gridspec()
+        for ax in axes[-1, PAIR_N_COLS - n_empty:]:
+            ax.remove()
+        host = fig.add_subplot(gs[n_rows - 1, PAIR_N_COLS - n_empty:])
+        host.axis('off')
+        cax = host.inset_axes([0.1, 0.62, 0.8, 0.06])
+        cb = fig.colorbar(im, cax=cax, orientation='horizontal', extend='both')
+        host.legend(handles=legend, loc='upper center', bbox_to_anchor=(0.5, 0.3), frameon=False)
+    else:
+        cb = fig.colorbar(im, ax=axes, location='bottom', shrink=0.5, extend='both', pad=0.02, aspect=40)
+        fig.legend(handles=legend, loc='outside lower center', ncol=2, frameon=False)
+    cb.set_label(label)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
