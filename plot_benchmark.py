@@ -12,8 +12,9 @@ Score of a sample (as in the tuning, validation.core.scores.f1_from_counts, scor
 the per-class f1_<l> columns; datasets with 2 labels (lt1b / lt2b: B cells, BLAST110: blasts) F1 of the positive
 class, label 1 (f1_1). The y-axis label of each panel: 'F1 macro' or 'F1 binary'.
 Unpredicted samples (failed / killed / missing atoms) are left out; a seed mean uses the seeds that predicted the
-sample. A box with fewer samples than expected is annotated with 'k/n' (n = test samples of the dataset over all
-outer splits); a method without any predicted sample is marked 'n/a'.
+sample. A box is annotated with 'k/n' only if some predictions of the method failed: k = predicted, n = expected
+predictions (test samples of the dataset over all outer splits x model seeds), so a failed seed is counted even if
+the other seeds predicted the sample; a method without any predicted sample is marked 'n/a'.
 
 Supplementary figures: predicted vs. true population sizes (as legacy fig2s_population_sizes), one figure per dataset.
 
@@ -43,6 +44,18 @@ of the positive class, and the F1 of the other class adds nothing).
                      undefined) are left out, so no 'k/n' annotation. Row label: class (median share in the test
                      samples).
 
+Pairwise comparison (benchmark_eval.py pairwise_deltas.csv, no statistical tests):
+
+    pairwise_f1.pdf  one heatmap per dataset: cell (row A, column B) = mean paired difference F1(A) - F1(B) over the
+                     test samples (seed means; macro / binary as in scores_box.pdf); monochrome blue scale
+                     0 .. DELTA_LIM (darker = row method better; saturates beyond); a negative delta (row method
+                     worse despite the higher mean score, possible since the deltas are paired) is red (under color);
+                     a dot marks pairs whose 95 % bootstrap CI of the mean difference contains 0 (same performance
+                     range); grey = not available (a method without a score for some sample). Upper triangle only
+                     (the matrix is antisymmetric); methods sorted per dataset by mean score (as in scores_box.pdf),
+                     best at the top; the method names stand in the empty lower triangle, ending in the diagonal cell
+                     (name i labels row i and column i).
+
 Order, names and colors of the datasets, methods and classes: config.py, section Plotting (PLOT_DATASETS,
 DATASET_NAMES, PLOT_METHODS, METHOD_NAMES, METHOD_COLORS, CLASS_ORDER, CLASS_COLORS).
 
@@ -54,7 +67,8 @@ Usage:
         --out: figure directory (default figures/benchmark; pilot: e.g. figures/benchmark_pilot)
 
 Inputs: <in>/scores/<dataset>.csv, <in>/populations/<dataset>.csv
-Outputs: <out>/scores_box.pdf, <out>/class_scores_box_*.pdf, <out>/population_<dataset>.pdf, <out>/bland_altman_<dataset>.pdf (multi-class),
+Outputs: <out>/scores_box.pdf, <out>/class_scores_box_*.pdf, <out>/pairwise_f1.pdf, <out>/population_<dataset>.pdf,
+    <out>/bland_altman_<dataset>.pdf (multi-class),
     <out>/bland_altman_binary.pdf
 """
 
@@ -95,6 +109,9 @@ CLASS_FIGURES = [
     ('class_scores_box_lt.pdf', ['lt1', 'lt2']),
 ]
 SHOW_BA_TEXT = True  # Bland-Altman panels: 'bias [lower, upper limit of agreement]' in pp
+# Pairwise heatmaps
+DELTA_LIM = 0.2  # Color scale of the mean paired delta: 0 .. DELTA_LIM (larger values saturate, negative ones red)
+PAIR_N_COLS = 2  # Dataset panels per row
 
 
 def load_scores(in_dir, dataset):
@@ -108,7 +125,7 @@ def load_scores(in_dir, dataset):
     Returns:
         (pd.DataFrame, str): One row per method x outer split x test sample (all expected ones, also unpredicted) with
         columns method, split, sample, score (seed mean; NaN if no seed predicted the sample), n_seeds (seeds that
-        predicted it); and the y-axis label naming the score.
+        predicted it), n_seeds_expected (seeds of the method); and the y-axis label naming the score.
     """
     t = pd.read_csv(os.path.join(in_dir, 'scores', dataset + '.csv'))
     f1 = [c for c in t.columns if c.startswith('f1_')]
@@ -119,8 +136,9 @@ def load_scores(in_dir, dataset):
         t['score'] = t[f1].mean(axis=1, skipna=True)
         y_label = 'F1 macro'
     t.loc[~t['predicted'], 'score'] = np.nan
-    scores = (t.groupby(['method', 'split', 'sample'])['score'].agg(['mean', 'count']).reset_index()
-              .rename(columns={'mean': 'score', 'count': 'n_seeds'}))
+    g = t.groupby(['method', 'split', 'sample'])
+    scores = pd.concat([g['score'].mean(), g['predicted'].sum().rename('n_seeds'),
+                        g.size().rename('n_seeds_expected')], axis=1).reset_index()
     return scores, y_label
 
 
@@ -133,7 +151,8 @@ def plot_panel(ax, scores, methods, rng, show_counts=True):
         scores (pd.DataFrame): load_scores output of the dataset.
         methods (list of str): Methods on the x-axis, in order (position i = methods[i]).
         rng (np.random.Generator): For the jitter.
-        show_counts (bool): Annotate incomplete boxes with 'k/n'.
+        show_counts (bool): Annotate boxes of methods with failed predictions with 'k/n' (predicted / expected test
+            sample x seed predictions).
     """
     for i, m in enumerate(methods):
         s = scores[scores['method'] == m]
@@ -150,8 +169,9 @@ def plot_panel(ax, scores, methods, rng, show_counts=True):
             ax.scatter(i + rng.uniform(-JITTER, JITTER, len(g)), g['score'], s=10,
                        marker=FOLD_MARKERS[int(split) % len(FOLD_MARKERS)], color=color, edgecolors='black',
                        linewidths=0.4, alpha=0.6, zorder=3)
-        if show_counts and len(valid) < len(s):
-            ax.text(i, 1.01, '{}/{}'.format(len(valid), len(s)), ha='center', va='bottom', fontsize=6, color='0.3')
+        k, n = int(s['n_seeds'].sum()), int(s['n_seeds_expected'].sum())  # Predictions: test sample x seed
+        if show_counts and k < n:
+            ax.text(i, 1.01, '{}/{}'.format(k, n), ha='center', va='bottom', fontsize=6, color='0.3')
 
 
 def plot_scores_box(in_dir, path):
@@ -460,6 +480,82 @@ def plot_class_scores(in_dir, datasets, path):
     plt.close(fig)
 
 
+def plot_pairwise(in_dir, path, metric='f1'):
+    """
+    Heatmaps of the mean paired differences between methods, one panel per dataset (columns: module docstring).
+
+    Args:
+        in_dir (str): Output directory of benchmark_eval.py (pairwise_deltas.csv).
+        path (str): Output PDF.
+        metric (str): 'f1', 'prec' or 'rec'.
+    """
+    pairs = pd.read_csv(os.path.join(in_dir, 'pairwise_deltas.csv'))
+    pairs = pairs[pairs['metric'] == metric]
+    datasets = [d for d in PLOT_DATASETS if d in set(pairs['dataset'])]
+    n_rows = int(np.ceil(len(datasets) / float(PAIR_N_COLS)))
+    fig, axes = plt.subplots(n_rows, PAIR_N_COLS, figsize=(3.6 * PAIR_N_COLS + 0.6, 3.3 * n_rows + 0.8),
+                             squeeze=False, layout='constrained')
+    # Monochrome: rows are sorted by mean score, so the upper-triangle deltas are (almost always) >= 0
+    cmap = plt.get_cmap('Blues').copy()
+    cmap.set_under('#b2182b')  # Negative delta (row method worse): red, marked in the colorbar
+    cmap.set_bad('none')  # Lower triangle and diagonal stay empty; missing upper cells get grey patches below
+    im = None
+    for n, ax in enumerate(axes.flat):
+        if n >= len(datasets):
+            ax.set_visible(False)
+            continue
+        p = pairs[pairs['dataset'] == datasets[n]].set_index(['method_a', 'method_b'])
+        # Methods sorted by mean score (mean over the test samples of the seed-mean score, as in scores_box.pdf;
+        # unpredicted samples left out), best first; methods without any score last
+        scores, _ = load_scores(in_dir, datasets[n])
+        mean = scores.groupby('method')['score'].mean()
+        methods = [m for m in PLOT_METHODS if m in set(p.index.get_level_values('method_a'))]
+        methods = sorted(methods, key=lambda m: -mean.get(m, np.nan) if np.isfinite(mean.get(m, np.nan)) else np.inf)
+        k = len(methods)
+        # The matrix is antisymmetric (delta(B, A) = -delta(A, B), mirrored CI): only the upper triangle is drawn
+        mat = np.full((k, k), np.nan)
+        same = np.zeros((k, k), dtype=bool)  # CI contains 0
+        missing = []  # Upper cells without a value (grey)
+        for i, a in enumerate(methods):
+            for j, b in enumerate(methods):
+                if j <= i:
+                    continue
+                if (a, b) in p.index and np.isfinite(p.loc[(a, b), 'mean_delta']):
+                    r = p.loc[(a, b)]
+                    mat[i, j] = r['mean_delta']
+                    same[i, j] = r['ci_low'] <= 0 <= r['ci_high']
+                else:
+                    missing.append((i, j))
+        # pcolormesh (vector cells) instead of imshow (embedded bitmap, smoothed by PDF viewers); cell edges at
+        # +-0.5 and inverted y axis: cell (i, j) centred at x=j, y=i, row 0 (best method) at the top
+        edges = np.arange(k + 1) - 0.5
+        im = ax.pcolormesh(edges, edges, np.ma.masked_invalid(mat), cmap=cmap, vmin=0, vmax=DELTA_LIM)
+        for i, j in missing:
+            ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, color='0.9', linewidth=0))
+        ax.set_xlim(-0.5, k - 0.5)
+        ax.set_ylim(k - 0.5, -0.5)
+        ax.set_aspect('equal')
+        yy, xx = np.nonzero(same)
+        ax.scatter(xx, yy, s=4, color='black', linewidths=0)
+        # Method names in the empty lower triangle, ending in the diagonal cell: name i labels row i (to its right)
+        # and column i (above it)
+        for i, m in enumerate(methods):
+            ax.text(i + 0.4, i, METHOD_NAMES[m], ha='right', va='center', fontsize=6)
+        ax.set_title('{} ({})'.format(DATASET_NAMES[datasets[n]], 'binary' if
+                                      (p['average'] == 'binary').any() else 'macro'), fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for side in ax.spines.values():
+            side.set_visible(False)
+    cb = fig.colorbar(im, ax=axes, location='bottom', shrink=0.5, extend='both', pad=0.02, aspect=40)
+    cb.set_label('Mean paired Δ{} per test sample (row − column); • = 95 % bootstrap CI contains 0'.format(
+        {'f1': 'F1', 'prec': ' precision', 'rec': ' recall'}[metric]), fontsize=8)
+    cb.ax.tick_params(labelsize=7)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def main(in_dir, out_dir):
     path = os.path.join(out_dir, 'scores_box.pdf')
     if os.path.exists(path) and not OVERWRITE:
@@ -486,6 +582,15 @@ def main(in_dir, out_dir):
             print('exists, skipped:', path)
             continue
         plot_class_scores(in_dir, datasets, path)
+        print('written:', path)
+
+    path = os.path.join(out_dir, 'pairwise_f1.pdf')
+    if not os.path.exists(os.path.join(in_dir, 'pairwise_deltas.csv')):
+        pass
+    elif os.path.exists(path) and not OVERWRITE:
+        print('exists, skipped:', path)
+    else:
+        plot_pairwise(in_dir, path)
         print('written:', path)
 
     # Bland-Altman: one figure per multi-class dataset, one for all binary datasets
