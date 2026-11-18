@@ -114,6 +114,22 @@ def read_manifest(path):
         return list(csv.DictReader(f))
 
 
+def best_config(method, dataset, split, best_dir, tuning_dataset):
+    """
+    (config_id, params, param_source) of the tuned config of a method for one atom (D6): the tuning dataset uses the
+    best config of its outer split (<best_dir>/params_outer_<method>.json['splits'][str(split)]), all other datasets
+    the consensus config (<best_dir>/params_overall_<method>.json); param_source is 'outer' / 'overall'.
+    Files written by tune_hyperparameters_eval.py.
+    """
+    if dataset == tuning_dataset:
+        with open(os.path.join(best_dir, 'params_outer_{}.json'.format(method))) as f:
+            entry = json.load(f)['splits'][str(split)]
+        return entry['config_id'], entry['params'], 'outer'
+    with open(os.path.join(best_dir, 'params_overall_{}.json'.format(method))) as f:
+        entry = json.load(f)
+    return entry['config_id'], entry['params'], 'overall'
+
+
 def index_ranges(indices):
     """Sorted ints -> SLURM --array range string, e.g. [1, 2, 3, 7] -> '1-3,7'."""
     parts, start = [], None

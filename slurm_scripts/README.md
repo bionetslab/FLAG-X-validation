@@ -1,6 +1,6 @@
 # SLURM scripts
 
-One script per (env, cluster) array. Every array task runs one atom. CPU arrays run on Woody (`sbatch`), the GPU array on TinyGPU (`sbatch.tinygpu`, frontend `tinyx`). Docs: https://doc.nhr.fau.de/
+One script per (env, cluster) array. Every array task runs one atom (training data requirements: one lane of atoms). CPU arrays run on Woody (`sbatch`), the GPU array on TinyGPU (`sbatch.tinygpu`, frontend `tinyx`). Docs: https://doc.nhr.fau.de/
 
 `MaxArraySize` is 10000 on Woody and on TinyGPU, so every array fits into one submission.
 
@@ -91,3 +91,26 @@ Outputs per atom (`<stem>` = `split_<i>_seed_<r>[__ds_<tag>]`): `atoms/<method>/
 - The training budget is the largest size that went through, scaled with a margin by the measured fit time / peak RAM of the binding method (`status`); `cap` turns it into `n`.
 - The pilot is moved to `results/benchmark_pilot/` as a record; the final run writes new manifests into `results/benchmark/` and runs all atoms (also those of uncapped datasets). The row order is unchanged (same indices); capped atoms get the suffix `__ds_n<n>`.
 - A failure during prediction (`started:predict k/n`, or `failed` in phase `predict`) is a result and is reported; the cap only addresses the fit.
+
+## Training data requirements (`training_data_requirements.py`, PLAN.md step 8, `working_notes/training_data_requirements_plan.md`)
+
+One array task = one **lane** = (method, dataset, outer split, trial), not one atom. The lane worker runs the lane's atoms (n_samples × n_events cells) from small to large, each as a child process with a per-atom time limit (`ATOM_TIME_LIMIT_S`, 1 h). A timeout or OOM is a cutoff: all larger atoms of the same method × dataset (any split / trial) are then skipped without running, so skipped atoms never cost an allocation. The worker starts an atom only if it can finish before the lane's `--time` minus a buffer (`LANE_TIME_LIMIT_S` = `--time`, `WRAPUP_BUFFER_S`); otherwise it stops and the lane is resubmitted later.
+
+| Array | Script | Env | Cluster | Methods | Lanes | Atoms |
+|---|---|---|---|---|---|---|
+| `sklearn_cpu` | `tdr_sklearn_cpu.sh` | `fx_sklearn` | Woody | rf, hgb | 300 | 18302 |
+| `flagx_cpu` | `tdr_flagx_cpu.sh` | `fx_flagx_cpu` | Woody | som | 150 | 9151 |
+| `flagx_gpu` | `tdr_flagx_gpu.sh` | `fx_flagx_gpu` | TinyGPU | mlp | 150 | 9151 |
+
+Lanes = 10 datasets × 5 outer splits × 3 trials per method (counts of 2026-11-17, default grid). Resources: Woody 4 cores (~31 GB), no partition, 24 h per lane; TinyGPU 1 GPU (default partition `work`), 4 threads. Node types are not pinned; `cpu_model` / `gpu_names` are recorded per atom (lower-bound claim and calibration: see the working note).
+
+```bash
+python training_data_requirements.py manifest sklearn_cpu    # prints the number of lanes L (--array=0-<L-1>)
+sbatch slurm_scripts/tdr_sklearn_cpu.sh
+sbatch.tinygpu slurm_scripts/tdr_flagx_gpu.sh                # on tinyx
+python training_data_requirements.py status sklearn_cpu      # atoms per status, cutoffs, unfinished lanes
+python training_data_requirements.py missing sklearn_cpu     # unfinished lanes as --array range -> resubmit them
+sbatch --array=<printed range> slurm_scripts/tdr_sklearn_cpu.sh
+```
+
+Statuses: `ok`, `failed` (Python error, e.g. a class with a single training event; not a cutoff), `timeout`, `oom` (killed by a signal, or a memory error in the traceback), `skipped` (dominated by a cutoff, `skipped_by`), `started` (lane killed during the atom; rerun on resubmission). Logs: one per atom under `results/training_data_requirements/logs/<method>/<dataset>/`, the worker logs under `logs/tdr_<array>/`.

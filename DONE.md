@@ -291,3 +291,38 @@ All grids reviewed one by one with the user; justification of every grid (tuned 
 - **Decisions (with the user):** panel per dataset (not the legacy single axis with 120 boxes); score as in the tuning (macro F1 = NaN-mean of `f1_*`, binary datasets `f1_1`); one point = one test sample, averaged over the model seeds that predicted it; the box pools all outer folds.
 - **Checks** (pilot, `--in results/benchmark_pilot_eval`): all 2246 plotted points equal an independent recomputation with `f1_from_counts` from the pilot counts CSVs (binary for lt1b / lt2b / BLAST110); seed averaging on a synthetic table (2 predicted seeds + 1 failed seed: mean of the two, failed one skipped); figure inspected (10 panels, SOM × BLAST110 'n/a' from the pilot OOM, split-0 marker only).
 - **Y-axis labels** (user request): `F1 macro` for multi-class datasets, `F1 binary` (F1 of the positive class, label 1) for the datasets with 2 labels (lt1b, lt2b, BLAST110); binary is decided by the number of labels, as in the eval scripts.
+
+## Step 8: Training data requirements, run script (2026-11-17)
+- **Own step:** training data requirements moved out of the follow-ups into PLAN step 8 (follow-ups → 9, evaluation → 10, figures → 11, documentation → 12; references in `PLAN.md`, `CLAUDE.md`, `validation/core/evaluation.py` updated, older notes left as they are). Design: `working_notes/training_data_requirements_plan.md`.
+- **Decisions (user, 2026-11-17):**
+  - methods `mlp`, `som`, `hgb`, `rf` for now (final choice = top performers of step 7);
+  - atom = method × dataset × outer split × trial × n_samples × n_events; 3 trials (TODO);
+  - log-spaced default grid (TODO: per dataset); test samples in full; counts + resources, no predictions;
+  - arrays `sklearn_cpu` / `flagx_cpu` / `flagx_gpu`, 4 cores, no partition, 1 h per atom (TODO);
+  - fold first, small → large;
+  - timeout / OOM = cutoff for all larger atoms of the method × dataset (any split / trial);
+  - skipped atoms must not cost an allocation; node types not pinned (lower-bound claim + later calibration);
+  - (`'all'`, `'all'`) left out (= main benchmark).
+- **Execution design:** lane workers in pure Python, decided over one job per atom + `scancel`, a start-of-job check (an allocation per skip), `srun --time` steps (only testable on the cluster) and `aftercorr` dependency arrays (cutoff only per lane, ~70 arrays). Reasons: no allocation for skips, the cutoff is shared across lanes, it runs the same sequentially and on SLURM (local tests with short limits), and small atoms do not pay a job start each.
+- **Implemented:** `training_data_requirements.py` (`manifest` / `run` / `atom` / `status` / `missing`), `slurm_scripts/tdr_{sklearn_cpu,flagx_cpu,flagx_gpu}.sh`, README section.
+  - Shared helpers moved because there is now a second user: `outer_splits` → `validation/core/data.py`, `best_config(method, dataset, split, best_dir, tuning_dataset)` → `validation/core/runs.py`.
+  - `load_sample(..., mmap=False)` added: training samples are memory-mapped and only the downsampled rows are read.
+  - The benchmark manifests written before and after the move are byte-identical for all 6 arrays. The committed `results/benchmark/manifests/` already differ from what the current code writes, independently of this change (deepcytof_cpu, flagx_cpu, flagx_gpu, sklearn_cpu; probably the best configs changed after the manifests were written) → check before the final benchmark run.
+- **Grid (default):** duplicates of `'all'` are dropped per lane; 600 lanes, 36,604 atoms (rf / hgb / som / mlp 9,151 each).
+- **Seeds:** order `derive_seed('train_req', dataset, split, trial)`, event order per sample `(…, trial, sample)`, join `(…, trial, n_samples, n_events, 'join')`, model `('train_req', method, dataset, split, trial)`.
+- **Smoke tests** (local, `taskset -c 0-59`, 4 threads, scratch output):
+  - `--smoke` lanes ok in `fx_sklearn` (rf Imstat, ~2 s per atom), `fx_flagx_cpu` (som Imstat, 18–49 s) and mlp lt1b in `fx_flagx_cpu`.
+  - mlp lt1b with 1 sample × 100 events → `failed`: the positive class has 1 training event, and flagx's stratified validation split raises a ValueError. This is a Python error, so not a cutoff; recorded as a result.
+  - Forced timeout (`--atom-limit 6`, RF Imstat):
+    - timeouts → markers → larger atoms skipped, also in the second lane (other trial);
+    - `--lane-limit` stops the lane cleanly and the rerun resumes it; `status` / `missing` count the dominated atoms as finished;
+    - no orphaned processes.
+  - An atom killed while its interpreter was shutting down, after writing `ok`, was first classified as `timeout` → fixed: a child JSON `ok` wins.
+  - Python 3.5 syntax check (`fx_deepcytof`) ok.
+- **Nested event downsampling (2026-11-18, user decision):**
+  - Found: `validation.core.sampling.downsample_indices` with a fixed seed is not nested over n. On 200 random class distributions, 31 % of the steps 100 → 300 → … → 30000 lost events of the smaller subset (on average 19 %, up to 99 %). Cause: a class whose quota rounds to 0 draws no random numbers, which shifts the stream for all later classes, plus the final correction to exactly n.
+  - The legacy experiment was not nested either: one global `np.random.seed` for the whole grid, so a sample's events changed even between n_samples cells.
+  - Change in `training_data_requirements.py` only (tuning / benchmark keep `downsample_indices`): `event_order(y, seed)` gives one fixed stratified order per sample (random permutation; within each class the j-th of m_c events gets rank (j + 0.5) / m_c; stable sort by rank). n_events = the first n.
+  - Checked: 0 non-nested steps on the same 200 distributions; class counts within 1.22 events of n · m_c / m; deterministic per seed; ~0.7 s per 3M-event sample (vs 0.16 s for `downsample_indices`), outside the fit timing.
+  - Smoke tests repeated (rf / som Imstat, mlp lt1b): ok, mlp lt1b 1 × 100 again `failed` (same cause as above); Py3.5 syntax ok.
+- **Training class counts per sample (2026-11-18, for the minority count analysis):** the atom JSON also stores `n_train_events_sample_per_class` ({sample: {class: count}}, after downsampling; sums to `n_train_events_per_class`). ~2 KB per atom, ~72 MB over all 36,604 atoms. As before, the counts are written only together with the fit results, so they are missing for timeout / OOM / skipped atoms. Accepted: those cells are expected to score like the full data, and the counts can be rebuilt from the seeds if needed.

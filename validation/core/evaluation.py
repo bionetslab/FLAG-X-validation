@@ -2,7 +2,7 @@
 Per-sample evaluation counts: confusion matrix incl. abstentions and the derived per-class counts.
 
 numpy only, Python 3.5-compatible (runs in every method env): no f-strings, no variable annotations.
-Scores are computed later from these counts (PLAN.md step 9, scoring rule D8).
+Scores are computed later from these counts (PLAN.md step 10, scoring rule D8).
 """
 
 import numpy as np
