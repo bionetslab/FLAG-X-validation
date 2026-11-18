@@ -1,6 +1,6 @@
 # Training data requirements plan: step 8 (`training_data_requirements.py`)
 
-> Status: implemented and smoke-tested (2026-11-17; `DONE.md`, step 8). Not run yet. Open TODOs: grid per dataset, number of trials, time limit, method selection, hardware calibration, eval harness.
+> Status: implemented and smoke-tested (2026-11-17; `DONE.md`, step 8). Not run yet. Open TODOs: method selection, hardware calibration, eval harness.
 
 ## Context
 Step 7 shows how well every method performs with all training data. Step 8 asks how much training data the best methods need: the score, fit / predict time and memory as a function of the **number of training samples** × **events per sample**. It runs under a fixed small budget (4 CPUs or 1 GPU, 1 h per atom). The result also sets the reduced / minimal training sets used in step 9 (local training, preprocessing ablation). The legacy version of this experiment is `legacy/main.py::main_num_samples_num_events_experiment` (SOM / FCNN, one split, fixed sample order, grid 1–75 samples × 100–50k events + all).
@@ -9,16 +9,16 @@ Step 7 shows how well every method performs with all training data. Step 8 asks 
 - **Methods:** a constant at the top of the script. For now `mlp`, `som`, `hgb`, `rf`; the final choice = the top performers of step 7 (probably none of the published methods).
 - **Atom** = (method, dataset, outer split, trial, n_samples, n_events).
   - **Trial** = training sample order + downsampling seed; the model seed is tied to the trial.
-  - 3 trials (`N_TRIALS = 3  # TODO: revisit before the final run`).
+  - 3 trials (`N_TRIALS = 3`; fixed 2026-11-18, more trials only around the elbow in the follow-up, PLAN.md step 9).
 - **Grid:** log-spaced defaults, dataset-specific later (`# TODO`), see below.
 - **Data:** downsampling on the fly. Test samples are predicted in full (PLAN rule).
 - **Outputs per atom:** as in the benchmark: resources + counts per test sample, **no predictions** (storage). The eval harness comes later in its own script.
 - **Arrays:** `sklearn_cpu` (rf, hgb), `flagx_cpu` (som), `flagx_gpu` (mlp).
-- **Resources:** 4 CPUs (GPU array: 1 GPU, 4 threads), no partition, **1 h per atom** (`ATOM_TIME_LIMIT_S = 3600  # TODO`).
+- **Resources:** 4 CPUs (GPU array: 1 GPU, 4 threads), no partition, **1 h per atom** (`ATOM_TIME_LIMIT_S = 3600`, fixed 2026-11-18, the same for all lanes; see Hardware).
 - **Order:** one outer fold completely before the next. Within a fold, small → large: all event sizes of n samples, then n + 1 samples.
 - **Cutoff:** a timeout or OOM marks where a method stops under this budget. Every larger atom (≥ samples **and** ≥ events) of the same method × dataset, **in any fold and trial**, is then skipped.
 - **Skipping must not cost a SLURM allocation.** Hence lane workers instead of one job per atom (decided over: one job per atom + `scancel`, `srun` steps, dependency arrays; see below).
-- **Hardware:** not pinned to one CPU / GPU type (queue time). The claim is a lower bound for the weakest node type, see "Hardware".
+- **Hardware:** not pinned to one CPU / GPU type (queue time), except that the slow Woody E3-1240 v5 nodes are excluded (2026-11-18). The claim is a lower bound for the weakest remaining node type (E3-1240 v6), see "Hardware".
 - **Hyperparameters:** as in step 7 (D6): Imstat per outer split, all other datasets the consensus config. Frozen into the manifest.
 
 ## Execution: lane workers (pure Python)
@@ -42,7 +42,7 @@ Step 7 shows how well every method performs with all training data. Step 8 asks 
 
 **Sequential = SLURM:** `run <array> all` runs all lanes one after another locally. The time logic is the same, so a local smoke test with a 10 s limit tests timeout and skipping.
 
-**Size:** 4 methods × 10 datasets × 5 folds × 3 trials = **600 lanes** (sklearn_cpu 300, flagx_cpu 150, flagx_gpu 150), all below MaxArraySize. Atoms: about 40k, but most of them are small or get skipped.
+**Size:** 4 methods × 10 datasets × 5 folds × 3 trials = **600 lanes** (sklearn_cpu 300, flagx_cpu 150, flagx_gpu 150), all below MaxArraySize. Atoms: 59,524 (grid of 2026-11-18), but most of them are small or get skipped.
 
 ### Rejected alternatives
 - **One job per atom** (incl. `scancel` of dominated pending atoms): about 36k jobs in chunks of ≤ 10000 with offsets. Every tiny atom pays job startup + conda + imports. Needs `squeue` / `scancel` from compute nodes. If the OOM kill hits the batch shell, the cancel doesn't run.
@@ -59,14 +59,33 @@ Same as `benchmark.py::run_atom`, with these changes:
 - **Test samples:** predicted in full. Counts CSV per test sample × class as in the benchmark. **No** predictions.
 - **JSON:** identity incl. trial / n_samples / n_events and the selected training samples, params + source, seeds, `n_train_events` (+ per class and per training sample × class, for the minority count analysis), preprocessor state, resources of the fit and of each test sample's predict, `phase` / `n_test_done` progress, metadata (`cpu_model`, `gpu_names`, host), and the status set by the worker.
 
-## Grid (constants; `# TODO: dataset-specific grid`)
+## Grid (constants; decided 2026-11-18)
 ```python
-N_SAMPLES = [1, 2, 4, 8, 16, 32, 64, 'all']        # values >= n_train of the split are dropped; 'all' always
-N_EVENTS = [100, 300, 1000, 3000, 10000, 30000, 100000, 300000, 'all']
+N_SAMPLES = {'default': [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 'all'],   # values >= n_train are dropped
+             'flowcyt': [1, 2, 3, 4, 6, 8, 12, 16, 'all']}                   # 24 training samples
+N_EVENTS = [100, 300, 1000, 3000, 10000, 30000, 100000, 300000, 'all']       # same for all datasets
 ```
+**Reasoning:** based on the legacy SOM / MLP results (`legacy/results/num_samples_num_events/`; one trial, older curation, no BLAST110).
+- Macro F1 comes within ~0.02 of the plateau mostly at 2–16 samples (Imstat SOM ≥1k events: ~3; LT1b SOM: ~3 at ≥5k, ~8 at 1k). MLP on LT1 / LT2 keeps improving up to 30–58 samples.
+- Over the events, the transitions run 100 → 1k → 5k (Imstat, LT) and 10k → 50k → all (FlowCyt).
+- Hence ~×1.5 steps over the samples (dense at the knee, up to 64) and ×3 steps over the events (the effect is multiplicative; 2–4 points per transition).
+- One event grid for all datasets: a sample with fewer events than the cap goes in completely. 100 events stay in as the lower end (minority count analysis).
+- BLAST110 has no reference and gets the default grid. Its large cells are expected to hit the time limit (= cutoff).
+
+**Justification of the spacing (for the paper; 2026-11-18):**
+- **Log-uniform grid.** Learning curves are roughly linear in log(training size), so the ratio between grid points matters, not the difference.
+  - The event grid has a constant ratio of ~×3 (half-decade steps of ~0.5 in log₁₀), so 3k → 10k is no larger a step than 1k → 3k.
+  - Equal steps over 3.5 decades resolve every part of the curve equally, without knowing in advance where each method's knee is. The knee differs by method and dataset, and BLAST110 has no prior data.
+- **Resolution backed by legacy data.** Mean change in macro F1 per step, by n_samples 1 / 2–4 / >4:
+  - The steep part is 1k → 5k (e.g. MLP Imstat +0.43 / +0.16 / +0.02); the grid has two points there (1k, 3k).
+  - 5k → 10k: +0.00–0.03 for 2–4 samples, ~0 for >4, within the single-trial noise (±0.1 at 1 sample).
+  - Exception: FlowCyt rises up to 'all' (MLP 5k → 10k → 20k: +0.05 / +0.10 at 2–4 samples). This range is covered by 10k, 30k, 100k, 300k, all.
+- **Samples finer (~×1.5).** The sample axis spans only ~2 decades (1–100) and is limited to integers, and the knees lie at 2–16 samples. With ×2 steps that range would get only 4–5 points.
+- **Cost.** Each extra event value adds ~5,000 atoms. Refining 3k–10k (e.g. adding 5k) would add resolution where the legacy curves are flat.
+- **Methods sentence (draft):** "Training set size was varied on log-spaced grids: the number of training samples in steps of ≈1.5× (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, all) and the number of events per sample in half-decade steps (100, 300, 1,000, …, 300,000, all), giving uniform resolution on the logarithmic scale on which learning curves are typically approximately linear."
 Outer training samples per split: Imstat ~99, LT ~78, Flowcyt ~24, BLAST110 ~76–85. Events per sample: ~40k (Imstat) to ~3M (BLAST110). A cap above a sample's size = all its events, so for small samples the high caps duplicate `'all'`.
 
-**Decided (2026-11-17):** duplicates are dropped per lane at manifest time: n_samples ≥ the number of training samples (= `'all'`), and event caps ≥ the largest selected sample (= `'all'` events). The cell (`'all'`, `'all'`) is left out, since the main benchmark (step 7) covers it. Default grid: 600 lanes, 36,604 atoms (sklearn_cpu 18,302; flagx_cpu 9,151; flagx_gpu 9,151; about 55 atoms per Imstat lane and 70 per BLAST110 lane).
+**Decided (2026-11-17):** duplicates are dropped per lane at manifest time: n_samples ≥ the number of training samples (= `'all'`), and event caps ≥ the largest selected sample (= `'all'` events). The cell (`'all'`, `'all'`) is left out, since the main benchmark (step 7) covers it. First default grid (log-spaced samples 1, 2, 4, …, 64): 36,604 atoms. Grid of 2026-11-18: 600 lanes, **59,524 atoms** (sklearn_cpu 29,762; flagx_cpu 14,881; flagx_gpu 14,881; about 90 atoms per Imstat / LT lane, 80 per FlowCyt lane and 115 per BLAST110 lane).
 
 ## Outputs (`results/training_data_requirements/`)
 ```
@@ -89,13 +108,33 @@ logs/tdr_<array>/<jobid>_<task>.out                              worker log (SLU
 - `--smoke`: 3 test samples, 1 % of the events, a tiny grid, short time limits (only with `--out`).
 
 ## SLURM (`slurm_scripts/tdr_<array>.sh`)
-- Woody (`sklearn_cpu`, `flagx_cpu`): `--cpus-per-task=4`, no partition, `--time=24:00:00` (= `LANE_TIME_LIMIT_S`), job name `tdr_<array>`, thread variables from `SLURM_CPUS_PER_TASK`, `python training_data_requirements.py run <array> $SLURM_ARRAY_TASK_ID`.
+- Woody (`sklearn_cpu`, `flagx_cpu`): `--cpus-per-task=4`, `--constraint="kl|icx"` (no v5 nodes), no partition, `--time=24:00:00` (= `LANE_TIME_LIMIT_S`), job name `tdr_<array>`, thread variables from `SLURM_CPUS_PER_TASK`, `python training_data_requirements.py run <array> $SLURM_ARRAY_TASK_ID`.
 - TinyGPU (`flagx_gpu`): `--gres=gpu:1`, no partition, 4 threads, the rest as above.
-- `--time` and `ATOM_TIME_LIMIT_S` are TODOs (1 h per atom may go up or down).
+- `--time` = 24 h (cluster maximum) per lane; `ATOM_TIME_LIMIT_S` = 1 h (decided 2026-11-18).
 - `slurm_scripts/README.md`: new section.
 
 ## Hardware (lower bound)
 Earlier atoms ran on Woody E3-1240 v5 / v6 (4-core nodes) and Gold 6326 (Ice Lake). The GPU nodes are mixed (rtx2080ti / rtx3080). With 4 cores, both Woody types give ~31 GB of RAM.
+
+**Time limit 1 h per atom (decided 2026-11-18).** Basis: fit time per training event on 4 cores from the tuning atoms (best configs, ~2.5M training events, all three Woody node types; MLP on TinyGPU):
+
+| Method | Gold 6326 (icx) | E3-1240 v6 (kl) | E3-1240 v5 (sl) | Max. training events in 1 h |
+|---|---|---|---|---|
+| RF | 134 µs | 129 µs | 189 µs | ~27M → ~19M (v5) |
+| HGB | 177 µs | 174 µs | 530 µs | ~20M → ~7M (v5) |
+| SOM | 3.0 ms | 6.9 ms | 16.1 ms | ~1.2M → ~0.2M (v5) |
+| MLP (GPU) | 303 µs (range 120–1060) | | | ~12M |
+
+- Predicting the validation set (~1.4M events) took 1–60 s (HGB on v5: ~5 min). The limit is mostly fit time.
+- Legacy elbows in pooled training events (SOM / MLP): SOM ≤ ~0.1M (FlowCyt ~4 × 20k; Imstat, LT far below); MLP ~1.5–7M (LT1 / LT2, FlowCyt). So 1 h covers every elbow even on the slowest node, with the least margin for SOM on v5 and MLP (~2×).
+- 30 min would put SOM on v5 at the FlowCyt elbow and make prediction a noticeable part of the budget for HGB. 2 h would move the frontier by only about one grid step, and SOM lanes are already long. A single limit for all lanes and methods keeps the budget statement simple: "1 h on 4 cores".
+- The tuning-based SOM rates are ~3× (Gold) to ~15× (v5) slower than the extrapolation from the 32-core pilot. So the compute estimate for the SOM array is too optimistic: more SOM atoms near the frontier time out.
+
+**Node types (Woody docs, doc.nhr.fau.de/clusters/woody, read 2026-11-18):** v5 (`sl`, w12xx/w13xx) 62 nodes × 4 cores; v6 (`kl`, w14xx/w15xx) 108 × 4; Gold 6326 (`icx`, w22xx–w25xx) 110 × 32 (80 of them financed by ECAP / physics). Only partition `work`, 24 h max. Selection by `--constraint=sl|kl|icx`. The docs do not mention excluding a type, but Slurm's OR syntax `--constraint="kl|icx"` would exclude only v5. **Decided (2026-11-18): exclude v5**, `#SBATCH --constraint="kl|icx"` in both Woody scripts. Reasons:
+  - v5 is only ~6 % of the 4-core slots (62 of ~1,050), so the scheduling loss is small.
+  - A cutoff applies to all folds / trials, so one lane landing on v5 could pull in the frontier for a whole method × dataset (SOM v5 ≈ 2.3× v6, 5× Gold; HGB ~3×). Every needless timeout also costs a full hour.
+  - The lower bound is then the E3-1240 v6 (4 cores, 3.7 GHz, 32 GB, 2017 desktop class), still a modest machine for the local-training claim. Calibration is needed only between v6 and Ice Lake (SOM ~2.3×).
+  - The OR syntax is standard Slurm but not shown in the NHR docs: test once with `sbatch --constraint="kl|icx" --wrap hostname`.
 
 The online cutoff uses the raw 1 h. A success on a fast node does not certify the weakest node. So for a claim like "with 4 cores of type X one gets at least this far":
 - **[TODO] Calibration:** rerun a few atoms (several methods / sizes) per node type with `--constraint` / `--gres=gpu:<type>:1` → slowdown factor per CPU / GPU model relative to the slowest.

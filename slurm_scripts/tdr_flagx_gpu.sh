@@ -6,7 +6,7 @@
 #   python training_data_requirements.py manifest flagx_gpu     # prints the number of lanes L; --array must be 0-<L-1>
 # Then, submit from the repo root on tinyx (see slurm_scripts/README.md):
 #   sbatch.tinygpu slurm_scripts/tdr_flagx_gpu.sh
-# TODO: --time must equal LANE_TIME_LIMIT_S in training_data_requirements.py (per-atom limit 1 h, may change)
+# --time must equal LANE_TIME_LIMIT_S in training_data_requirements.py (per-atom limit ATOM_TIME_LIMIT_S = 1 h).
 # No partition: default partition work (RTX 2080 Ti / RTX 3080). The host share per GPU is fixed (8 cores); the
 # methods use 4 threads, as on Woody.
 #SBATCH --nodes=1

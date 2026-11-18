@@ -98,11 +98,11 @@ One array task = one **lane** = (method, dataset, outer split, trial), not one a
 
 | Array | Script | Env | Cluster | Methods | Lanes | Atoms |
 |---|---|---|---|---|---|---|
-| `sklearn_cpu` | `tdr_sklearn_cpu.sh` | `fx_sklearn` | Woody | rf, hgb | 300 | 18302 |
-| `flagx_cpu` | `tdr_flagx_cpu.sh` | `fx_flagx_cpu` | Woody | som | 150 | 9151 |
-| `flagx_gpu` | `tdr_flagx_gpu.sh` | `fx_flagx_gpu` | TinyGPU | mlp | 150 | 9151 |
+| `sklearn_cpu` | `tdr_sklearn_cpu.sh` | `fx_sklearn` | Woody | rf, hgb | 300 | 29762 |
+| `flagx_cpu` | `tdr_flagx_cpu.sh` | `fx_flagx_cpu` | Woody | som | 150 | 14881 |
+| `flagx_gpu` | `tdr_flagx_gpu.sh` | `fx_flagx_gpu` | TinyGPU | mlp | 150 | 14881 |
 
-Lanes = 10 datasets × 5 outer splits × 3 trials per method (counts of 2026-11-17, default grid). Resources: Woody 4 cores (~31 GB), no partition, 24 h per lane; TinyGPU 1 GPU (default partition `work`), 4 threads. Node types are not pinned; `cpu_model` / `gpu_names` are recorded per atom (lower-bound claim and calibration: see the working note).
+Lanes = 10 datasets × 5 outer splits × 3 trials per method (counts of 2026-11-18, grid with ~×1.5 sample steps). Resources: Woody 4 cores (~31 GB), `--constraint="kl|icx"` (E3-1240 v6 or Gold 6326; the slow v5 nodes are excluded, see the working note; test the OR syntax once with `sbatch --constraint="kl|icx" --wrap hostname`), no partition, 24 h per lane; TinyGPU 1 GPU (default partition `work`), 4 threads. Beyond excluding v5, node types are not pinned; `cpu_model` / `gpu_names` are recorded per atom (lower-bound claim and calibration: see the working note).
 
 ```bash
 python training_data_requirements.py manifest sklearn_cpu    # prints the number of lanes L (--array=0-<L-1>)

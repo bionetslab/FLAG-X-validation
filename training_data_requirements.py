@@ -22,9 +22,9 @@ n_events); join shuffle
 derive_seed('train_req', dataset, split, trial, n_samples, n_events, 'join'); model derive_seed('train_req', method,
 dataset, split, trial). The data seeds do not depend on the method, so all methods see the same training data.
 
-Grid: N_SAMPLES x N_EVENTS per lane, without duplicates: n_samples >= number of training samples is the same as
-'all'; an event cap >= the largest selected sample is the same as 'all' events; ('all', 'all') is the main benchmark
-(step 7) and is left out.
+Grid: N_SAMPLES (per dataset) x N_EVENTS (same for all datasets) per lane, without duplicates: n_samples >= number of
+training samples is the same as 'all'; an event cap >= the largest selected sample is the same as 'all' events;
+('all', 'all') is the main benchmark (step 7) and is left out.
 
 Execution (lane workers):
     A lane = (method, dataset, outer split, trial) = one SLURM array task. The worker ('run') walks the lane's atoms
@@ -105,17 +105,22 @@ OVERWRITE = False  # False: finished atoms (JSON with a final status) are kept
 # TODO: final selection = the top performers of the main benchmark (step 7)
 METHODS = ['mlp', 'som', 'hgb', 'rf']
 
-# TODO: revisit the number of trials (sample order + downsampling seed + model seed) before the final run
+# Trial = sample order + event order + model seed
 N_TRIALS = 3
 
-# TODO: dataset-specific grids (log-spaced defaults for now). Values that duplicate 'all' are dropped per lane.
-N_SAMPLES = [1, 2, 4, 8, 16, 32, 64, 'all']
+# Grid. n_samples per dataset ('default' unless listed), n_events the same for all datasets
+# (a sample with fewer events than the cap is used completely). Values that duplicate 'all' are dropped per lane.
+N_SAMPLES = {
+    'default': [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 'all'],
+    'flowcyt': [1, 2, 3, 4, 6, 8, 12, 16, 'all'],
+}
 N_EVENTS = [100, 300, 1000, 3000, 10000, 30000, 100000, 300000, 'all']
 
 STRATIFIED = True  # Class-stratified event order of the training samples (event_order; benchmark.py also stratifies)
 
-# TODO: time budget per atom (1 h for now; may go up or down). LANE_TIME_LIMIT_S must equal --time of the SLURM
-# scripts (slurm_scripts/tdr_<array>.sh); WRAPUP_BUFFER_S is kept free at the end of a lane.
+# Time budget per atom (whole atom: loading, fit, predict; the same for all lanes; reasoning: working note).
+# LANE_TIME_LIMIT_S must equal --time of the SLURM scripts (slurm_scripts/tdr_<array>.sh); WRAPUP_BUFFER_S is kept
+# free at the end of a lane.
 ATOM_TIME_LIMIT_S = 3600
 LANE_TIME_LIMIT_S = 24 * 3600
 WRAPUP_BUFFER_S = 600
@@ -214,13 +219,13 @@ def sample_sizes(dataset):
                 for f in os.listdir(d) if f.endswith('_y.npy'))
 
 
-def lane_cells(order, sizes):
+def lane_cells(dataset, order, sizes):
     """
     Grid cells (n_samples, n_events, n_train_events) of one lane, small -> large, without duplicates of 'all' and
     without ('all', 'all') (main benchmark).
     """
     cells = []
-    for ns in N_SAMPLES:
+    for ns in N_SAMPLES.get(dataset, N_SAMPLES['default']):
         if ns != 'all' and ns >= len(order):
             continue  # Same as 'all'
         selected = order if ns == 'all' else order[:ns]
@@ -255,7 +260,7 @@ def write_manifest(array, out):
                 cid, params, source = best_config(method, dataset, split, BEST_CONFIGS, TUNING_DATASET)
                 for trial in range(N_TRIALS):
                     order = sample_order(dataset, split, trial, train)
-                    for ns, ne, n_train in lane_cells(order, sizes[dataset]):
+                    for ns, ne, n_train in lane_cells(dataset, order, sizes[dataset]):
                         rows.append([index, lane, atom_id(method, dataset, split, trial, ns, ne), method, dataset,
                                      split, trial, ns, ne, len(train), n_train, cid, source,
                                      json.dumps(params, sort_keys=True)])
