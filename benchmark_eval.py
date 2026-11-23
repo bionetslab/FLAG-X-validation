@@ -84,6 +84,11 @@ Outputs (<out> = results/benchmark_eval by default):
                 superior (a better than b: ci_low > 0), noninferior (a not worse than b by delta or more:
                 ci_low > -delta; non-superiority of a over b = noninferior of the reversed row), equivalent (TOST:
                 -delta < ci_low and ci_high < delta; symmetric in a, b). Empty if the CI is NaN.
+                Each decision is followed by its one-sided bootstrap p-value (boot_p, from the same N_BOOT bootstrap
+                means; no multiplicity correction): p_superior (H0: mean delta <= 0), p_noninferior (H0: mean
+                delta <= -delta), p_equivalent (TOST: the larger of the p-values of H0: <= -delta and H0: >= delta).
+                The decisions correspond to p < 0.025 (up to the percentile interpolation); the two-sided p-value of
+                'a differs from b' is 2 min(p_superior of a - b, p_superior of b - a).
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -459,6 +464,17 @@ def variability_table(fold_seed):
 N_BOOT = 10000  # Bootstrap resamples for the CI of the mean paired delta
 
 
+def boot_p(boot, c, side):
+    """
+    One-sided bootstrap p-value of H0: mean <= c (side 'le') or mean >= c (side 'ge') from the bootstrap means,
+    (1 + #{boot on the H0 side of c}) / (N_BOOT + 1) (the usual +1 correction: p >= 1 / (N_BOOT + 1), never 0);
+    consistent with the percentile CI: p < 0.025 if and only if c lies outside it on that side (up to the percentile
+    interpolation).
+    """
+    k = np.sum(boot <= c) if side == 'le' else np.sum(boot >= c)
+    return float((1 + k) / (len(boot) + 1.0))
+
+
 def pairwise_table(dataset, scores):
     """
     Paired per-sample differences of all method pairs (columns: module docstring).
@@ -483,6 +499,7 @@ def pairwise_table(dataset, scores):
                 if n < 2:
                     st = dict(mean_delta=np.nan, sd_delta=np.nan, median_delta=np.nan, q1_delta=np.nan,
                               q3_delta=np.nan, ci_low=np.nan, ci_high=np.nan)
+                    p_ab = p_ba = dict(p_superior=np.nan, p_noninferior=np.nan, p_equivalent=np.nan)
                 else:
                     rng = np.random.default_rng(derive_seed('benchmark_eval', 'pairwise_deltas', dataset, metric,
                                                             a, b))
@@ -491,21 +508,30 @@ def pairwise_table(dataset, scores):
                     q1, med, q3 = np.percentile(d, [25, 50, 75])
                     st = dict(mean_delta=float(d.mean()), sd_delta=float(d.std(ddof=1)), median_delta=float(med),
                               q1_delta=float(q1), q3_delta=float(q3), ci_low=float(lo), ci_high=float(hi))
+                    # One-sided p-values for a - b; the reversed row b - a has the bootstrap means -boot
+                    p_eq = max(boot_p(boot, -config.DELTA, 'le'), boot_p(boot, config.DELTA, 'ge'))  # TOST
+                    p_ab = dict(p_superior=boot_p(boot, 0, 'le'), p_noninferior=boot_p(boot, -config.DELTA, 'le'),
+                                p_equivalent=p_eq)
+                    p_ba = dict(p_superior=boot_p(boot, 0, 'ge'), p_noninferior=boot_p(boot, config.DELTA, 'ge'),
+                                p_equivalent=p_eq)
                 base = {'dataset': dataset, 'metric': metric, 'average': average, 'n_samples': n, 'n_total': n_total}
-                rows.append(dict(base, method_a=a, method_b=b, **st))
+                rows.append(dict(base, method_a=a, method_b=b, **dict(st, **p_ab)))
                 rows.append(dict(base, method_a=b, method_b=a, mean_delta=-st['mean_delta'], sd_delta=st['sd_delta'],
                                  median_delta=-st['median_delta'], q1_delta=-st['q3_delta'],
-                                 q3_delta=-st['q1_delta'], ci_low=-st['ci_high'], ci_high=-st['ci_low']))
+                                 q3_delta=-st['q1_delta'], ci_low=-st['ci_high'], ci_high=-st['ci_low'], **p_ba))
     t = pd.DataFrame(rows, columns=['dataset', 'metric', 'average', 'method_a', 'method_b', 'n_samples', 'n_total',
                                     'mean_delta', 'sd_delta', 'median_delta', 'q1_delta', 'q3_delta', 'ci_low',
-                                    'ci_high'])
+                                    'ci_high', 'p_superior', 'p_noninferior', 'p_equivalent'])
     # Decisions from the 95 % CI (each one-sided at alpha = 0.025); empty where the CI is NaN
     valid = t['ci_low'].notna()
     t['margin'] = config.DELTA
     t['superior'] = (t['ci_low'] > 0).where(valid)
     t['noninferior'] = (t['ci_low'] > -config.DELTA).where(valid)
     t['equivalent'] = ((t['ci_low'] > -config.DELTA) & (t['ci_high'] < config.DELTA)).where(valid)
-    return t
+    cols = [c for c in t.columns if not c.startswith('p_')]  # Each p-value next to its decision
+    for test in ['superior', 'noninferior', 'equivalent']:
+        cols.insert(cols.index(test) + 1, 'p_' + test)
+    return t[cols]
 
 
 # ---------------------------------------------------------------------------------------------------------------
