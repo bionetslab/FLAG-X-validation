@@ -81,6 +81,12 @@ LOG10_CUTOFFS = {
 LOG10_CUTOFFS['lt1b'] = LOG10_CUTOFFS['lt1']
 LOG10_CUTOFFS['lt2b'] = LOG10_CUTOFFS['lt2']
 
+# ### Statistics
+# Margin delta of the paired non-inferiority / equivalence tests on the per-sample score (macro F1; binary datasets F1
+# of label 1), a stated convention (decided 2026-11-18, working_notes/training_data_requirements_eval_plan.md): step 7
+# (benchmark_eval.py, pairwise method comparisons) and step 8 (minimal training data)
+DELTA = 0.02
+
 
 # ### Plotting
 # Order, display names and colors of the datasets and methods in all figures. Only plot scripts use these, so they can be

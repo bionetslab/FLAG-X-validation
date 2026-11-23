@@ -66,15 +66,24 @@ Outputs (<out> = results/benchmark_eval by default):
                 no score (not predicted: failed / killed / missing atom, or the score is undefined).
     fold_seed_variability.csv   one row per method x dataset x metric: method, dataset, metric, average, mean,
                 fold_sd, seed_sd (formulas: fold_seed_stats; seed_sd empty for deterministic methods with 1 seed),
-                n_folds, n_seeds. NaN propagates from any NaN m.
+                rerun_range (max - min over the seeds of the seed's mean score over all test samples of the dataset,
+                i.e. the n_samples-weighted mean of its fold means: how much the overall score changes when the
+                method is only retrained with another seed; empty for 1 seed), n_folds, n_seeds. NaN propagates from
+                any NaN m.
     pairwise_deltas.csv   paired differences between all method pairs per dataset x metric (f1 / prec / rec, macro
-                or binary as above), at the test-sample level: per sample the score averaged over the seeds (NaN if
-                any seed has no score), delta = score(method_a) - score(method_b) over the dataset's test samples
-                (all outer folds). Columns: dataset, metric, average, method_a, method_b, n_samples, mean_delta,
-                sd_delta (SD of the per-sample deltas, ddof 1), ci_low / ci_high (95 % percentile bootstrap CI of the
-                mean delta: N_BOOT resamples of the samples with replacement, seed derived from dataset and metric).
-                Both orders of each pair are listed (a - b and b - a). Missingness propagates: all NaN if either
-                method has no score for any sample.
+                or binary as above), at the test-sample level: per sample the score averaged over the seeds that
+                predicted it (NaN if none did; as in plot_benchmark.py), delta = score(method_a) - score(method_b)
+                over the dataset's test samples (all outer folds) that both methods predicted (incomplete results:
+                the available pairs are used). Columns: dataset, metric, average, method_a, method_b, n_samples
+                (paired samples), n_total (test samples of the dataset), mean_delta, sd_delta (SD of the per-sample
+                deltas, ddof 1), median_delta, q1_delta / q3_delta (quartiles of the per-sample deltas: IQR =
+                q3 - q1), ci_low / ci_high (95 % percentile bootstrap CI of the mean delta: N_BOOT resamples of
+                the paired samples with replacement, seed derived from dataset, metric and the pair). Both orders of
+                each pair are listed (a - b and b - a). All NaN if fewer than 2 paired samples.
+                Tests from the 95 % CI (each one-sided at alpha = 0.025), margin = config.DELTA (as in step 8):
+                superior (a better than b: ci_low > 0), noninferior (a not worse than b by delta or more:
+                ci_low > -delta; non-superiority of a over b = noninferior of the reversed row), equivalent (TOST:
+                -delta < ci_low and ci_high < delta; symmetric in a, b). Empty if the CI is NaN.
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -430,8 +439,16 @@ def variability_table(fold_seed):
                                                                      sort=False):
         mat = g.pivot(index='split', columns='seed', values='m').sort_index().sort_index(axis=1)
         mean, sd_fold, sd_seed = fold_seed_stats(mat.to_numpy())
+        # Re-run range: overall mean per seed (all test samples = fold means weighted by their sample numbers)
+        n = g.pivot(index='split', columns='seed', values='n_samples').loc[mat.index, mat.columns]
+        per_seed = (mat * n).sum() / n.sum()
+        if mat.isna().to_numpy().any() or mat.shape[1] < 2:
+            rerun = np.nan
+        else:
+            rerun = float(per_seed.max() - per_seed.min())
         rows.append({'method': method, 'dataset': dataset, 'metric': metric, 'average': average, 'mean': mean,
-                     'fold_sd': sd_fold, 'seed_sd': sd_seed, 'n_folds': mat.shape[0], 'n_seeds': mat.shape[1]})
+                     'fold_sd': sd_fold, 'seed_sd': sd_seed, 'rerun_range': rerun, 'n_folds': mat.shape[0],
+                     'n_seeds': mat.shape[1]})
     return pd.DataFrame(rows)
 
 
@@ -454,29 +471,41 @@ def pairwise_table(dataset, scores):
     for metric in METRICS:
         sample, average = sample_metric(scores, metric)
         g = sample.groupby([scores['method'], scores['split'], scores['sample']])
-        mean = g.mean().where(g.count() == g.size())  # Seed mean; NaN if any seed has no score
-        wide = mean.unstack('method')  # Rows: split x sample, columns: methods
+        wide = g.mean().unstack('method')  # Seed mean over the seeds that predicted the sample; rows: split x sample
         methods = [m for m in config.PLOT_METHODS if m in wide.columns] + sorted(set(wide.columns) -
                                                                                   set(config.PLOT_METHODS))
-        n = len(wide)
-        rng = np.random.default_rng(derive_seed('benchmark_eval', 'pairwise_deltas', dataset, metric))
-        idx = rng.integers(0, n, size=(N_BOOT, n))  # Same resamples for all pairs of this dataset x metric
+        n_total = len(wide)
         for i, a in enumerate(methods):
             for b in methods[i + 1:]:
                 d = (wide[a] - wide[b]).to_numpy()
-                if np.isnan(d).any() or n < 2:
-                    st = dict(mean_delta=np.nan, sd_delta=np.nan, ci_low=np.nan, ci_high=np.nan)
+                d = d[~np.isnan(d)]  # Samples predicted by both methods
+                n = len(d)
+                if n < 2:
+                    st = dict(mean_delta=np.nan, sd_delta=np.nan, median_delta=np.nan, q1_delta=np.nan,
+                              q3_delta=np.nan, ci_low=np.nan, ci_high=np.nan)
                 else:
-                    boot = d[idx].mean(axis=1)
+                    rng = np.random.default_rng(derive_seed('benchmark_eval', 'pairwise_deltas', dataset, metric,
+                                                            a, b))
+                    boot = d[rng.integers(0, n, size=(N_BOOT, n))].mean(axis=1)
                     lo, hi = np.percentile(boot, [2.5, 97.5])
-                    st = dict(mean_delta=float(d.mean()), sd_delta=float(d.std(ddof=1)), ci_low=float(lo),
-                              ci_high=float(hi))
-                base = {'dataset': dataset, 'metric': metric, 'average': average, 'n_samples': n}
+                    q1, med, q3 = np.percentile(d, [25, 50, 75])
+                    st = dict(mean_delta=float(d.mean()), sd_delta=float(d.std(ddof=1)), median_delta=float(med),
+                              q1_delta=float(q1), q3_delta=float(q3), ci_low=float(lo), ci_high=float(hi))
+                base = {'dataset': dataset, 'metric': metric, 'average': average, 'n_samples': n, 'n_total': n_total}
                 rows.append(dict(base, method_a=a, method_b=b, **st))
                 rows.append(dict(base, method_a=b, method_b=a, mean_delta=-st['mean_delta'], sd_delta=st['sd_delta'],
-                                 ci_low=-st['ci_high'], ci_high=-st['ci_low']))
-    return pd.DataFrame(rows, columns=['dataset', 'metric', 'average', 'method_a', 'method_b', 'n_samples',
-                                       'mean_delta', 'sd_delta', 'ci_low', 'ci_high'])
+                                 median_delta=-st['median_delta'], q1_delta=-st['q3_delta'],
+                                 q3_delta=-st['q1_delta'], ci_low=-st['ci_high'], ci_high=-st['ci_low']))
+    t = pd.DataFrame(rows, columns=['dataset', 'metric', 'average', 'method_a', 'method_b', 'n_samples', 'n_total',
+                                    'mean_delta', 'sd_delta', 'median_delta', 'q1_delta', 'q3_delta', 'ci_low',
+                                    'ci_high'])
+    # Decisions from the 95 % CI (each one-sided at alpha = 0.025); empty where the CI is NaN
+    valid = t['ci_low'].notna()
+    t['margin'] = config.DELTA
+    t['superior'] = (t['ci_low'] > 0).where(valid)
+    t['noninferior'] = (t['ci_low'] > -config.DELTA).where(valid)
+    t['equivalent'] = ((t['ci_low'] > -config.DELTA) & (t['ci_high'] < config.DELTA)).where(valid)
+    return t
 
 
 # ---------------------------------------------------------------------------------------------------------------

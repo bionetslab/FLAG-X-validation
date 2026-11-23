@@ -48,15 +48,19 @@ of the positive class, and the F1 of the other class adds nothing).
 Pairwise comparison (benchmark_eval.py pairwise_deltas.csv, no statistical tests):
 
     pairwise_f1.pdf  one heatmap per dataset: cell (row A, column B) = mean paired difference F1(A) - F1(B) over the
-                     test samples (seed means; macro / binary as in scores_box.pdf); monochrome blue scale
-                     0 .. DELTA_LIM (darker = row method better; saturates beyond); a negative delta (row method
-                     worse despite the higher mean score, possible since the deltas are paired) is red (under color);
-                     a dot marks pairs whose 95 % bootstrap CI of the mean difference contains 0 (same performance
-                     range); grey = not available (a method without a score for some sample). Upper triangle only
-                     (the matrix is antisymmetric); methods sorted per dataset by mean score (as in scores_box.pdf),
-                     best at the top; the method names stand in the empty lower triangle, ending in the diagonal cell
-                     (name i labels row i and column i). Colorbar and legend in the empty panel slots of the last
-                     row (under the panels if there are none).
+                     test samples predicted by both methods (seed means over the predicting seeds; macro / binary as
+                     in scores_box.pdf); a method with failed predictions has '(k/n)' (as in scores_box.pdf) in front
+                     of its name; monochrome blue scale 0 .. DELTA_LIM (darker = row method better; saturates
+                     beyond); a negative delta (row method worse on the common samples despite the higher mean score;
+                     only possible if one of the two methods has failed predictions) is grey (DELTA_NEG_COLOR), the
+                     colorbar extends to -DELTA_NEG for it; a dot marks equivalent pairs (benchmark_eval.py column
+                     'equivalent': 95 % bootstrap CI of the mean difference within +-config.DELTA); light grey =
+                     not available (fewer than 2 test samples predicted by both methods). The legend lists the grey
+                     cell types only if they occur.
+                     Upper triangle only (the matrix is antisymmetric); methods sorted per dataset by mean score (as
+                     in scores_box.pdf), best at the top; the method names stand in the empty lower triangle, ending
+                     in the diagonal cell (name i labels row i and column i). Colorbar and legend in the empty panel
+                     slots of the last row (under the panels if there are none).
 
 Order, names and colors of the datasets, methods and classes: config.py, section Plotting (PLOT_DATASETS,
 DATASET_NAMES, PLOT_METHODS, METHOD_NAMES, METHOD_COLORS, CLASS_ORDER, CLASS_COLORS).
@@ -80,13 +84,15 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import ListedColormap, Normalize
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from scipy.stats import pearsonr
 
 from config import (DATA_CURATED, RESULTS, FIGURES, PLOT_DATASETS, DATASET_NAMES, PLOT_METHODS, METHOD_NAMES,
                     METHOD_COLORS, CLASS_ORDER, CLASS_COLORS, PAGE_WIDTH, PAGE_HEIGHT, PLOT_RC, FONT_TICK,
-                    FONT_LABEL, FONT_TITLE, FONT_SUPTITLE, FONT_PANEL, FONT_ANNOT, FONT_MIN)
+                    FONT_LABEL, FONT_TITLE, FONT_SUPTITLE, FONT_PANEL, FONT_ANNOT, FONT_MIN, DELTA)
 from validation.eval_helpers import ba_stats, population_seed_mean
 
 # Final printed size: every figure is PAGE_WIDTH wide and at most PAGE_HEIGHT tall, font sizes FONT_* (config.py)
@@ -116,7 +122,9 @@ CLASS_FIGURES = [
 ]
 SHOW_BA_TEXT = True  # Bland-Altman panels: 'bias [lower, upper limit of agreement]' in pp
 # Pairwise heatmaps
-DELTA_LIM = 0.2  # Color scale of the mean paired delta: 0 .. DELTA_LIM (larger values saturate, negative ones red)
+DELTA_LIM = 0.2  # Color scale of the mean paired delta: 0 .. DELTA_LIM (larger values saturate)
+DELTA_NEG = 0.02  # The colorbar extends to -DELTA_NEG: negative deltas, all in DELTA_NEG_COLOR
+DELTA_NEG_COLOR = '0.6'  # Darker than the grey of unavailable cells (0.9)
 PAIR_N_COLS = 3  # Dataset panels per row
 
 
@@ -148,6 +156,11 @@ def load_scores(in_dir, dataset):
     return scores, y_label
 
 
+def prediction_counts(s):
+    """(k, n) of one method: predicted / expected test sample x seed predictions (load_scores rows of the method)."""
+    return int(s['n_seeds'].sum()), int(s['n_seeds_expected'].sum())
+
+
 def plot_panel(ax, scores, methods, rng, show_counts=True):
     """
     Boxes per method (colored), the samples as points (marker = outer split), 'k/n' / 'n/a' annotations.
@@ -177,7 +190,7 @@ def plot_panel(ax, scores, methods, rng, show_counts=True):
                        linewidths=0.25, alpha=0.6, zorder=3)
         if not show_counts:
             continue
-        k, n = int(s['n_seeds'].sum()), int(s['n_seeds_expected'].sum())  # Predictions: test sample x seed
+        k, n = prediction_counts(s)
         if k < n:
             ax.text(i, 1.01, '{}/{}'.format(k, n), ha='center', va='bottom', fontsize=FONT_MIN, color='0.3')
 
@@ -515,11 +528,18 @@ def plot_pairwise(in_dir, path, metric='f1'):
     fig, axes = plt.subplots(n_rows, PAIR_N_COLS,
                              figsize=(PAGE_WIDTH, min(2.0 * n_rows + (0.2 if n_empty else 0.7), PAGE_HEIGHT)),
                              squeeze=False, layout='constrained')
-    # Monochrome: rows are sorted by mean score, so the upper-triangle deltas are (almost always) >= 0
+    # Monochrome: rows are sorted by mean score, so the upper-triangle deltas are >= 0 unless a method has failed
+    # predictions (the pairs use the common samples). Cells: Blues 0 .. DELTA_LIM; negative cells are grey patches
+    # (not mapped through the colormap, so values just above 0 cannot fall into the grey segment). The colorbar shows
+    # the grey segment -DELTA_NEG .. 0 in front of the Blues scale.
     cmap = plt.get_cmap('Blues').copy()
-    cmap.set_under('#b2182b')  # Negative delta (row method worse): red, marked in the colorbar
-    cmap.set_bad('none')  # Lower triangle and diagonal stay empty; missing upper cells get grey patches below
-    im = None
+    cmap.set_bad('none')  # Lower triangle, diagonal, negative and missing cells: patches below
+    n_neg = int(round(256 * DELTA_NEG / DELTA_LIM))
+    cbar_cmap = ListedColormap([DELTA_NEG_COLOR] * n_neg + list(cmap(np.linspace(0, 1, 256))))
+    cbar_cmap.set_under(DELTA_NEG_COLOR)
+    cbar_cmap.set_over(cmap(1.0))
+    cbar = ScalarMappable(norm=Normalize(-DELTA_NEG, DELTA_LIM), cmap=cbar_cmap)
+    any_missing = any_negative = False  # Legend entries only for cell types that occur
     for n, ax in enumerate(axes.flat):
         if n >= len(datasets):
             ax.set_visible(False)
@@ -534,7 +554,7 @@ def plot_pairwise(in_dir, path, metric='f1'):
         k = len(methods)
         # The matrix is antisymmetric (delta(B, A) = -delta(A, B), mirrored CI): only the upper triangle is drawn
         mat = np.full((k, k), np.nan)
-        same = np.zeros((k, k), dtype=bool)  # CI contains 0
+        equiv = np.zeros((k, k), dtype=bool)  # Equivalent within +-DELTA (benchmark_eval.py column 'equivalent')
         missing = []  # Upper cells without a value (grey)
         for i, a in enumerate(methods):
             for j, b in enumerate(methods):
@@ -543,24 +563,31 @@ def plot_pairwise(in_dir, path, metric='f1'):
                 if (a, b) in p.index and np.isfinite(p.loc[(a, b), 'mean_delta']):
                     r = p.loc[(a, b)]
                     mat[i, j] = r['mean_delta']
-                    same[i, j] = r['ci_low'] <= 0 <= r['ci_high']
+                    equiv[i, j] = str(r['equivalent']) == 'True'  # Bool or NaN in the CSV
                 else:
                     missing.append((i, j))
         # pcolormesh (vector cells) instead of imshow (embedded bitmap, smoothed by PDF viewers); cell edges at
         # +-0.5 and inverted y axis: cell (i, j) centred at x=j, y=i, row 0 (best method) at the top
         edges = np.arange(k + 1) - 0.5
-        im = ax.pcolormesh(edges, edges, np.ma.masked_invalid(mat), cmap=cmap, vmin=0, vmax=DELTA_LIM)
+        ax.pcolormesh(edges, edges, np.ma.masked_invalid(np.where(mat < 0, np.nan, mat)), cmap=cmap, vmin=0,
+                      vmax=DELTA_LIM)
+        any_missing |= bool(missing)
+        any_negative |= bool((mat < 0).any())
         for i, j in missing:
             ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, color='0.9', linewidth=0))
+        for i, j in zip(*np.nonzero(mat < 0)):
+            ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, color=DELTA_NEG_COLOR, linewidth=0))
         ax.set_xlim(-0.5, k - 0.5)
         ax.set_ylim(k - 0.5, -0.5)
         ax.set_aspect('equal')
-        yy, xx = np.nonzero(same)
+        yy, xx = np.nonzero(equiv)
         ax.scatter(xx, yy, s=1.5, color='black', linewidths=0)
         # Method names in the empty lower triangle, ending in the diagonal cell: name i labels row i (to its right)
-        # and column i (above it)
+        # and column i (above it); '(k/n) ' in front if some predictions of the method failed (as in scores_box.pdf)
         for i, m in enumerate(methods):
-            ax.text(i + 0.4, i, METHOD_NAMES[m], ha='right', va='center', fontsize=FONT_MIN)
+            k, n_exp = prediction_counts(scores[scores['method'] == m])
+            name = METHOD_NAMES[m] if k == n_exp else '({}/{}) {}'.format(k, n_exp, METHOD_NAMES[m])
+            ax.text(i + 0.4, i, name, ha='right', va='center', fontsize=FONT_MIN)
         panel_letter(ax, n)
         ax.set_title('{} ({})'.format(DATASET_NAMES[datasets[n]], 'binary' if
                                       (p['average'] == 'binary').any() else 'macro'))
@@ -571,8 +598,12 @@ def plot_pairwise(in_dir, path, metric='f1'):
     label = 'Mean paired Δ{} per test sample\n(row − column)'.format(
         {'f1': 'F1', 'prec': ' precision', 'rec': ' recall'}[metric])
     legend = [Line2D([], [], linestyle='', marker='o', markersize=2, color='black',
-                     label='95 % bootstrap CI contains 0'),
-              Patch(facecolor='0.9', edgecolor='none', label='Not available (failed predictions)')]
+                     label='Equivalent (95 % CI of Δ within ±{:g})'.format(DELTA))]
+    if any_negative:
+        legend.append(Patch(facecolor=DELTA_NEG_COLOR, edgecolor='none',
+                            label='Negative Δ (row method worse on the common samples)'))
+    if any_missing:
+        legend.append(Patch(facecolor='0.9', edgecolor='none', label='Not available (no common predicted samples)'))
     if n_empty:  # Colorbar and legend in the empty slots of the last row (one axes spanning them)
         gs = axes[-1, 0].get_gridspec()
         for ax in axes[-1, PAIR_N_COLS - n_empty:]:
@@ -580,10 +611,10 @@ def plot_pairwise(in_dir, path, metric='f1'):
         host = fig.add_subplot(gs[n_rows - 1, PAIR_N_COLS - n_empty:])
         host.axis('off')
         cax = host.inset_axes([0.1, 0.62, 0.8, 0.06])
-        cb = fig.colorbar(im, cax=cax, orientation='horizontal', extend='both')
+        cb = fig.colorbar(cbar, cax=cax, orientation='horizontal', extend='both')
         host.legend(handles=legend, loc='upper center', bbox_to_anchor=(0.5, 0.3), frameon=False)
     else:
-        cb = fig.colorbar(im, ax=axes, location='bottom', shrink=0.5, extend='both', pad=0.02, aspect=40)
+        cb = fig.colorbar(cbar, ax=axes, location='bottom', shrink=0.5, extend='both', pad=0.02, aspect=40)
         fig.legend(handles=legend, loc='outside lower center', ncol=2, frameon=False)
     cb.set_label(label)
     os.makedirs(os.path.dirname(path), exist_ok=True)

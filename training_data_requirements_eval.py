@@ -38,7 +38,7 @@ OUT_DIR = os.path.join(config.RESULTS, 'training_data_requirements_eval')
 OVERWRITE = False
 
 # TODO (open decisions, working note): margins, primary criterion, grid order, bootstrap settings
-PRIMARY_DELTA = 0.02  # Non-inferiority margin (macro F1; F1 of label 1 for binary datasets), proposed
+PRIMARY_DELTA = config.DELTA  # Non-inferiority margin (macro F1; F1 of label 1 for binary datasets)
 CRITERIA = [('noninf', 0.01), ('noninf', 0.02), ('noninf', 0.05), ('legacy_ci', None)]
 ORDERS = ['greedy', 'joint']  # greedy: fewest samples, then fewest events; joint: fewest total training events
 N_BOOT = 10000
