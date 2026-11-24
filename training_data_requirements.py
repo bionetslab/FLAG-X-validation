@@ -31,11 +31,12 @@ Execution (lane workers):
     from small to large (n_samples ascending, within it n_events ascending) and runs each as a child process ('atom')
     with a time limit of ATOM_TIME_LIMIT_S (whole atom: loading, fit, predict). Per atom:
     1. Finished (JSON status ok / failed / timeout / oom / skipped) -> next.
-    2. Dominated: an atom of the same method x dataset (any split, any trial) with <= samples and <= events ('all' =
-       infinite) ended with timeout / oom (marker in cutoffs/<method>/<dataset>/) -> JSON status 'skipped'
-       (skipped_by), no run.
-    3. Not enough time left in the lane (elapsed + ATOM_TIME_LIMIT_S + WRAPUP_BUFFER_S > LANE_TIME_LIMIT_S) -> the
-       worker stops (exit 0); 'missing' lists the lane for a resubmission, which continues where it stopped.
+    2. Dominated: an atom of the same method x dataset (any split, any trial) with at most as many total training
+       events (n_train_events, from the manifest) ended with timeout / oom (marker in cutoffs/<method>/<dataset>/) -> JSON
+       status 'skipped' (skipped_by), no run.
+    3. Not enough time left in the lane (now + ATOM_TIME_LIMIT_S + WRAPUP_BUFFER_S > deadline) -> the worker stops
+       (exit 0). Deadline: under SLURM the end of the job (time left from squeue at the worker's start; the limit
+       varies with --time-min), otherwise lane start + LANE_TIME_LIMIT_S; 'missing' lists the lane for a resubmission, which continues where it stopped.
     4. Run the child (own session; stdout / stderr -> logs/<method>/<dataset>/...log). Over the time limit, the whole
        process group is killed -> 'timeout'. Killed by a signal (cgroup OOM killer) or a memory error in the traceback
        -> 'oom'. timeout / oom write a cutoff marker. Other Python errors -> 'failed' (not a cutoff).
@@ -52,12 +53,14 @@ Commands:
                                          [--lane-limit S]
         Lane worker for lane <lane> (default: $SLURM_ARRAY_TASK_ID) or all lanes sequentially. --smoke: only atoms
         with <= SMOKE['max_samples'] samples and <= SMOKE['max_events'] events, test samples reduced (only with
-        --out). --atom-limit / --lane-limit override the time limits (only with --out, for tests).
+        --out). --atom-limit / --lane-limit override the time limits (only with --out, for tests; --lane-limit also
+        overrides the SLURM time left).
     python training_data_requirements.py atom <array> <index> [--out DIR] [--smoke]
         One atom in this process (the worker's child; also for debugging). No time limit, no cutoff marker.
     python training_data_requirements.py status <array> [--out DIR]
-        Per method x dataset: atoms per status, cutoffs (minimal timeout / oom cells), max fit time / RAM; lanes not
-        finished.
+        Per method x dataset: atoms per status, max fit time / RAM, the cutoff (smallest n_train_events of a timeout /
+        oom atom) and the number of 'ok' atoms at or above it (finished before the cutoff was known; dropped in the eval);
+        lanes not finished.
     python training_data_requirements.py missing <array> [--out DIR]
         Lanes with atoms that are neither finished nor dominated, as a SLURM --array range.
 
@@ -68,7 +71,8 @@ Outputs (<out> = results/training_data_requirements by default; <stem> = split_<
         status (started / ok / failed / timeout / oom / skipped), phase (fit / predict / done), and the worker's
         record (return code, wall time, timed_out).
     counts/<method>/<dataset>/<stem>.csv: one row per test sample x true class (as in benchmark.py).
-    cutoffs/<method>/<dataset>/split_<i>__trial_<t>__ns_<s>__ne_<e>.json: one marker per timeout / oom atom.
+    cutoffs/<method>/<dataset>/split_<i>__trial_<t>__ns_<s>__ne_<e>.json: one marker per timeout / oom atom (with its
+        n_train_events).
     logs/<method>/<dataset>/<stem>.log: stdout / stderr of the atom; logs/tdr_<array>/: SLURM logs of the workers.
 """
 
@@ -102,8 +106,8 @@ BEST_CONFIGS = os.path.join(config.RESULTS, 'tune_hyperparameters_eval', 'best_c
 TUNING_DATASET = 'imstat'  # Uses the per-outer-split best configs (nested CV); all others the consensus config (D6)
 OVERWRITE = False  # False: finished atoms (JSON with a final status) are kept
 
-# TODO: final selection = the top performers of the main benchmark (step 7)
-METHODS = ['mlp', 'som', 'hgb', 'rf']
+# Top performers of the main benchmark: 'rf', 'hgb', 'mlp'; and 'som' for continuity
+METHODS = ['rf', 'hgb', 'mlp', 'som']
 
 # Trial = sample order + event order + model seed
 N_TRIALS = 3
@@ -119,8 +123,8 @@ N_EVENTS = [100, 300, 1000, 3000, 10000, 30000, 100000, 300000, 'all']
 STRATIFIED = True  # Class-stratified event order of the training samples (event_order; benchmark.py also stratifies)
 
 # Time budget per atom (whole atom: loading, fit, predict; the same for all lanes; reasoning: working note).
-# LANE_TIME_LIMIT_S must equal --time of the SLURM scripts (slurm_scripts/tdr_<array>.sh); WRAPUP_BUFFER_S is kept
-# free at the end of a lane.
+# Lane time: under SLURM the worker reads the time left of its own job (squeue %L; the limit varies with --time-min);
+# LANE_TIME_LIMIT_S is only the fallback outside SLURM. WRAPUP_BUFFER_S is kept free at the end of a lane.
 ATOM_TIME_LIMIT_S = 3600
 LANE_TIME_LIMIT_S = 24 * 3600
 WRAPUP_BUFFER_S = 600
@@ -289,24 +293,27 @@ def load_json(path):
 
 
 def cutoffs(out, method, dataset):
-    """[(n_samples, n_events, flat stem)] of the timeout / oom atoms of a method x dataset (marker files)."""
+    """[(n_train_events, flat stem)] of the timeout / oom atoms of a method x dataset (marker files), smallest first."""
     d = cutoff_dir(out, method, dataset)
     if not os.path.isdir(d):
         return []
     res = []
-    for f in sorted(os.listdir(d)):
+    for f in os.listdir(d):
         if f.endswith('.json'):
-            parts = dict(p.split('_', 1) for p in f[:-len('.json')].split('__'))
-            res.append((size_key(parts['ns']), size_key(parts['ne']), f[:-len('.json')]))
-    return res
+            res.append((int(load_json(os.path.join(d, f))['n_train_events']), f[:-len('.json')]))
+    return sorted(res)
 
 
 def dominated_by(out, row):
-    """Flat stem of a timeout / oom atom (same method x dataset) with <= samples and <= events, else None."""
-    ns, ne = size_key(row['n_samples']), size_key(row['n_events'])
-    for cs, ce, stem in cutoffs(out, row['method'], row['dataset']):
-        if cs <= ns and ce <= ne:
+    """
+    Atom id of a timeout / oom atom (same method x dataset, any split / trial) with at most as many total training
+    events as this atom, else None. Ties are dominated: the same cell in the other lanes is skipped (a cell with any
+    timeout is not eligible in the eval anyway).
+    """
+    for n_cut, stem in cutoffs(out, row['method'], row['dataset']):
+        if int(row['n_train_events']) >= n_cut:
             return '{}__{}__{}'.format(row['method'], row['dataset'], stem)
+        break  # Sorted: the smallest cutoff decides
     return None
 
 
@@ -499,12 +506,32 @@ def finish_atom(out, row, returncode, timed_out, wall_s, atom_limit):
         save_json(os.path.join(cutoff_dir(out, row['method'], row['dataset']),
                                flat_stem(row['split'], row['trial'], row['n_samples'], row['n_events']) + '.json'),
                   OrderedDict([('atom_id', row['atom_id']), ('status', status), ('phase', info.get('phase')),
-                               ('time', now())]))
+                               ('n_train_events', int(row['n_train_events'])), ('time', now())]))
     return status
 
 
-def run_lane(array, lane_rows, out, smoke, atom_limit, lane_limit):
-    t0 = time.time()
+def slurm_time_left():
+    """Seconds left of the current SLURM job (squeue %L: [D-]HH:MM:SS or MM:SS), None outside SLURM or on failure."""
+    job = os.environ.get('SLURM_JOB_ID')
+    if not job:
+        return None
+    try:
+        s = subprocess.check_output(['squeue', '-j', job, '-h', '-o', '%L'], universal_newlines=True,
+                                    timeout=60).strip()  # The controller can hang
+        days = 0
+        if '-' in s:
+            d, s = s.split('-', 1)
+            days = int(d)
+        parts = [int(p) for p in s.split(':')]
+        parts = [0] * (3 - len(parts)) + parts
+        return days * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]
+    except (OSError, ValueError, IndexError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print('{} could not read the SLURM time left ({!r}); using LANE_TIME_LIMIT_S'.format(now(), e))
+        return None
+
+
+def run_lane(array, lane_rows, out, smoke, atom_limit, deadline):
+    """Runs the lane's atoms; starts an atom only if it can finish (incl. WRAPUP_BUFFER_S) before deadline (epoch s)."""
     lane = lane_rows[0]['lane']
     print('{} lane {} ({} atoms): {} {} split {} trial {}'.format(
         now(), lane, len(lane_rows), lane_rows[0]['method'], lane_rows[0]['dataset'], lane_rows[0]['split'],
@@ -523,7 +550,7 @@ def run_lane(array, lane_rows, out, smoke, atom_limit, lane_limit):
                                               ('skipped_by', dom), ('time', now())]))
             print('{} skipped {} (cutoff {})'.format(now(), row['atom_id'], dom))
             continue
-        if time.time() - t0 + atom_limit + WRAPUP_BUFFER_S > lane_limit:
+        if time.time() + atom_limit + WRAPUP_BUFFER_S > deadline:
             print('{} lane {}: not enough time left for {}; stopping (resubmit via "missing")'.format(
                 now(), lane, row['atom_id']))
             return
@@ -568,8 +595,10 @@ def print_status(array, out):
     for r in manifest:
         st, info = atom_state(out, r)
         e = table.setdefault((r['method'], r['dataset']), {'n': OrderedDict((s, 0) for s in states), 'fit_h': [],
-                                                           'fit_gb': []})
+                                                           'fit_gb': [], 'ok_events': []})
         e['n'][st] += 1
+        if st == 'ok':
+            e['ok_events'].append(int(r['n_train_events']))
         if st in ('started', 'missing'):
             todo.add(int(r['lane']))
         res = (info or {}).get('resources') or {}
@@ -580,13 +609,15 @@ def print_status(array, out):
     def mx(v, fmt):
         return fmt.format(max(v)) if v else '-'
 
-    line = '{:<6} {:<12}' + ' {:>7}' * len(states) + ' {:>6} {:>7}  {}'
-    print(line.format('method', 'dataset', *(states + ('fit_h', 'fit_GB', 'cutoffs (ns/ne)'))))
+    line = '{:<6} {:<12}' + ' {:>7}' * len(states) + ' {:>6} {:>7} {:>11} {:>8}'
+    print(line.format('method', 'dataset', *(states + ('fit_h', 'fit_GB', 'cutoff_ev', 'ok>cut'))))
     for (method, dataset), e in table.items():
-        cut = ', '.join('{}/{}'.format(*(('all' if v == INF else v) for v in c[:2]))
-                        for c in sorted(set(c[:2] for c in cutoffs(out, method, dataset))))
-        print(line.format(method, dataset, *(list(e['n'].values()) + [mx(e['fit_h'], '{:.2f}'),
-                                                                      mx(e['fit_gb'], '{:.1f}'), cut or '-'])))
+        cut = cutoffs(out, method, dataset)
+        n_cut = cut[0][0] if cut else None
+        above = sum(1 for n in e['ok_events'] if n_cut is not None and n >= n_cut)  # Post-hoc check
+        print(line.format(method, dataset, *(list(e['n'].values()) + [
+            mx(e['fit_h'], '{:.2f}'), mx(e['fit_gb'], '{:.1f}'), n_cut if n_cut is not None else '-',
+            above if n_cut is not None else '-'])))
     print('{}: {} atoms, {} of {} lanes not finished'.format(array, len(manifest), len(todo), len(lanes(manifest))))
     if todo:
         print('not finished: --array={}'.format(index_ranges(sorted(todo))))
@@ -642,9 +673,18 @@ def main():
     by_lane = lanes(manifest)
     selected = list(by_lane) if lane == 'all' else [int(lane)]
     atom_limit = args.atom_limit if args.atom_limit is not None else ATOM_TIME_LIMIT_S
-    lane_limit = args.lane_limit if args.lane_limit is not None else LANE_TIME_LIMIT_S
+    # Deadline: --lane-limit (tests) per lane; under SLURM the end of the job (shared by all selected lanes);
+    # otherwise LANE_TIME_LIMIT_S per lane
+    left = None if args.lane_limit is not None else slurm_time_left()
+    if left is not None:
+        job_end = time.time() + left
+        print('{} SLURM job {}: {:.2f} h left'.format(now(), os.environ.get('SLURM_JOB_ID'), left / 3600.))
     for l in selected:
-        run_lane(args.array, by_lane[l], out, args.smoke, atom_limit, lane_limit)
+        if left is not None:
+            deadline = job_end
+        else:
+            deadline = time.time() + (args.lane_limit if args.lane_limit is not None else LANE_TIME_LIMIT_S)
+        run_lane(args.array, by_lane[l], out, args.smoke, atom_limit, deadline)
 
 
 if __name__ == '__main__':

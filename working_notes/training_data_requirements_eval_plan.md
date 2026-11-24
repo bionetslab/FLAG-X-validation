@@ -27,6 +27,40 @@ criteria, and a selection-bias check (cross-fitting). The minimal configurations
   and the pooled selection for comparison (in-sample vs. cross-fitted score at the minimal config).
 - `minimal_configs.json`: the minimal cell per method × dataset under the primary criterion (pooled; and the
   per-fold cross-fitted cells), read by step 9.
+- `budget_check.csv`: per `ok` atom: time split (fit / predict / rest), peak memory, `n_train_events`, cpu_model; check
+  of the cutoff rule (see "Compute budget").
+
+## Compute budget (post hoc, decided 2026-11-24)
+
+Before any score analysis, the eval applies the run's cutoff rule again over all atoms, since lanes run in parallel and
+atoms that finished `ok` before a smaller atom of another lane timed out are not rewritten:
+
+- Cutoff per method × dataset: x = the smallest `n_train_events` of any `timeout` / `oom` atom (any fold / trial).
+- Every atom with `n_train_events` ≥ x is outside the budget, whatever its status (`in_budget`, `excluded_by` in
+  `atoms.csv`). A cell then counts only if all folds and trials are in budget and have scores.
+- No slowdown factors: the CPU arrays run on Gold 6326 only; the GPU array is mixed, but each cell runs in 15 lanes, so
+  its cutoff already reflects the slower GPU (`working_notes/training_data_requirements_plan.md`, "Hardware"). Check
+  `cpu_model` / `gpu_names` of the cutoff atoms.
+- Predict-phase timeouts (BLAST110 test folds) depend on the test size, not the training size; they still count
+  (conservative), and `phase` shows them.
+
+**Check of the rule (added 2026-11-24).** The rule assumes that the cost of an atom depends on the total number of
+training events, not on how they are split into samples × events. Checked on the finished `ok` atoms, per method ×
+dataset:
+
+- Time split per atom: fit (`resources.fit.wall_s`), prediction (sum of the per-test-sample `wall_s`), rest = loading /
+  preprocessing / overhead (`worker.wall_s` − fit − prediction). Plus peak fit memory (`resources.fit.cpu_rss_peak_mb`).
+- Fit time and peak memory against `n_train_events` (log-log), colored by n_samples: if the rule holds, cells with
+  the same total but different splits (e.g. 64 × 1k vs 2 × 30k) fall on one curve. A systematic offset by n_samples
+  (e.g. extra time per sample from loading, or per-sample effects inside the method) means the rule cuts off too
+  much or too little for some splits; quantify it as the ratio of fit time at a similar total, many vs few samples.
+- Share of loading and prediction in the atom wall time near the cutoff (they don't scale with `n_train_events`;
+  prediction is fixed per fold, mainly relevant for BLAST110 on 4 cores).
+- Outlier cutoffs: for each cutoff atom, compare x with the wall times of `ok` atoms of similar size in other lanes. A
+  cutoff far below where comparable atoms finished (slow node, shared-FS hiccup) is flagged; its marker can then be
+  removed and the affected lanes resubmitted (decided case by case, documented).
+- Output: `budget_check.csv` (per atom: n_samples, n_events, n_train_events, fit / predict / rest seconds, peak MB,
+  cpu_model) and a figure (fit time and peak memory vs `n_train_events`, one panel per method × dataset).
 
 ## Open decisions (to settle before implementation)
 

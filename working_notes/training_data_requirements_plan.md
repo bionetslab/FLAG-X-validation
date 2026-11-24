@@ -1,12 +1,12 @@
 # Training data requirements plan: step 8 (`training_data_requirements.py`)
 
-> Status: implemented and smoke-tested (2026-11-17; `DONE.md`, step 8). Not run yet. Open TODOs: method selection, hardware calibration, eval harness.
+> Status: implemented and smoke-tested (2026-11-17; `DONE.md`, step 8). Not run yet. Open TODO: eval harness (incl. the post-hoc budget filter).
 
 ## Context
 Step 7 shows how well every method performs with all training data. Step 8 asks how much training data the best methods need: the score, fit / predict time and memory as a function of the **number of training samples** × **events per sample**. It runs under a fixed small budget (4 CPUs or 1 GPU, 1 h per atom). The result also sets the reduced / minimal training sets used in step 9 (local training, preprocessing ablation). The legacy version of this experiment is `legacy/main.py::main_num_samples_num_events_experiment` (SOM / FCNN, one split, fixed sample order, grid 1–75 samples × 100–50k events + all).
 
 ## Decisions (from the request and the discussion of 2026-11-17)
-- **Methods:** a constant at the top of the script. For now `mlp`, `som`, `hgb`, `rf`; the final choice = the top performers of step 7 (probably none of the published methods).
+- **Methods:** a constant at the top of the script: `rf`, `hgb`, `mlp`, `som` (decided 2026-11-24, reasons in `DONE.md`, step 8).
 - **Atom** = (method, dataset, outer split, trial, n_samples, n_events).
   - **Trial** = training sample order + downsampling seed; the model seed is tied to the trial.
   - 3 trials (`N_TRIALS = 3`; fixed 2026-11-18, more trials only around the elbow in the follow-up, PLAN.md step 9).
@@ -16,7 +16,7 @@ Step 7 shows how well every method performs with all training data. Step 8 asks 
 - **Arrays:** `sklearn_cpu` (rf, hgb), `flagx_cpu` (som), `flagx_gpu` (mlp).
 - **Resources:** 4 CPUs (GPU array: 1 GPU, 4 threads), no partition, **1 h per atom** (`ATOM_TIME_LIMIT_S = 3600`, fixed 2026-11-18, the same for all lanes; see Hardware).
 - **Order:** one outer fold completely before the next. Within a fold, small → large: all event sizes of n samples, then n + 1 samples.
-- **Cutoff:** a timeout or OOM marks where a method stops under this budget. Every larger atom (≥ samples **and** ≥ events) of the same method × dataset, **in any fold and trial**, is then skipped.
+- **Cutoff:** a timeout or OOM marks where a method stops under this budget. Every atom of the same method × dataset with **at least as many total training events** (`n_train_events` ≥ that of the timeout / OOM atom), **in any fold and trial**, is then skipped (changed 2026-11-24 from "≥ samples and ≥ events": fit time and memory depend mainly on the total number of events).
 - **Skipping must not cost a SLURM allocation.** Hence lane workers instead of one job per atom (decided over: one job per atom + `scancel`, `srun` steps, dependency arrays; see below).
 - **Hardware:** not pinned to one CPU / GPU type (queue time), except that the slow Woody E3-1240 v5 nodes are excluded (2026-11-18). The claim is a lower bound for the weakest remaining node type (E3-1240 v6), see "Hardware".
 - **Hyperparameters:** as in step 7 (D6): Imstat per outer split, all other datasets the consensus config. Frozen into the manifest.
@@ -24,8 +24,8 @@ Step 7 shows how well every method performs with all training data. Step 8 asks 
 ## Execution: lane workers (pure Python)
 **Lane** = (method, dataset, outer split, trial) = one SLURM array task. The worker (`run <array> <lane>`) walks the lane's grid cells in order (n_samples ascending, and within each, n_events ascending) and handles each atom as follows:
 1. **Done already?** If the atom JSON has status `ok` / `timeout` / `oom` / `failed` / `skipped` → skip. A `started` atom (lane killed earlier) is rerun.
-2. **Dominated?** It looks for an atom of the same method × dataset (any split, any trial) with n_samples' ≤ n and n_events' ≤ e (`all` = ∞) and status `timeout` / `oom`. If there is one, it writes a small JSON `{status: skipped, skipped_by: <atom_id>}` and moves on. This takes milliseconds and needs no allocation. Other lanes that run at the same time see these failures via the shared FS.
-3. **Enough time left in the lane?** It starts the atom only if `elapsed + ATOM_TIME_LIMIT_S + WRAPUP_BUFFER_S <= LANE_TIME_LIMIT_S` (`LANE_TIME_LIMIT_S` = SLURM `--time`, buffer ~10 min). Otherwise it stops cleanly (exit 0). This way the job limit never cuts an atom, and every `timeout` is a real cutoff.
+2. **Dominated?** It looks for an atom of the same method × dataset (any split, any trial) with at most as many total training events (`n_train_events` from the manifest; the marker stores it) and status `timeout` / `oom`. Ties are dominated (2026-11-24): without sample-size limits `n_train_events` = n_samples × n_events in every lane, so the same cell in the other 14 lanes is skipped instead of timing out again (a cell with any timeout is not eligible in the eval anyway). If there is one, it writes a small JSON `{status: skipped, skipped_by: <atom_id>}` and moves on. This takes milliseconds and needs no allocation. Other lanes that run at the same time see these failures via the shared FS.
+3. **Enough time left in the lane?** It starts the atom only if `now + ATOM_TIME_LIMIT_S + WRAPUP_BUFFER_S <= deadline` (buffer ~10 min). Deadline (2026-11-24): the end of the SLURM job, from its time left (`squeue -j $SLURM_JOB_ID -h -o %L`) read at the worker's start, since with `--time-min` the limit varies per task; outside SLURM lane start + `LANE_TIME_LIMIT_S`. Otherwise it stops cleanly (exit 0). This way the job limit never cuts an atom, and every `timeout` is a real cutoff.
 4. **Run** the atom as a child process: `python training_data_requirements.py atom <array> <index>` via `subprocess.Popen(start_new_session=True)`, with stdout/stderr going to `logs/<method>/<dataset>/<stem>.log`. When the child exits, or `ATOM_TIME_LIMIT_S` is reached, the worker classifies the outcome:
    - child JSON `ok` → `ok` (counts complete, even if the kill came during interpreter shutdown);
    - over the time limit → `os.killpg(SIGKILL)` on the child's session (this also kills loky / DataLoader workers) → `timeout`;
@@ -108,9 +108,10 @@ logs/tdr_<array>/<jobid>_<task>.out                              worker log (SLU
 - `--smoke`: 3 test samples, 1 % of the events, a tiny grid, short time limits (only with `--out`).
 
 ## SLURM (`slurm_scripts/tdr_<array>.sh`)
-- Woody (`sklearn_cpu`, `flagx_cpu`): `--cpus-per-task=4`, `--constraint="kl|icx"` (no v5 nodes), no partition, `--time=24:00:00` (= `LANE_TIME_LIMIT_S`), job name `tdr_<array>`, thread variables from `SLURM_CPUS_PER_TASK`, `python training_data_requirements.py run <array> $SLURM_ARRAY_TASK_ID`.
+- Woody (`sklearn_cpu`, `flagx_cpu`): `--cpus-per-task=4`, `--constraint=icx` (Gold 6326 only, 2026-11-24), no partition, `--time=24:00:00 --time-min=02:00:00`, job name `tdr_<array>`, thread variables from `SLURM_CPUS_PER_TASK`, `python training_data_requirements.py run <array> $SLURM_ARRAY_TASK_ID`.
 - TinyGPU (`flagx_gpu`): `--gres=gpu:1`, no partition, 4 threads, the rest as above.
 - `--time` = 24 h (cluster maximum) per lane; `ATOM_TIME_LIMIT_S` = 1 h (decided 2026-11-18).
+- `--time-min=02:00:00` (decided 2026-11-24, all three scripts): the backfill scheduler may start a task with any limit between 2 h and 24 h, so tasks also fit into scheduling gaps and long slots are still used fully. Woody uses `sched/backfill`; Slurm accepted the option (TimeMin shown next to TimeLimit), but a start with a reduced limit was not yet observed (assumed to work). Backfill considers at most 20 jobs per user per cycle (`bf_max_job_user=20`), so the gain is limited. The worker reads its job's time left, so no constant has to match `--time`. Resubmission stays manual: `missing` after the array has finished (`squeue` empty), never while tasks of the previous submission are pending or running (a lane would run twice; there is no lock).
 - `slurm_scripts/README.md`: new section.
 
 ## Hardware (lower bound)
@@ -133,12 +134,12 @@ Earlier atoms ran on Woody E3-1240 v5 / v6 (4-core nodes) and Gold 6326 (Ice Lak
 **Node types (Woody docs, doc.nhr.fau.de/clusters/woody, read 2026-11-18):** v5 (`sl`, w12xx/w13xx) 62 nodes × 4 cores; v6 (`kl`, w14xx/w15xx) 108 × 4; Gold 6326 (`icx`, w22xx–w25xx) 110 × 32 (80 of them financed by ECAP / physics). Only partition `work`, 24 h max. Selection by `--constraint=sl|kl|icx`. The docs do not mention excluding a type, but Slurm's OR syntax `--constraint="kl|icx"` would exclude only v5. **Decided (2026-11-18): exclude v5**, `#SBATCH --constraint="kl|icx"` in both Woody scripts. Reasons:
   - v5 is only ~6 % of the 4-core slots (62 of ~1,050), so the scheduling loss is small.
   - A cutoff applies to all folds / trials, so one lane landing on v5 could pull in the frontier for a whole method × dataset (SOM v5 ≈ 2.3× v6, 5× Gold; HGB ~3×). Every needless timeout also costs a full hour.
-  - The lower bound is then the E3-1240 v6 (4 cores, 3.7 GHz, 32 GB, 2017 desktop class), still a modest machine for the local-training claim. Calibration is needed only between v6 and Ice Lake (SOM ~2.3×).
+  - The lower bound is then the E3-1240 v6 (4 cores, 3.7 GHz, 32 GB, 2017 desktop class), still a modest machine for the local-training claim. Superseded 2026-11-24: icx only, see below.
   - The OR syntax is standard Slurm but not shown in the NHR docs: test once with `sbatch --constraint="kl|icx" --wrap hostname`.
 
-The online cutoff uses the raw 1 h. A success on a fast node does not certify the weakest node. So for a claim like "with 4 cores of type X one gets at least this far":
-- **[TODO] Calibration:** rerun a few atoms (several methods / sizes) per node type with `--constraint` / `--gres=gpu:<type>:1` → slowdown factor per CPU / GPU model relative to the slowest.
-- **Eval:** an atom counts as within budget only if `wall × slowdown(cpu_model) ≤ budget`. This only removes cells, so the frontier stays monotone and conservative. `cpu_model` / `gpu_names` are already recorded per atom (`run_metadata`).
+**Woody: Gold 6326 (`icx`) only (decided 2026-11-24, replaces "kl|icx").** `#SBATCH --constraint=icx` in both Woody scripts. All CPU atoms then run on one CPU type, so the cutoff and the timings need no calibration or slowdown factors and do not depend on node assignment. The budget statement becomes "1 h on 4 cores of an Intel Xeon Gold 6326 (Ice Lake, 2021)". Per core, RF / HGB are as fast as on v6, SOM ~2.3× faster (table above), so for SOM the frontier is less conservative for older desktop / laptop CPUs than with v6; state the CPU model. 110 × 32 cores = ~880 4-core slots (v6: 432), part of them financed by ECAP / physics. TinyGPU (MLP) stays mixed (rtx2080ti / rtx3080): each cell runs in 15 lanes on random GPUs, so the cutoff settles on the slower GPU (all 15 on the faster type is unlikely); check after the run on which `gpu_names` the cutoff atoms ran.
+
+**Post-hoc check (eval):** lanes run in parallel, so an atom above the final cutoff can finish `ok` before a smaller atom of another lane times out (faster node, or split / trial differences). Finished atoms are not rewritten, but once the marker exists every larger atom is skipped, so only a few atoms per method × dataset are affected. The eval applies the rule again over all atoms (`training_data_requirements_eval_plan.md`, "Compute budget"); `status` shows the cutoff and the number of `ok` atoms above it (`ok>cut`).
 
 ## Shared helpers (the second user now exists)
 - `outer_splits(dataset)` → `validation/core/data.py`.
@@ -151,7 +152,13 @@ The online cutoff uses the raw 1 h. A success on a fast node does not certify th
 - **BLAST110 test folds** (~20 × ~3M events) take time with 4 cores, even with tiny models. A predict-phase timeout is a cutoff like any other (phase recorded).
 - **Leftover child processes on timeout** (loky, DataLoader): process-group kill, plus a smoke test with `ps`.
 - **OOM of the worker itself:** unlikely, because it never loads data.
-- **OOM kill of the whole job (untested, accepted 2026-11-18):** normally the kernel OOM killer kills only the child (largest memory user in the job's cgroup) → return code < 0 → `oom` + marker, and the lane continues. If the cluster's cgroup setup kills the whole group instead (`memory.oom.group`), the worker dies as well. The atom then stays `started` without a cutoff marker, and every resubmit via `missing` would rerun it and crash the lane again. No real OOM was triggered in the smoke tests. Since OOM is unlikely with these methods and grid sizes, the current setup is kept. Visible in `status` (atom stuck at `started`, lane always `missing`). Fix if it happens: the worker records each attempt, and an atom found `started` again on a rerun gets `oom` (perhaps only after the 2nd crash, so node failures don't count). Optionally raise the child's `oom_score_adj` so it is killed first.
+- **OOM kill of the whole job (accepted 2026-11-18; not expected on Woody, evidence 2026-11-24 below):** normally the kernel OOM killer kills only the child (largest memory user in the job's cgroup) → return code < 0 → `oom` + marker, and the lane continues. If the cluster's cgroup setup kills the whole group instead (`memory.oom.group`), the worker dies as well. The atom then stays `started` without a cutoff marker, and every resubmit via `missing` would rerun it and crash the lane again. No real OOM was triggered in the smoke tests. Since OOM is unlikely with these methods and grid sizes, the current setup is kept. Visible in `status` (atom stuck at `started`, lane always `missing`). Fix if it happens: the worker records each attempt, and an atom found `started` again on a rerun gets `oom` (perhaps only after the 2nd crash, so node failures don't count). Optionally raise the child's `oom_score_adj` so it is killed first.
+  - Evidence from the step-7 pilot (two SOM BLAST110 atoms OOM on Woody): the SLURM log shows `slurm_script: line 28: <pid> Killed python benchmark.py run …` followed by `error: Detected 1 oom_kill event in StepId=<job>.batch`. The batch shell, a second process in the same cgroup, survived and printed the message, so the OOM killer killed only the largest process, not the whole cgroup. Same on TinyGPU (DGCyTOF OOM, task 250). The login node mounts cgroup v1, which has no group kill (`memory.oom.group` exists only in v2); compute nodes not checked directly. "Detected oom_kill event" is only a log entry: it doesn't end the step, at most it sets the job state to `OUT_OF_MEMORY` at the end.
+  - For the lanes (shell → worker → child): the child is by far the largest process, so it is killed (return code −9), the worker survives and writes `oom` + the cutoff marker, and the lane continues. A lane with a handled child OOM may still end with job state `OUT_OF_MEMORY`; this doesn't mean the lane failed. The planned `sacct` check of `started` atoms is therefore not implemented.
+  - Keep starting the worker directly in the batch script, **not with `srun`**: Woody has `KillOnBadExit=1`, so under `srun` a task exiting non-zero would end the whole step.
+  - joblib / loky worker processes (if a method uses them; RF uses threads, HGB OpenMP): the OOM killer may kill such a worker instead of the child → `TerminatedWorkerError` (in `OOM_MARKERS` → `oom`) or a hang → `timeout`. Both are cutoffs; the lane continues.
+  - `start_new_session=True` changes only the process group, not the cgroup: the ~31 GB limit applies to the whole lane.
+  - Still to do once: forced-OOM atom in the cluster smoke test (confirms the parent / child behavior on a compute node).
 
 ## Files
 - New: `training_data_requirements.py`, `slurm_scripts/tdr_{sklearn_cpu,flagx_cpu,flagx_gpu}.sh`
@@ -160,6 +167,6 @@ The online cutoff uses the raw 1 h. A success on a fast node does not certify th
 ## Verification
 - `manifest` for the 3 arrays into a scratch `--out`: lane / atom counts, ordering, params against the best-config JSONs.
 - `run <array> <lane> --smoke` in `fx_sklearn` and `fx_flagx_cpu`, incl. n_samples = 1, n_events = 100 on Imstat.
-- Forced timeout (tiny `ATOM_TIME_LIMIT_S`): `timeout` in the JSON, then `skipped` for the larger atoms of this lane and of a second lane. RF with `n_jobs=4`: no leftover processes.
+- Forced timeout (tiny `ATOM_TIME_LIMIT_S`): `timeout` in the JSON, then `skipped` for the larger atoms of this lane and of a second lane. Rerun 2026-11-24 for the total-events rule (local, `fx_plot`, children killed before the method import): the marker stores `n_train_events`; with a cutoff at 500 events (rule `>`), atoms with 100 / 200 / 300 events ran and 600 / 1000 / 2000 were skipped; the switch to `≥` was tested with a cutoff at exactly 300 events; `status` reports the cutoff and `ok>cut`. RF with `n_jobs=4`: no leftover processes.
 - Tiny `LANE_TIME_LIMIT_S`: the lane stops cleanly; a rerun resumes it.
 - `benchmark.py manifest` after the helper move: identical to the committed manifests.

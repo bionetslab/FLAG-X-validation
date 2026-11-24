@@ -1,18 +1,20 @@
 #!/bin/bash -l
 # Training data requirements (PLAN.md step 8, working_notes/training_data_requirements_plan.md).
 # One array task = one lane (method x dataset x outer split x trial); the lane worker runs its atoms small -> large,
-# each with a per-atom time limit (ATOM_TIME_LIMIT_S), and stops before --time is reached (LANE_TIME_LIMIT_S).
+# each with a per-atom time limit (ATOM_TIME_LIMIT_S), and stops before the job's time limit is reached.
 # First, run
 #   python training_data_requirements.py manifest flagx_gpu     # prints the number of lanes L; --array must be 0-<L-1>
 # Then, submit from the repo root on tinyx (see slurm_scripts/README.md):
 #   sbatch.tinygpu slurm_scripts/tdr_flagx_gpu.sh
-# --time must equal LANE_TIME_LIMIT_S in training_data_requirements.py (per-atom limit ATOM_TIME_LIMIT_S = 1 h).
+# --time / --time-min: SLURM may start a task with any limit between 2 h and 24 h (backfill gaps); the worker reads
+# its job's time left from squeue, so no constant has to match (per-atom limit ATOM_TIME_LIMIT_S = 1 h).
 # No partition: default partition work (RTX 2080 Ti / RTX 3080). The host share per GPU is fixed (8 cores); the
 # methods use 4 threads, as on Woody.
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
+#SBATCH --time-min=02:00:00
 #SBATCH --job-name=tdr_flagx_gpu
 #SBATCH --array=0-149
 #SBATCH --output=results/training_data_requirements/logs/%x/%A_%a.out
