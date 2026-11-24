@@ -89,6 +89,16 @@ Outputs (<out> = results/benchmark_eval by default):
                 delta <= -delta), p_equivalent (TOST: the larger of the p-values of H0: <= -delta and H0: >= delta).
                 The decisions correspond to p < 0.025 (up to the percentile interpolation); the two-sided p-value of
                 'a differs from b' is 2 min(p_superior of a - b, p_superior of b - a).
+    resources.csv   runtime and memory, long: one row per manifest atom (dataset x outer split = fold x method x
+                seed), also failed / missing atoms (NaN where not recorded): method, dataset, split, seed, atom_id,
+                atom_status, failure, failure_phase, host, gpu, n_threads, n_train_samples, n_train_events, then the
+                fit (atoms.csv): fit_s, fit_peak_mb, fit_peak_increase_mb, fit_gpu_peak_mb; the prediction, over the
+                predicted test samples of the atom (scores/<dataset>.csv): n_test, n_test_pred (predicted test
+                samples), n_cells_pred (their events), pred_s (sum of the per-sample prediction times),
+                pred_us_per_cell (1e6 pred_s / n_cells_pred), pred_peak_mb / pred_peak_increase_mb /
+                pred_gpu_peak_mb (max over the samples); and the atom: peak_mb (max of fit_peak_mb and pred_peak_mb;
+                the memory to provision, incl. the loaded data), total_s (fit_s + pred_s; NaN unless all test samples
+                were predicted). Times are wall times in s, memory in MB (peak RSS of the process tree).
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -535,6 +545,37 @@ def pairwise_table(dataset, scores):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Part 8: runtime and memory per atom (long)
+# ---------------------------------------------------------------------------------------------------------------
+
+def resource_table(atoms, scores):
+    """
+    Fit and prediction resources per manifest atom (columns: module docstring).
+
+    Args:
+        atoms (pd.DataFrame): Fit table (Part 1).
+        scores (pd.DataFrame): Score tables of all datasets (Part 2), concatenated.
+    """
+    pred = scores[scores['predicted'].astype(bool)]
+    g = pred.groupby('atom_id')
+    p = pd.DataFrame({'n_test_pred': g.size(), 'n_cells_pred': g['n_cells'].sum(),
+                      'pred_s': g['pred_s'].sum(min_count=1), 'pred_peak_mb': g['pred_peak_mb'].max(),
+                      'pred_peak_increase_mb': g['pred_peak_increase_mb'].max(),
+                      'pred_gpu_peak_mb': g['pred_gpu_peak_mb'].max()})
+    cols = ['method', 'dataset', 'split', 'seed', 'atom_id', 'atom_status', 'failure', 'failure_phase', 'host', 'gpu',
+            'n_threads', 'n_train_samples', 'n_train_events', 'fit_s', 'fit_peak_mb', 'fit_peak_increase_mb',
+            'fit_gpu_peak_mb', 'n_test']
+    t = atoms[cols].merge(p, how='left', left_on='atom_id', right_index=True)
+    t['n_test_pred'] = t['n_test_pred'].fillna(0).astype(int)
+    t['pred_us_per_cell'] = 1e6 * t['pred_s'] / t['n_cells_pred']
+    t['peak_mb'] = t[['fit_peak_mb', 'pred_peak_mb']].max(axis=1, skipna=False)
+    t['total_s'] = (t['fit_s'] + t['pred_s']).where(t['n_test_pred'] == t['n_test'])
+    order = cols + ['n_test_pred', 'n_cells_pred', 'pred_s', 'pred_us_per_cell', 'pred_peak_mb',
+                    'pred_peak_increase_mb', 'pred_gpu_peak_mb', 'peak_mb', 'total_s']
+    return t[order]
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -606,6 +647,16 @@ def main(in_dir, out_dir):
         write_csv(pd.concat([pairwise_table(d, pd.read_csv(os.path.join(out_dir, 'scores', d + '.csv')))
                              for d in datasets], ignore_index=True), p_pair)
     print('pairwise deltas:', p_pair)
+
+    # --- Part 8: runtime and memory per atom
+    p_res = os.path.join(out_dir, 'resources.csv')
+    if not done(p_res):
+        scores = pd.concat([pd.read_csv(os.path.join(out_dir, 'scores', d + '.csv'),
+                                        usecols=['atom_id', 'predicted', 'n_cells', 'pred_s', 'pred_peak_mb',
+                                                 'pred_peak_increase_mb', 'pred_gpu_peak_mb'])
+                            for d in datasets], ignore_index=True)
+        write_csv(resource_table(atoms, scores), p_res)
+    print('resources:', p_res)
 
 
 if __name__ == '__main__':
