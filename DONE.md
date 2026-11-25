@@ -346,3 +346,25 @@ All grids reviewed one by one with the user; justification of every grid (tuned 
   - Woody: `--constraint=icx` (Gold 6326 only) instead of `"kl|icx"`: one CPU type, so no calibration and no node-dependent cutoffs; budget statement "1 h on 4 cores of a Xeon Gold 6326"; SOM ~2.3× faster per core than on v6, so state the CPU model for the local-training claim. TinyGPU stays mixed.
   - Resubmission stays manual (`missing` after the array has finished; never while tasks are pending / running, no lock).
   - Tests (local, fake `squeue` on PATH): parsing of `1-00:00:00` / `23:59:30` / `5:00` / `1:10:05`, `INVALID` → fallback with warning; 1:10:05 left → atoms start, 1:09:00 left → clean stop; without SLURM the `--lane-limit` path is unchanged.
+
+## Step 8 (cont.): Evaluation, `training_data_requirements_eval.py` (2026-11-25)
+- **Decisions (user, 2026-11-25; details in `working_notes/training_data_requirements_eval_plan.md`, "Decisions"):**
+  - order: greedy (fewest samples, then fewest events per sample) primary, joint (fewest total training events) secondary. Reason: greedy keeps the number of annotated samples (labelling cost) small and matches legacy Table 1;
+  - stability rule (all larger n_samples at the same n_events must also pass; ineligible ones ignored): computed with and without, primary chosen after the real run (no extra cost: same pass table);
+  - bootstrap: 10,000 resamples, percentile 95 % CI (one-sided α = 0.025), unit = patient (`patient_id` of the split CSV: donors for Imstat, 125 samples / 26 donors; one sample per patient elsewhere); CI conditional on the trial-averaged models, trial variance as the spread of the per-trial minima (no two-level bootstrap);
+  - criteria: non-inferiority over a δ grid of 21 log-spaced values 0.001–0.1 (R10 preferred numbers, contains 0.01 / 0.02 / 0.05 exactly; `np.logspace` would miss 0.02 and 0.05), primary δ = `config.DELTA` = 0.02; legacy criterion (mean score ≥ lower bound of the baseline CI) for comparison only;
+  - cut-off cells (timeout / oom / skipped / out of budget / failed / missing) never eligible;
+  - step-9 config (pooled vs. cross-fitted per fold): open, both written to `minimal_configs.json`;
+  - compute budget: the cutoff rule is applied as stated; the planned check of its assumption (fit time vs. `n_train_events` by n_samples, `budget_check.csv`) and automated outlier detection were dropped; outlier cutoffs are checked and resubmitted manually.
+- **Implemented:** `training_data_requirements_eval.py` (parts: atom table with post-hoc budget → score tables → per-sample trial means paired with step 7 → curves per scope → minimal cells → cross-fitting → `minimal_configs.json`; each part skipped if its output exists). Working note rewritten (decisions, method, outputs).
+- **Implementation choices (documented in the working note, "Method"):**
+  - cells missing in some lanes (the manifest drops duplicates of `all` per lane, e.g. Imstat 1 × 30000 when the selected sample has ≤ 30k events) are resolved to the atom with the same training data (n_samples ≥ training samples → `all`; missing cap → `all` events; (`all`, `all`) → the step-7 model, d = 0); counted in `n_alias` / `n_baseline_alias`. Cells absent in every lane have no rows;
+  - per test sample: trial mean over the trials with a defined score (NaN unless every trial predicted the sample), as the step-7 seed mean;
+  - scopes as one long table (`scope` column): `pooled` (main result), `trial_<t>` (per-trial minima), `fold_<k>` (per-fold minima, cross-fitted evaluation), `excl_<k>` (cross-fitted selection);
+  - common random numbers: one resample matrix per dataset and fold subset, shared by all methods and cells; ratio estimator (sum of d / number of samples with a defined d) so donors weigh by their sample count;
+  - `scores/<dataset>.csv` only holds predicted rows (size); ~56 MB for 2 methods × 3 datasets, so a few hundred MB for the full run (kept tracked, `.gitignore` unchanged, user decision).
+- **Tests** (synthetic fixture, `fx_plot`; real step-8 results not available locally, no scikit-learn in `fx_plot`): real `sklearn_cpu` manifest restricted to rf / hgb × Imstat / LT1b / FlowCyt (7,798 atoms), simulated counts from the step-7 class counts, one timeout, `ok` atoms above the cutoff, a lane without JSONs above it, one failed atom.
+  - budget: the 24 atoms ≥ the cutoff are out of budget, the missing ones become `skipped`; the failed atom makes its cell ineligible exactly in `pooled`, `trial_2`, `fold_3` and `excl_<k≠3>`;
+  - one cell recomputed by hand (mean d, n) matches `curves.csv` and `sample_scores.csv`; alias: Imstat 1 × 30000 resolved in 1 of 15 lanes;
+  - the joint minimal total training events are monotone non-increasing in δ; cross-fitting shows the expected optimism of the pooled selection on noisy cells (hgb FlowCyt: in-sample mean d +0.011 vs. cross-fitted −0.001);
+  - rerun with the later parts deleted (read-back of `curves.csv` / `minimal.csv`): byte-identical outputs; runtime ~1 min.

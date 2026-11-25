@@ -1,6 +1,6 @@
 # Training data requirements: evaluation plan (PLAN.md step 8)
 
-Status: draft for review (2026-11-18). Script: `training_data_requirements_eval.py` (skeleton only, not implemented).
+Status: decided 2026-11-25, implementation in progress. Script: `training_data_requirements_eval.py`.
 Experiment design: `working_notes/training_data_requirements_plan.md`. Reviewer comment: R4.5
 (`../flagx_revision/REVISION_PLAN.md`), also R2.19 / R2.21 and the test set reuse note (REVISION_PLAN.md:687).
 
@@ -11,24 +11,32 @@ From the step-8 atoms (`results/training_data_requirements/`) and the full-data 
 per method × dataset under a fixed criterion, its variability over trials / folds, a sensitivity analysis over
 criteria, and a selection-bias check (cross-fitting). The minimal configurations are read by step 9.
 
-## Planned outputs (`results/training_data_requirements_eval/`)
+## Decisions (2026-11-25)
 
-- `atoms.csv`: one row per manifest atom: status (ok / failed / timeout / oom / skipped / missing), phase, fit time /
-  peak memory, n_train_events, skipped_by.
-- `scores/<dataset>.csv`: one row per atom × test sample (per-class counts → f1 / prec / rec, macro F1 or F1 of
-  label 1 for binary datasets), as `benchmark_eval.py`.
-- `sample_scores.csv`: per method × dataset × cell × test sample: score averaged over the trials (NaN if any trial
-  has no score), plus the step-7 baseline (seed mean) and the paired difference d = cell − baseline.
-- `curves.csv`: per method × dataset × cell: mean score and mean d over all test samples (pooled over folds),
-  bootstrap CI of mean d (donor-level resampling for Imstat), n, and the per-fold / per-trial means.
-- `minimal.csv`: per method × dataset × criterion: minimal cell, selected on all folds (pooled); also per trial and
-  per fold (spread), and joint minimum (fewest total training events) vs. greedy (samples first, then events).
-- `crossfit.csv`: per method × dataset × criterion × fold k: cell selected on the folds ≠ k, its score on fold k,
-  and the pooled selection for comparison (in-sample vs. cross-fitted score at the minimal config).
-- `minimal_configs.json`: the minimal cell per method × dataset under the primary criterion (pooled; and the
-  per-fold cross-fitted cells), read by step 9.
-- `budget_check.csv`: per `ok` atom: time split (fit / predict / rest), peak memory, `n_train_events`, cpu_model; check
-  of the cutoff rule (see "Compute budget").
+- **Margin δ** (2026-11-18): primary δ = `config.DELTA` = 0.02 macro F1 (F1 of label 1 for binary datasets), a stated
+  convention; no data-driven δ (the seed variability of step 7 rests on 3 seeds only). Testing "Δ = 0" was rejected:
+  it accepts noisy cells early and rejects precise ones (the margin is then the CI width, i.e. depends on the test
+  size).
+- **Criteria computed:** non-inferiority over a δ sweep of 21 log-spaced values 0.001–0.1 (R10 series: 0.001, 0.00125,
+  0.0016, 0.002, …, 0.01, …, 0.02, …, 0.05, …, 0.1), plus the legacy criterion (mean score ≥ lower bound of the
+  baseline's bootstrap CI) for comparison only. The δ sensitivity figure is drawn from `minimal.csv` (prototype
+  `scratchpad/plot_delta_sensitivity.py`).
+- **Order:** greedy (fewest samples, then fewest events per sample) is primary: it keeps the number of annotated
+  samples (the clinical labelling cost) small, as in legacy Table 1. Joint (fewest total training events) is reported
+  as secondary.
+- **Stability rule** (a cell passes only if every larger n_samples at the same n_events also passes; ineligible larger
+  cells are ignored): minimal cells are computed **with and without** it; the primary is chosen after seeing the
+  results. Costs nothing extra (same pass table).
+- **Bootstrap:** N_BOOT = 10000, percentile 95 % two-sided CI (one-sided α = 0.025). Resampling unit: donors for Imstat
+  (125 samples / 26 donors, up to 5 per donor), test samples elsewhere (one sample per patient). The CI is conditional
+  on the trial-averaged models; the trial variance is reported as the spread of the per-trial minima (no two-level
+  bootstrap).
+- **Cut-off cells** (timeout / oom / skipped / out of budget / failed / missing): never eligible; a cell counts only if
+  all its lanes (folds × trials) are in budget and `ok`.
+- **Step 9 config** (pooled or cross-fitted per fold): still open, decided after comparing them;
+  `minimal_configs.json` holds both.
+- **Compute budget:** the cutoff rule is applied as stated (below); no check of its assumption and no automated
+  outlier detection. Outlier cutoffs are checked and resubmitted manually.
 
 ## Compute budget (post hoc, decided 2026-11-24)
 
@@ -39,43 +47,77 @@ atoms that finished `ok` before a smaller atom of another lane timed out are not
 - Every atom with `n_train_events` ≥ x is outside the budget, whatever its status (`in_budget`, `excluded_by` in
   `atoms.csv`). A cell then counts only if all folds and trials are in budget and have scores.
 - No slowdown factors: the CPU arrays run on Gold 6326 only; the GPU array is mixed, but each cell runs in 15 lanes, so
-  its cutoff already reflects the slower GPU (`working_notes/training_data_requirements_plan.md`, "Hardware"). Check
-  `cpu_model` / `gpu_names` of the cutoff atoms.
+  its cutoff already reflects the slower GPU (`working_notes/training_data_requirements_plan.md`, "Hardware").
 - Predict-phase timeouts (BLAST110 test folds) depend on the test size, not the training size; they still count
   (conservative), and `phase` shows them.
 
-**Check of the rule (added 2026-11-24).** The rule assumes that the cost of an atom depends on the total number of
-training events, not on how they are split into samples × events. Checked on the finished `ok` atoms, per method ×
-dataset:
+## Method
 
-- Time split per atom: fit (`resources.fit.wall_s`), prediction (sum of the per-test-sample `wall_s`), rest = loading /
-  preprocessing / overhead (`worker.wall_s` − fit − prediction). Plus peak fit memory (`resources.fit.cpu_rss_peak_mb`).
-- Fit time and peak memory against `n_train_events` (log-log), colored by n_samples: if the rule holds, cells with
-  the same total but different splits (e.g. 64 × 1k vs 2 × 30k) fall on one curve. A systematic offset by n_samples
-  (e.g. extra time per sample from loading, or per-sample effects inside the method) means the rule cuts off too
-  much or too little for some splits; quantify it as the ratio of fit time at a similar total, many vs few samples.
-- Share of loading and prediction in the atom wall time near the cutoff (they don't scale with `n_train_events`;
-  prediction is fixed per fold, mainly relevant for BLAST110 on 4 cores).
-- Outlier cutoffs: for each cutoff atom, compare x with the wall times of `ok` atoms of similar size in other lanes. A
-  cutoff far below where comparable atoms finished (slow node, shared-FS hiccup) is flagged; its marker can then be
-  removed and the affected lanes resubmitted (decided case by case, documented).
-- Output: `budget_check.csv` (per atom: n_samples, n_events, n_train_events, fit / predict / rest seconds, peak MB,
-  cpu_model) and a figure (fit time and peak memory vs `n_train_events`, one panel per method × dataset).
+**Cells across lanes.** A cell is a grid point (n_samples, n_events) of the dataset's grid. The manifest drops
+duplicates per lane (n_samples ≥ the split's training samples = `all`; an event cap ≥ the largest selected sample =
+`all` events), so a cell can be missing in some lanes although it exists in others. Per lane, a cell is therefore
+resolved to the atom with the same training data: n_samples ≥ the split's training samples → `all`; a missing
+(n_samples, n_events) → (n_samples, `all`); (`all`, `all`) → the step-7 model (score = baseline, d = 0, its training
+size = all events of the split). `curves.csv` counts these aliases (`n_alias`, `n_baseline_alias`). The data are
+identical; only the join shuffle (and for the step-7 alias the seeds and cores) differ.
 
-## Open decisions (to settle before implementation)
+**Scores.** Per test sample: macro F1 (NaN-mean of the per-class F1, as in step 7) or the F1 of label 1 for binary
+datasets. Per cell × test sample: the trial mean over the trials with a defined score (NaN if a trial did not predict
+the sample); baseline = the step-7 seed mean (over the seeds that predicted it, as in `plot_benchmark.py`);
+d = trial mean − baseline. Samples with an undefined d (score or baseline NaN) are left out of the means (`n_test` vs
+`n_test_total`).
 
-- Margin δ (decided 2026-11-18): default δ = 0.02 macro F1, kept as a stated convention; no data-driven δ (the seed
-  variability of step 7 rests on 3 seeds only, too few). Instead the dependence on δ is shown explicitly: a δ
-  sensitivity figure (minimal samples, events per sample and total training events of the minimal cell over δ = 0.001–0.1, per
-  method × dataset; prototype `scratchpad/plot_delta_sensitivity.py`). Testing "Δ = 0" instead was rejected: it
-  accepts noisy cells early and rejects precise ones (the margin is then the CI width, i.e. depends on the test size).
-- Order of the grid for "minimal" (greedy samples-first as in legacy, or joint by total events; both reported, one
-  primary).
-- Step 9 uses the pooled or the cross-fitted per-fold config (decide after comparing them).
-- Treatment of cells cut off (timeout / oom / skipped): not eligible as minimal; a cell counts only if all folds
-  and trials have scores.
-- Bootstrap: N_BOOT, percentile CI, resampling unit (test sample; donor for Imstat).
-- Stability rule: the minimal cell must also hold for all larger n_samples at the same n_events (see the back-check).
+**Scopes.** A scope is the part of the data a statistic is computed on. `curves.csv` and `minimal.csv` are single
+long tables with a `scope` column (14 rows per cell with 3 trials and 5 folds; filter `scope == 'pooled'` for the main
+result):
+
+| scope | data | used for |
+|---|---|---|
+| `pooled` | all folds, trial means | main result: the curves and the minimal cell; step 9 |
+| `trial_<t>` | all folds, trial t only | minimal cell per trial: variability over sample orders (R4.5) |
+| `fold_<k>` | fold k only, trial means | minimal cell per fold (spread); evaluating the cross-fitted cell on fold k |
+| `excl_<k>` | all folds except k, trial means | selecting the cross-fitted cell for fold k |
+
+A cell is eligible in a scope if all its lanes in that scope are in budget and `ok`. Example: one failed atom in fold 3
+/ trial 2 makes the cell ineligible in `pooled`, `trial_2`, `fold_3` and every `excl_<k>` with k ≠ 3, but not in the
+other scopes.
+
+**Bootstrap.** Per dataset and scope one fixed matrix of resampled units (donors / samples, seed
+`derive_seed('tdr_eval', dataset, scope)`), shared by all methods and cells (common random numbers: differences
+between cells are not resampling noise). The bootstrap mean of a cell = sum of d over the drawn units / number of drawn
+samples with a defined d (ratio estimator, so donors with several samples weigh by their sample count). Percentile CI
+2.5 / 97.5 of mean d; the same resamples give the baseline CI for the legacy criterion.
+
+**Minimal cell** per method × dataset × criterion × order × stable × scope: among the eligible cells that pass,
+greedy = smallest (n_samples, n_events) in lexicographic order (`all` = largest); joint = smallest mean total training
+events over the scope's lanes (ties: greedy order). Passing: `noninf`: ci_low > −δ; `legacy_ci`: mean score ≥ the
+baseline's ci_low. `stable`: in addition every eligible cell with larger n_samples and the same n_events passes.
+
+**Cross-fitting** per fold k: minimal cell selected in scope `excl_k`, evaluated in scope `fold_k` (its mean d and
+score); compared with the pooled minimal cell evaluated in `fold_k` (in-sample). The row `fold = all` pools the five
+evaluations (n-weighted). Caveat (statistics.md): only approximately nested, the models of the other folds saw fold k's
+patients in training.
+
+## Outputs (`results/training_data_requirements_eval/`)
+
+- `atoms.csv`: one row per manifest atom: identity, `n_train_events` (manifest), status (ok / failed / timeout / oom /
+  skipped / started / missing; `skipped` also for atoms without a JSON that a cutoff covers), phase, error (last
+  line), skipped_by, n_test_done, fit time / peak memory, prediction time (sum), host, cpu_model, gpu, `in_budget`,
+  `excluded_by` (the smallest timeout / oom atom of the method × dataset if out of budget).
+- `scores/<dataset>.csv`: one row per predicted atom × test sample (only predicted samples, to keep the size down):
+  identity, n_cells, abstention, prediction time, per class `n_` / `npred_` / `prec_` / `rec_` / `f1_` (as
+  `benchmark_eval.py`).
+- `sample_scores.csv`: one row per method × dataset × cell × test sample: fold, the per-trial scores, the trial mean,
+  the baseline, d.
+- `curves.csv` (long): one row per method × dataset × cell × scope: n_lanes, n_alias, n_baseline_alias, n_ok, eligible,
+  n_train_events (mean / min / max over the lanes), n_test / n_test_total, mean score, mean baseline, mean d, sd d,
+  ci_low / ci_high of mean d, base_ci_low / base_ci_high.
+- `minimal.csv`: one row per method × dataset × criterion (`noninf` with δ, `legacy_ci`) × order × stable × scope:
+  found, the minimal cell (n_samples, n_events, mean n_train_events), its mean d, CI, mean score.
+- `crossfit.csv`: one row per method × dataset × criterion × order × stable × fold (0..k-1 and `all`): the cross-fitted
+  cell and its fold-k mean d / score / n, the pooled cell and its fold-k mean d / score.
+- `minimal_configs.json`: per method × dataset, primary criterion (noninf δ = 0.02, greedy), with and without the
+  stability rule: the pooled cell and the cross-fitted cell per fold. Read by step 9.
 
 ## Back-check on the legacy results (2026-11-18)
 

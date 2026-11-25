@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, pilot done (2026-11-12), final run next; step 8 (training data requirements): `training_data_requirements.py` implemented and smoke-tested (2026-11-17), run pending (open TODOs). Built from `NOTES.md`.
+Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, pilot done (2026-11-12), final run next; step 8 (training data requirements): `training_data_requirements.py` implemented and smoke-tested (2026-11-17), run pending (open TODOs); eval `training_data_requirements_eval.py` implemented and tested on a synthetic fixture (2026-11-25). Built from `NOTES.md`.
 
 This file holds the rules, the open todos and a one-line summary of each decision. What was done, with outputs, checks, findings and the reasoning behind each decision, is logged in `DONE.md` (append only). Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
@@ -91,13 +91,14 @@ How the score, fit / predict time and memory depend on the number of training sa
 - [ ] Run (after the TODOs below).
 - [x] Method selection (2026-11-24): RF, HGB, MLP (top performers of step 7) + SOM (needed for Workflow 1; `DONE.md`).
 - [x] Cutoff rule and hardware (2026-11-24): cutoff by total training events (online and re-checked post hoc in the eval); no calibration run, no slowdown factors (`DONE.md`).
-- [ ] Eval harness (later, own script; incl. the post-hoc budget filter).
+- [x] Eval (2026-11-25, `DONE.md`): `training_data_requirements_eval.py` (post-hoc budget, per-sample trial means paired with step 7, bootstrap curves per scope, minimal cells, cross-fitting, `minimal_configs.json`); primary criterion paired non-inferiority δ = 0.02, greedy order; plan `working_notes/training_data_requirements_eval_plan.md`. Tested on a synthetic fixture only.
+- [ ] Run the eval on the real step-8 results; then choose the stability rule (with / without) and the step-9 config (pooled or cross-fitted per fold).
 
 ### Step 9: Follow-up experiments
 Reuse the same splits, curated data and runners; only the task list changes. Candidates from the legacy results (`legacy/results/`), to be confirmed (the reduced/minimal training sets come from step 8):
 - local training: FLAG-X SOM and MLP trained on the reduced/minimal training sets in the local (CPU, limited resources) setting of Table 1,
 - scalability (runtime and memory vs data size),
-- robustness to sample order (random sample order trials): more trials than the 3 of step 8, but only for the cells up to the elbow identified in step 8, i.e. where performance converges towards the full-data performance. Legacy elbow criterion: the first config whose mean performance lies within the 95 % CI of the full-data performance. Use the same criterion here, fixed before the follow-up is run. Continue the trial numbering (3, 4, …), so the trials of step 8 are reused. Note: legacy ran these trials only on LT1 / LT2 (+ binary); extend them to the other datasets,
+- robustness to sample order (random sample order trials): more trials than the 3 of step 8, but only for the cells up to the elbow identified in step 8, i.e. where performance converges towards the full-data performance. Criterion: the primary criterion of the step-8 eval (paired non-inferiority to the full-data model, δ = 0.02, greedy; decided 2026-11-25; the legacy criterion "mean within the 95 % CI of the full-data performance" is only reported for comparison), fixed before the follow-up is run. Continue the trial numbering (3, 4, …), so the trials of step 8 are reused. Note: legacy ran these trials only on LT1 / LT2 (+ binary); extend them to the other datasets,
 - probabilistic predictions / abstention behaviour,
 - channel leave-out,
 - class weighting ablation: methods with a class-weight option (FLAG-X MLP, RF, HGB, LogReg `class_weight='balanced'`; LDA-sklearn uniform `priors`) with and without class weighting; not part of the tuning grids (all tuned without),
