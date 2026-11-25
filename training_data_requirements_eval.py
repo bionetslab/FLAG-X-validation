@@ -73,7 +73,8 @@ Outputs (<out>):
                 n_alias (lanes resolved to another step-8 atom), n_baseline_alias (lanes resolved to step 7), n_ok
                 (lanes ok and in budget), eligible, n_train_events_mean / _min / _max (over the lanes), n_test (samples
                 with a defined d), n_test_total, mean_score, mean_baseline, mean_d, sd_d, ci_low, ci_high (CI of mean
-                d), base_ci_low, base_ci_high (CI of the mean baseline over the same samples).
+                d), base_ci_low, base_ci_high (CI of the mean baseline over the same samples), score_ci_low,
+                score_ci_high (CI of the mean score; same resamples).
     minimal.csv one row per method x dataset x criterion x delta x order x stable x scope: found, n_samples,
                 n_events, n_train_events_mean, mean_d, ci_low, ci_high, mean_score, mean_baseline, n_test.
     crossfit.csv one row per method x dataset x criterion x delta x order x stable x fold (0..K-1, then 'all'):
@@ -467,6 +468,7 @@ def curve_table(dataset, lanes, samples):
             boot_n = counts @ group_sums(valid.astype(float))
             boot_d = np.where(boot_n > 0, counts @ group_sums(d) / boot_n, np.nan)
             boot_b = np.where(boot_n > 0, counts @ group_sums(b) / boot_n, np.nan)
+            boot_v = np.where(boot_n > 0, counts @ group_sums(v) / boot_n, np.nan)
         n = np.bincount(cid, weights=valid, minlength=len(keys))
         n_total = np.bincount(cid, minlength=len(keys))
         with np.errstate(invalid='ignore', divide='ignore'):
@@ -482,8 +484,9 @@ def curve_table(dataset, lanes, samples):
             g = lstat[key]
             if n[j] >= 2:
                 ci, bci = np.nanpercentile(boot_d[:, j], q), np.nanpercentile(boot_b[:, j], q)
+                sci = np.nanpercentile(boot_v[:, j], q)
             else:
-                ci = bci = [np.nan, np.nan]
+                ci = bci = sci = [np.nan, np.nan]
             out.append(OrderedDict([
                 ('method', key[0]), ('dataset', dataset), ('n_samples', key[1]), ('n_events', key[2]),
                 ('scope', scope), ('n_lanes', len(g)), ('n_alias', int((g['alias'] == 'atom').sum())),
@@ -494,7 +497,8 @@ def curve_table(dataset, lanes, samples):
                 ('n_test', int(n[j])), ('n_test_total', int(n_total[j])), ('mean_score', mean_v[j]),
                 ('mean_baseline', mean_b[j]), ('mean_d', mean_d[j]), ('sd_d', sd_d[j]),
                 ('ci_low', float(ci[0])), ('ci_high', float(ci[1])),
-                ('base_ci_low', float(bci[0])), ('base_ci_high', float(bci[1]))]))
+                ('base_ci_low', float(bci[0])), ('base_ci_high', float(bci[1])),
+                ('score_ci_low', float(sci[0])), ('score_ci_high', float(sci[1]))]))
     return pd.DataFrame(out)
 
 

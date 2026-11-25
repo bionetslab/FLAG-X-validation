@@ -118,7 +118,8 @@ patients in training.
   the baseline, d.
 - `curves.csv` (long): one row per method × dataset × cell × scope: n_lanes, n_alias, n_baseline_alias, n_ok, eligible,
   n_train_events (mean / min / max over the lanes), n_test / n_test_total, mean score, mean baseline, mean d, sd d,
-  ci_low / ci_high of mean d, base_ci_low / base_ci_high.
+  ci_low / ci_high of mean d, base_ci_low / base_ci_high, score_ci_low / score_ci_high (CI of the mean score, for the
+  score figures; same resamples).
 - `minimal.csv`: one row per method × dataset × criterion (`noninf` with δ, `legacy_ci`) × order × stable × scope:
   found, the minimal cell (n_samples, n_events, mean n_train_events), its mean d, CI, mean score.
 - `crossfit.csv`: one row per method × dataset × criterion × order × stable × fold (0..k-1 and `all`): the cross-fitted
