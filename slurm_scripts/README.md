@@ -116,3 +116,15 @@ sbatch --array=<printed range> slurm_scripts/tdr_sklearn_cpu.sh
 Resubmit only after the previous submission has finished (`squeue -u $USER -n tdr_sklearn_cpu` empty): `missing` also lists lanes that are still pending or running, and a lane submitted twice runs twice (no lock).
 
 Statuses: `ok`, `failed` (Python error, e.g. a class with a single training event; not a cutoff), `timeout`, `oom` (killed by a signal, or a memory error in the traceback), `skipped` (dominated by a cutoff, `skipped_by`), `started` (lane killed during the atom; rerun on resubmission). Logs: one per atom under `results/training_data_requirements/logs/<method>/<dataset>/`, the worker logs under `logs/tdr_<array>/`.
+
+## Sample order robustness (`sample_order_robustness.py`, PLAN.md step 9, `working_notes/sample_order_robustness_plan.md`)
+
+Same lane setup as the training data requirements (one array task = one lane = method × dataset × outer split × trial, same resources), with the scripts `sor_<array>.sh`. The order scheme (`random` / `stratified`) is the script's argument, and every scheme has its own manifests and outputs under `results/sample_order_robustness/<scheme>/`. The lane count differs per scheme (Flowcyt only in `random`) and depends on the step-8 minimal cells, so `--array` is given at submission. Worker logs: `results/sample_order_robustness/logs/sor_<array>/`. TODO before the run: set `--time` from the lane time estimate (TODO in the script).
+
+```bash
+python sample_order_robustness.py manifest random sklearn_cpu      # prints the number of lanes L
+sbatch --array=0-<L-1> slurm_scripts/sor_sklearn_cpu.sh random
+sbatch.tinygpu --array=0-<L-1> slurm_scripts/sor_flagx_gpu.sh random   # on tinyx
+python sample_order_robustness.py status random sklearn_cpu
+python sample_order_robustness.py missing random sklearn_cpu       # -> sbatch --array=<printed range> ...
+```

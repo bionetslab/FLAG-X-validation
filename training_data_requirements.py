@@ -323,7 +323,12 @@ def in_smoke(row):
 
 # ### One atom (child process) #########################################################################################
 
-def run_atom(array, row, out, smoke=False):
+def run_atom(array, row, out, smoke=False, order=None, seed_key=('train_req',), order_scheme=None):
+    """
+    One atom. order (training sample order of the lane; default sample_order), seed_key (prefix of every derive_seed
+    call; the order seed is derive_seed(*(seed_key + (dataset, split, trial)))) and order_scheme (recorded in the JSON
+    if given) are set by sample_order_robustness.py; the defaults are step 8.
+    """
     env, device, _ = ARRAYS[array]
     method, dataset = row['method'], row['dataset']
     split, trial = int(row['split']), int(row['trial'])
@@ -332,18 +337,22 @@ def run_atom(array, row, out, smoke=False):
     json_path, counts_path, _ = atom_paths(out, row)
 
     column = 'split_{}'.format(split)
-    model_seed = derive_seed('train_req', method, dataset, split, trial)
+    model_seed = derive_seed(*(seed_key + (method, dataset, split, trial)))
     info = OrderedDict([
         ('atom_id', row['atom_id']), ('method', method), ('array', array), ('env', env), ('device', device),
         ('dataset', dataset), ('split', split), ('trial', trial), ('n_samples', size_value(ns)),
         ('n_events', size_value(ne)), ('split_column', column),
         ('config_id', row['config_id']), ('param_source', row['param_source']), ('params', params),
         ('status', 'started'), ('phase', 'fit'), ('error', None), ('stratified', STRATIFIED), ('smoke', smoke),
-        ('seeds', {'model': model_seed, 'order': derive_seed('train_req', dataset, split, trial),
-                   'data': "derive_seed('train_req', dataset, split, trial, sample)",
-                   'join': derive_seed('train_req', dataset, split, trial, size_value(ns), size_value(ne), 'join')}),
+        ('seeds', {'model': model_seed, 'order': derive_seed(*(seed_key + (dataset, split, trial))),
+                   'data': 'derive_seed({}, dataset, split, trial, sample)'.format(
+                       ', '.join(repr(k) for k in seed_key)),
+                   'join': derive_seed(*(seed_key + (dataset, split, trial, size_value(ns), size_value(ne),
+                                                     'join')))}),
         ('start', now()), ('end', None),
     ])
+    if order_scheme is not None:
+        info['order_scheme'] = order_scheme
     save_json(json_path, info)
     print('{} start {}'.format(now(), row['atom_id']))
     sys.stdout.flush()
@@ -358,7 +367,8 @@ def run_atom(array, row, out, smoke=False):
         gpu = device == 'gpu'
 
         roles = load_split(dataset, column)
-        order = sample_order(dataset, split, trial, roles['train'])
+        if order is None:
+            order = sample_order(dataset, split, trial, roles['train'])
         train = order if ns == 'all' else order[:int(ns)]
         test = roles['test'][:SMOKE['n_test']] if smoke else roles['test']
         labels_meta = load_meta_labels(dataset)
@@ -375,7 +385,7 @@ def run_atom(array, row, out, smoke=False):
             if ne == 'all':
                 X = np.asarray(X)
             else:
-                idx = np.sort(event_order(y, derive_seed('train_req', dataset, split, trial, s))[:int(ne)])
+                idx = np.sort(event_order(y, derive_seed(*(seed_key + (dataset, split, trial, s))))[:int(ne)])
                 X, y = np.asarray(X[idx]), y[idx]
             n_train_sample_class[s] = OrderedDict((str(l), int(np.sum(y == l))) for l in labels)
             Xs.append(X)
@@ -414,7 +424,7 @@ def run_atom(array, row, out, smoke=False):
             n_sample = int(yv.shape[0])
             if smoke:
                 idx = downsample_indices(yv, frac=SMOKE['test_frac'], stratified=True,
-                                         seed=derive_seed('train_req', dataset, split, trial, s))
+                                         seed=derive_seed(*(seed_key + (dataset, split, trial, s))))
                 Xv, yv = Xv[idx], yv[idx]
             with track_resources(gpu=gpu) as r:
                 y_pred, _ = runner.predict(model, pre.transform(Xv), proba=False)
@@ -458,12 +468,19 @@ def kill_group(proc):
         pass
 
 
-def run_child(array, row, out, smoke, atom_limit):
-    """Runs one atom as a child process with a time limit. Returns (returncode, timed_out, wall_s)."""
+def run_child(array, row, out, smoke, atom_limit, atom_cmd=None):
+    """
+    Runs one atom as a child process with a time limit. Returns (returncode, timed_out, wall_s). atom_cmd: the child's
+    command without the atom index, incl. its --out (default: this script's 'atom <array> ... --out <out>';
+    sample_order_robustness.py passes its own).
+    """
     log_path = atom_paths(out, row)[2]
     if not os.path.isdir(os.path.dirname(log_path)):
         os.makedirs(os.path.dirname(log_path))
-    cmd = [sys.executable, os.path.abspath(__file__), 'atom', array, row['index'], '--out', out]
+    if atom_cmd is None:
+        cmd = [sys.executable, os.path.abspath(__file__), 'atom', array, row['index'], '--out', out]
+    else:
+        cmd = list(atom_cmd) + [row['index']]
     if smoke:
         cmd.append('--smoke')
     t0 = time.time()
@@ -530,8 +547,12 @@ def slurm_time_left():
         return None
 
 
-def run_lane(array, lane_rows, out, smoke, atom_limit, deadline):
-    """Runs the lane's atoms; starts an atom only if it can finish (incl. WRAPUP_BUFFER_S) before deadline (epoch s)."""
+def run_lane(array, lane_rows, out, smoke, atom_limit, deadline, atom_cmd=None, overwrite=None):
+    """
+    Runs the lane's atoms; starts an atom only if it can finish (incl. WRAPUP_BUFFER_S) before deadline (epoch s).
+    atom_cmd: see run_child; overwrite: default OVERWRITE.
+    """
+    overwrite = OVERWRITE if overwrite is None else overwrite
     lane = lane_rows[0]['lane']
     print('{} lane {} ({} atoms): {} {} split {} trial {}'.format(
         now(), lane, len(lane_rows), lane_rows[0]['method'], lane_rows[0]['dataset'], lane_rows[0]['split'],
@@ -542,7 +563,7 @@ def run_lane(array, lane_rows, out, smoke, atom_limit, deadline):
             continue
         json_path = atom_paths(out, row)[0]
         info = load_json(json_path)
-        if info is not None and info.get('status') in FINAL and not OVERWRITE:
+        if info is not None and info.get('status') in FINAL and not overwrite:
             continue
         dom = dominated_by(out, row)
         if dom is not None:
@@ -554,7 +575,7 @@ def run_lane(array, lane_rows, out, smoke, atom_limit, deadline):
             print('{} lane {}: not enough time left for {}; stopping (resubmit via "missing")'.format(
                 now(), lane, row['atom_id']))
             return
-        rc, timed_out, wall = run_child(array, row, out, smoke, atom_limit)
+        rc, timed_out, wall = run_child(array, row, out, smoke, atom_limit, atom_cmd)
         status = finish_atom(out, row, rc, timed_out, wall, atom_limit)
         print('{} {} {} ({:.1f} s, rc {})'.format(now(), status, row['atom_id'], wall, rc))
         sys.stdout.flush()
