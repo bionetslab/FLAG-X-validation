@@ -55,6 +55,14 @@ Outputs (<out>):
                 error (last traceback line), skipped_by, n_test_done, n_test, fit_s, fit_peak_mb, fit_gpu_peak_mb,
                 pred_s (sum over the predicted test samples), worker_wall_s, host, cpu_model, gpu, in_budget,
                 excluded_by (the cutoff atom: smallest timeout / oom atom of the method x dataset; '' if in budget).
+    train_class_counts/<dataset>.csv   class counts of the training sets (for the minority count analysis), one row
+                per dataset x split x trial x cell x training sample, for the cells that at least one method completed
+                (status ok): dataset, split, trial, n_samples, n_events, sample, n_<l> per label (events of class l
+                from this sample in the training set, after downsampling; atom JSON n_train_events_sample_per_class).
+                No method column: the training data depend only on dataset, split, trial and cell (the data seeds do
+                not contain the method); checked: all methods that completed a cell report the same counts (else
+                ValueError). Per method: join with its ok atoms in atoms.csv on dataset, split, trial, n_samples,
+                n_events.
     scores/<dataset>.csv   one row per atom x predicted test sample: method, dataset, split, trial, n_samples,
                 n_events, atom_id, atom_status, sample, predicted (True), n_cells, n_abstained, abstention_rate, pred_s,
                 pred_peak_mb, then per label l: n_<l>, npred_<l>, prec_<l>, rec_<l>, f1_<l> (as benchmark_eval.py).
@@ -208,6 +216,37 @@ def atom_table(manifest, in_dir):
         t.loc[covered, 'status'] = 'skipped'
         t.loc[covered, 'skipped_by'] = first['atom_id']
     return t
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Part 1b: class counts of the training sets (minority count analysis)
+# ---------------------------------------------------------------------------------------------------------------
+
+def train_class_count_table(dataset, manifest, atoms, in_dir):
+    """
+    Class counts per training sample of the cells completed by at least one method (columns: module docstring).
+    Raises ValueError if two methods report different counts for the same cell.
+    """
+    labels = [str(l) for l in pd.read_csv(os.path.join(config.DATA_CURATED, dataset, 'meta_labels.csv'))['label']]
+    ok = set(atoms.loc[(atoms['dataset'] == dataset) & (atoms['status'] == 'ok'), 'atom_id'])
+    seen = OrderedDict()  # (split, trial, n_samples, n_events) -> (atom_id, {sample: {label: count}})
+    for r in manifest:
+        if r['dataset'] != dataset or r['atom_id'] not in ok:
+            continue
+        counts = (load_json(atom_paths(in_dir, r)[0]) or {}).get('n_train_events_sample_per_class')
+        if counts is None:
+            raise ValueError('no n_train_events_sample_per_class in ok atom {}'.format(r['atom_id']))
+        key = (int(r['split']), int(r['trial']), r['n_samples'], r['n_events'])
+        if key not in seen:
+            seen[key] = (r['atom_id'], counts)
+        elif counts != seen[key][1]:
+            raise ValueError('training class counts differ between {} and {}'.format(seen[key][0], r['atom_id']))
+    rows = []
+    for (split, trial, ns, ne), (_, counts) in seen.items():
+        for sample, c in counts.items():
+            rows.append([dataset, split, trial, ns, ne, sample] + [int(c.get(l, 0)) for l in labels])
+    return pd.DataFrame(rows, columns=['dataset', 'split', 'trial', 'n_samples', 'n_events', 'sample']
+                        + ['n_{}'.format(l) for l in labels])
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -640,6 +679,16 @@ def main(in_dir, baseline_dir, out_dir):
         atoms = atom_table(manifest, in_dir)
         write_csv(atoms, p_atoms)
     print('atoms:', atoms['status'].value_counts().to_dict(), '| out of budget:', int((~atoms['in_budget']).sum()))
+
+    # --- Part 1b: class counts of the training sets (minority count analysis)
+    os.makedirs(os.path.join(out_dir, 'train_class_counts'), exist_ok=True)
+    for dataset in datasets:
+        path = os.path.join(out_dir, 'train_class_counts', dataset + '.csv')
+        if done(path):
+            continue
+        t = train_class_count_table(dataset, manifest, atoms, in_dir)
+        write_csv(t, path)
+        print('train class counts {}: {} rows'.format(dataset, len(t)))
 
     # --- Part 2: score tables
     for dataset in datasets:

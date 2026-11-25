@@ -104,6 +104,13 @@ patients in training.
   skipped / started / missing; `skipped` also for atoms without a JSON that a cutoff covers), phase, error (last
   line), skipped_by, n_test_done, fit time / peak memory, prediction time (sum), host, cpu_model, gpu, `in_budget`,
   `excluded_by` (the smallest timeout / oom atom of the method × dataset if out of budget).
+- `train_class_counts/<dataset>.csv` (2026-11-25, for the legacy minority count figure): one row per dataset × split ×
+  trial × cell × training sample, for the cells that at least one method completed (`ok`): `n_<l>` per class (events
+  of class l from this sample in the training set, after downsampling; from the atom JSON). No method column: the
+  data seeds do not contain the method, so all methods train on the same data; the eval stops if two methods that
+  completed a cell report different counts. Per method: join with its `ok` atoms in `atoms.csv`. Everything else
+  (per-sample minority counts and their total / mean / median / min, class counts of the whole training set) is
+  derived from this table, e.g. in the figure script. At most ~320k rows (one method's atoms × training samples).
 - `scores/<dataset>.csv`: one row per predicted atom × test sample (only predicted samples, to keep the size down):
   identity, n_cells, abstention, prediction time, per class `n_` / `npred_` / `prec_` / `rec_` / `f1_` (as
   `benchmark_eval.py`).

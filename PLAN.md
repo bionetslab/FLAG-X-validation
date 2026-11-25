@@ -91,7 +91,7 @@ How the score, fit / predict time and memory depend on the number of training sa
 - [ ] Run (after the TODOs below).
 - [x] Method selection (2026-11-24): RF, HGB, MLP (top performers of step 7) + SOM (needed for Workflow 1; `DONE.md`).
 - [x] Cutoff rule and hardware (2026-11-24): cutoff by total training events (online and re-checked post hoc in the eval); no calibration run, no slowdown factors (`DONE.md`).
-- [x] Eval (2026-11-25, `DONE.md`): `training_data_requirements_eval.py` (post-hoc budget, per-sample trial means paired with step 7, bootstrap curves per scope, minimal cells, cross-fitting, `minimal_configs.json`); primary criterion paired non-inferiority δ = 0.02, greedy order; plan `working_notes/training_data_requirements_eval_plan.md`. Tested on a synthetic fixture only.
+- [x] Eval (2026-11-25, `DONE.md`): `training_data_requirements_eval.py` (post-hoc budget, per-sample trial means paired with step 7, bootstrap curves per scope, minimal cells, cross-fitting, `minimal_configs.json`; training class counts per sample for the minority count figure); primary criterion paired non-inferiority δ = 0.02, greedy order; plan `working_notes/training_data_requirements_eval_plan.md`. Tested on a synthetic fixture only.
 - [ ] Run the eval on the real step-8 results; then choose the stability rule (with / without) and the step-9 config (pooled or cross-fitted per fold).
 
 ### Step 9: Follow-up experiments
