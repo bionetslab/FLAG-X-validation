@@ -102,7 +102,7 @@ One array task = one **lane** = (method, dataset, outer split, trial), not one a
 | `flagx_cpu` | `tdr_flagx_cpu.sh` | `fx_flagx_cpu` | Woody | som | 150 | 14881 |
 | `flagx_gpu` | `tdr_flagx_gpu.sh` | `fx_flagx_gpu` | TinyGPU | mlp | 150 | 14881 |
 
-Lanes = 10 datasets × 5 outer splits × 3 trials per method (counts of 2026-11-18, grid with ~×1.5 sample steps). Resources: Woody 4 cores (~31 GB), `--constraint=icx` (Gold 6326 only: one CPU type for all atoms, see the working note), no partition, `--time=24:00:00 --time-min=02:00:00` per lane (the scheduler may start a task with 2–24 h to fill gaps; the worker reads its job's time left from `squeue` and starts an atom only if it fits); TinyGPU 1 GPU (default partition `work`), 4 threads. GPU types are not pinned; `cpu_model` / `gpu_names` are recorded per atom (lower-bound claim: see the working note).
+Lanes = 10 datasets × 5 outer splits × 3 trials per method (counts of 2026-11-18, grid with ~×1.5 sample steps). Resources: Woody 4 cores (~31 GB), `--constraint=icx` (Gold 6326 only: one CPU type for all atoms, see the working note), no partition, `--time=24:00:00 --time-min=02:00:00` per lane (the scheduler may start a task with 2–24 h to fill gaps; the worker reads its job's time left from `squeue` and starts an atom only if it fits); TinyGPU 1 RTX 2080 Ti (`--gres=gpu:rtx2080ti:1`, default partition `work`, host share 8 cores / 22 GB), 4 threads; one GPU type for all atoms (the step-9 `sor_flagx_gpu.sh` as well). `cpu_model` / `gpu_names` are recorded per atom.
 
 ```bash
 python training_data_requirements.py manifest sklearn_cpu    # prints the number of lanes L (--array=0-<L-1>)

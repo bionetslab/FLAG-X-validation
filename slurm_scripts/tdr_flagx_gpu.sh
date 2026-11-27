@@ -8,11 +8,10 @@
 #   sbatch.tinygpu slurm_scripts/tdr_flagx_gpu.sh
 # --time / --time-min: SLURM may start a task with any limit between 2 h and 24 h (backfill gaps); the worker reads
 # its job's time left from squeue, so no constant has to match (per-atom limit ATOM_TIME_LIMIT_S = 1 h).
-# No partition: default partition work (RTX 2080 Ti / RTX 3080). The host share per GPU is fixed (8 cores); the
-# methods use 4 threads, as on Woody.
+# RTX 2080 Ti only (partition work; see the working note); the methods use 4 threads, as on Woody.
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:rtx2080ti:1
 #SBATCH --time=24:00:00
 #SBATCH --time-min=02:00:00
 #SBATCH --job-name=tdr_flagx_gpu
