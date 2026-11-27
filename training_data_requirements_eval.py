@@ -366,8 +366,8 @@ def lane_table(dataset, manifest, atoms):
                                        'atom_id', 'status', 'ok', 'n_train_events'])
 
 
-def sample_score_table(dataset, lanes, scores, baseline):
-    """One row per method x cell x test sample (columns: module docstring)."""
+def sample_score_table(dataset, lanes, scores, baseline, n_trials=N_TRIALS):
+    """One row per method x cell x test sample (columns: module docstring); n_trials: trials 0 .. n_trials - 1."""
     sp = split_table(dataset)
     if len(scores):
         sc = scores.copy()
@@ -382,8 +382,8 @@ def sample_score_table(dataset, lanes, scores, baseline):
     for (method, ns, ne, split), g in lanes.groupby(['method', 'n_samples', 'n_events', 'split'], sort=False):
         ts = test[split]
         b = np.array([base.get((method, split, s), np.nan) for s in ts['sample']])
-        per_trial = np.full((len(ts), N_TRIALS), np.nan)
-        predicted = np.zeros((len(ts), N_TRIALS), dtype=bool)
+        per_trial = np.full((len(ts), n_trials), np.nan)
+        predicted = np.zeros((len(ts), n_trials), dtype=bool)
         for _, lane in g.iterrows():
             if lane['alias'] == 'baseline':
                 per_trial[:, lane['trial']] = b
@@ -396,11 +396,11 @@ def sample_score_table(dataset, lanes, scores, baseline):
         n_pred = predicted.sum(axis=1)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', category=RuntimeWarning)  # All trials undefined -> NaN (intended)
-            mean = np.where(n_pred == N_TRIALS, np.nanmean(per_trial, axis=1), np.nan)
+            mean = np.where(n_pred == n_trials, np.nanmean(per_trial, axis=1), np.nan)
         t = pd.DataFrame(OrderedDict([('method', method), ('dataset', dataset), ('n_samples', ns), ('n_events', ne),
                                       ('split', split), ('sample', ts['sample'].to_numpy()),
                                       ('patient_id', ts['patient_id'].to_numpy())]))
-        for tr in range(N_TRIALS):
+        for tr in range(n_trials):
             t['score_t{}'.format(tr)] = per_trial[:, tr]
         t['n_trials_pred'] = n_pred
         t['trial_mean'] = mean
@@ -414,9 +414,9 @@ def sample_score_table(dataset, lanes, scores, baseline):
 # Part 4: curves per scope with bootstrap CIs
 # ---------------------------------------------------------------------------------------------------------------
 
-def scopes(splits):
+def scopes(splits, n_trials=N_TRIALS):
     """[(scope, splits in the scope, trials in the scope, value column)]."""
-    trials = list(range(N_TRIALS))
+    trials = list(range(n_trials))
     res = [('pooled', splits, trials, 'trial_mean')]
     res += [('trial_{}'.format(t), splits, [t], 'score_t{}'.format(t)) for t in trials]
     res += [('fold_{}'.format(k), [k], trials, 'trial_mean') for k in splits]
@@ -437,13 +437,13 @@ def boot_counts(dataset, subset, groups):
     return counts
 
 
-def curve_table(dataset, lanes, samples):
-    """One row per method x cell x scope (columns: module docstring)."""
+def curve_table(dataset, lanes, samples, scope_list=None):
+    """One row per method x cell x scope (columns: module docstring); scope_list: default scopes(splits)."""
     splits = sorted(samples['split'].unique())
     q = [100 * (1 - CI_LEVEL) / 2, 100 * (1 + CI_LEVEL) / 2]
     cell_cols = ['method', 'n_samples', 'n_events']
     out = []
-    for scope, sc_splits, sc_trials, col in scopes(splits):
+    for scope, sc_splits, sc_trials, col in (scopes(splits) if scope_list is None else scope_list):
         if len(sc_splits) == len(splits):
             subset = 'all'  # pooled and trial_<t> share the resamples
         else:

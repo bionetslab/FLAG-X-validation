@@ -16,13 +16,14 @@ Order schemes (one output root each, <out>/<scheme>/):
                 left out). Datasets without strata (STRATA None: Flowcyt) are not run in this arm (it would only
                 repeat the random arm).
 
-Atom = (method, dataset, outer split, trial, n_samples) with n_samples = 1 .. n_min (every integer; values >= the
-split's training samples are dropped) and n_events = ne_min. Lane = (method, dataset, outer split, trial), order
+Atom = (method, dataset, outer split, trial, n_samples) with n_samples = 1 .. n_min (every integer; values > the
+split's training samples are dropped and resolved to n_samples = the split's training samples in the eval) and
+n_events = ne_min. Lane = (method, dataset, outer split, trial), order
 split -> dataset -> method -> trial, atoms small -> large. Method x dataset without a minimal cell or with
 n_min = 'all' are skipped (printed by 'manifest').
 
 Minimal cell: MINIMAL_CONFIGS (step-8 eval, minimal_configs.json: primary criterion), the pooled cell with or without
-the stability rule (STABLE).
+the stability rule (STABLE; recorded in the manifest columns n_min and stable, read by the eval).
 
 Env: the env of the array (training_data_requirements.ARRAYS), e.g. fx_sklearn for 'sklearn_cpu'. Python
 3.5-compatible.
@@ -191,19 +192,19 @@ def write_manifest(scheme, array, out, configs_path):
                 for trial in range(N_TRIALS):
                     order = lane_order(scheme, dataset, split, trial, train)
                     for ns in range(1, int(n_min) + 1):
-                        if ns >= len(order):
-                            break  # Same as 'all' samples: the order does not matter
+                        if ns > len(order):
+                            break  # n_samples > training samples: resolved to n_samples = len(order) in the eval
                         n_train = sum(sizes[dataset][s] if ne == 'all' else min(sizes[dataset][s], ne)
                                       for s in order[:ns])
                         rows.append([index, lane, tdr.atom_id(method, dataset, split, trial, ns, ne), method, dataset,
                                      split, trial, ns, ne, len(train), n_train, cid, source,
-                                     json.dumps(params, sort_keys=True), scheme, n_min])
+                                     json.dumps(params, sort_keys=True), scheme, n_min, STABLE])
                         index += 1
                     lane += 1
     path = os.path.join(scheme_out(out, scheme), 'manifests', array + '.csv')
     save_csv(path, ['index', 'lane', 'atom_id', 'method', 'dataset', 'split', 'trial', 'n_samples', 'n_events',
                     'n_train_samples_split', 'n_train_events', 'config_id', 'param_source', 'params', 'order_scheme',
-                    'n_min'], rows)
+                    'n_min', 'stable'], rows)
     log_dir = os.path.join(out, 'logs', 'sor_' + array)  # --output of the SLURM script; must exist at submission
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)

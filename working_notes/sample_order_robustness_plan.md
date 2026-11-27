@@ -1,6 +1,6 @@
 # Sample order robustness (PLAN.md step 9)
 
-Script: `sample_order_robustness.py` (implemented 2026-11-25). SLURM: `slurm_scripts/sor_<array>.sh <scheme>`.
+Scripts: `sample_order_robustness.py` (implemented 2026-11-25), `sample_order_robustness_eval.py` (2026-11-27). SLURM: `slurm_scripts/sor_<array>.sh <scheme>`.
 
 ## Question
 Step 8 gives one minimal cell (n_min training samples × ne_min events per sample) per method × dataset, selected on the mean over 3 trials (sample orders). How much does that result depend on the sample order? The same runs answer two questions:
@@ -31,5 +31,16 @@ TODO before the run: estimate the lane time from `pred_s` in the step-8 `atoms.c
 - `run_child` / `run_lane(..., atom_cmd=None)`: the child command (incl. `--out`) of the calling script; `run_lane(..., overwrite=None)`.
 - Checked: manifest, counts and atom JSONs (except times / metadata) of a step-8 smoke lane are identical to the version before the change.
 
-## Eval (to do)
-`sample_order_robustness_eval.py`, reusing the step-8 eval helpers (scores, bootstrap over patients, step-7 baseline): per scheme × method × dataset × trial × n_samples mean d, CI, pass; share of passing trials at n_min with a Clopper–Pearson CI; distribution of the per-trial minimal n_samples; share of trials passing by n (Fig S6-style). Then a plot script.
+## Eval (`sample_order_robustness_eval.py`, implemented 2026-11-27)
+Env `fx_plot`; reuses the step-8 eval (`training_data_requirements_eval.py`): atom table with the post-hoc budget, scores, paired d to the step-7 baseline, bootstrap curves, `minimal_cell`. Output `results/sample_order_robustness_eval/`.
+- **Trial criterion:** scope `trial_<t>` = trial t over all 5 folds (one order per fold): mean d with a percentile CI from the bootstrap over patients (donors for Imstat), on the resamples of the step-8 pooled / `trial_<t>` scopes (same seed), shared by all trials, n and schemes. Pass = eligible (all 5 fold lanes ok and in budget) and `ci_low > -δ`; legacy criterion as well. Scope `pooled` = mean over all trials (sanity check against step 8).
+- **Decisions (user, 2026-11-27):**
+  - a trial with a failed / timed-out / out-of-budget fold lane counts as **not passing** (share over all trials; `n_failed` reported);
+  - the full step-8 δ sweep (0.001–0.1) plus the legacy criterion; the summary at `config.DELTA`;
+  - per-trial minimum without and with the stability rule (every eligible larger tested n also passes; only n ≤ n_min are tested; not found = above n_min); the summary follows the manifest's `stable` column (the run script's `STABLE`);
+  - **no comparison of the arms in the eval** (aggregation per arm only); the arms are compared in the figures.
+- **Shares:** counts and shares only, no CI (user, 2026-11-27: aggregate first; a binomial CI, e.g. Clopper–Pearson, can be computed later from `n_pass` / `n_trials` and `n_min_le_*` / `n_trials`). Conditional on the test set (the trials share it); a share below 1 at n_min is expected because a single trial is noisier than the 3-trial mean that selected n_min.
+- **Outputs:** `atoms.csv`, `scores/<scheme>/<dataset>.csv`, `sample_scores.csv`, `trial_curves.csv` (pooled + `trial_<t>`), `trial_minimal.csv` (per trial × criterion × δ × stable), `share.csv` (per n: `share_pass` and the cumulative `share_min_le_{naive,stable}` with the counts), `summary.csv` (per scheme × method × dataset at n_min: `n_pass`, share, `n_failed`, quantiles of the per-trial minimum as order statistics (inf = not found), pooled mean d, step-8 context: pooled mean d / ci_low and passing step-8 trials at the cell).
+- **Run-script changes for the eval:** the manifest keeps n_samples = the split's training samples (`>` instead of `>=`; larger n_min is resolved to that atom in the eval) and records the step-8 variant in a `stable` column.
+
+Next: `plot_sample_order_robustness.py` (arm comparison in figures).
