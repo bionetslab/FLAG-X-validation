@@ -81,10 +81,36 @@ LOG10_CUTOFFS = {
 LOG10_CUTOFFS['lt1b'] = LOG10_CUTOFFS['lt1']
 LOG10_CUTOFFS['lt2b'] = LOG10_CUTOFFS['lt2']
 
+# ### Statistics
+# Margin delta of the paired non-inferiority / equivalence tests on the per-sample score (macro F1; binary datasets F1
+# of label 1), a stated convention (decided 2026-11-18, working_notes/training_data_requirements_eval_plan.md): step 7
+# (benchmark_eval.py, pairwise method comparisons) and step 8 (minimal training data)
+DELTA = 0.02
+
 
 # ### Plotting
 # Order, display names and colors of the datasets and methods in all figures. Only plot scripts use these, so they can be
 # changed freely (DATASETS above is the run order: changing it would change the benchmark manifest indices).
+# Result figures are drawn at their final printed size (included unscaled, fonts 6-8 pt): at most one A4 text block.
+PAGE_WIDTH = 6.3  # inch: text width of an A4 page with 2.5 cm margins (160 mm)
+PAGE_HEIGHT = 9.0  # inch: A4 text height (247 mm = 9.7 in) minus room for the caption
+# Font sizes (pt) of all figures; body text of a manuscript is 10-12 pt, journals ask for >= 5-6 pt in figures
+FONT_TICK = 6  # Tick labels
+FONT_LABEL = 7  # Axis labels, legends, colorbar labels
+FONT_TITLE = 7.5  # Panel titles
+FONT_SUPTITLE = 8  # Figure titles
+FONT_PANEL = 9  # Bold panel letters A, B, ...
+FONT_ANNOT = 6  # Text inside panels (n/a, R^2, total events)
+FONT_MIN = 5  # Dense annotations (k/n, Bland-Altman values, pairwise method names, bar counts): the minimum
+# matplotlib defaults of all plot scripts: plt.rcParams.update(PLOT_RC)
+PLOT_RC = {
+    'font.size': FONT_LABEL, 'axes.titlesize': FONT_TITLE, 'axes.labelsize': FONT_LABEL,
+    'xtick.labelsize': FONT_TICK, 'ytick.labelsize': FONT_TICK, 'legend.fontsize': FONT_LABEL,
+    'legend.title_fontsize': FONT_LABEL, 'figure.titlesize': FONT_SUPTITLE, 'figure.labelsize': FONT_LABEL,
+    'axes.linewidth': 0.6, 'xtick.major.width': 0.6, 'ytick.major.width': 0.6, 'xtick.minor.width': 0.4,
+    'ytick.minor.width': 0.4, 'xtick.major.size': 2.5, 'ytick.major.size': 2.5, 'xtick.minor.size': 1.5,
+    'ytick.minor.size': 1.5,
+}
 PLOT_DATASETS = [
     'imstat', 'flowcyt', 'lt1', 'lt2', 'lt1b', 'lt2b', 'blast110_p1', 'blast110_p2', 'blast110_p3', 'blast110_p4',
 ]
@@ -94,7 +120,7 @@ DATASET_NAMES = {
     'blast110_p4': 'BLAST110 P4',
 }
 PLOT_METHODS = [
-    'mlp', 'dgcytof', 'deepcytof', 'som', 'gatemeclass', 'gmm_mocking', 'lda_abdelaal',
+    'deepcytof', 'dgcytof', 'mlp', 'gatemeclass', 'gmm_mocking', 'som', 'lda_abdelaal',
     'lda_sklearn', 'logreg', 'knn', 'rf', 'hgb'  
 ]
 METHOD_NAMES = {

@@ -1,6 +1,6 @@
 # Benchmark plan
 
-Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, pilot done (2026-11-12), final run next. Built from `NOTES.md`.
+Status: steps 0–6 done (2026-11-11); step 7: `benchmark.py` implemented, pilot done (2026-11-12), final run next; step 8 (training data requirements): `training_data_requirements.py` implemented and smoke-tested (2026-11-17), run pending (open TODOs); eval `training_data_requirements_eval.py` implemented and tested on a synthetic fixture (2026-11-25). Built from `NOTES.md`.
 
 This file holds the rules, the open todos and a one-line summary of each decision. What was done, with outputs, checks, findings and the reasoning behind each decision, is logged in `DONE.md` (append only). Small decisions (k, seeds, grids, ...) are made when we reach the step.
 
@@ -23,7 +23,7 @@ This file holds the rules, the open todos and a one-line summary of each decisio
 - Steps communicate only via files on disk. Each step reads the outputs of the previous one and writes into its own directory. Intermediate results are always saved.
 - Every step that runs many tasks enumerates them as a list (e.g. method × dataset × fold). A task is addressed by its index, so the same script runs sequentially (loop over all indices) or as a SLURM array job (`SLURM_ARRAY_TASK_ID`).
 - Tasks are idempotent and resumable: a task skips if its finished outputs exist, and writes atomically (temp file → rename) so a killed job leaves no half-written results.
-- Prediction and scoring are separate. Each task stores, per test sample, the raw evaluation counts (confusion matrix incl. abstentions, per-class TP/FP/FN/TN, class counts) and, where feasible, the predicted labels and probabilities (step 5). Metrics and aggregation are computed afterwards from these (step 9).
+- Prediction and scoring are separate. Each task stores, per test sample, the raw evaluation counts (confusion matrix incl. abstentions, per-class TP/FP/FN/TN, class counts) and, where feasible, the predicted labels and probabilities (step 5). Metrics and aggregation are computed afterwards from these (step 10).
 
 **Environments**
 - One isolated conda env per method (or method group) and per analysis step (data curation, evaluation, plotting). Env files live in `envs/`, each with a header comment stating its purpose and tested versions.
@@ -53,9 +53,9 @@ Done: data loading, downsampling, joining, seeding, evaluation counts, resource 
 - [x] Score helpers (D8 rule): `validation/core/scores.py` (2026-11-10).
 
 **What every experiment stores** (convention, using the helpers above):
-- per test sample: the evaluation counts. Any metric (abstention-aware or not, per class or averaged) is computed later from them, without the per-cell predictions (step 9);
+- per test sample: the evaluation counts. Any metric (abstention-aware or not, per class or averaged) is computed later from them, without the per-cell predictions (step 10);
 - optional per-cell outputs (flag per experiment): predicted labels and, where the method has `predict_proba`, predicted probabilities. On where feasible (main benchmark); off where storage would blow up (e.g. training-data requirements) and in the tuning;
-- wall-clock time and peak CPU / GPU memory for training (`fit`, incl. the preprocessing fit) and for the inference on each test sample separately (`predict` / `predict_proba` + preprocessing transform); the scalability experiment (step 8) reuses these;
+- wall-clock time and peak CPU / GPU memory for training (`fit`, incl. the preprocessing fit) and for the inference on each test sample separately (`predict` / `predict_proba` + preprocessing transform); the scalability experiment (step 9) reuses these;
 - run metadata: parameters, seed, env versions, git commit, hardware.
 - Downsampling is applied to the training samples; test samples are predicted in full unless an experiment states otherwise.
 
@@ -82,27 +82,41 @@ Done: `tune_hyperparameters.py`, atom format, smoke test, grid review (295 confi
 - Hyperparameters (D6): Imstat tasks use the per-fold parameters of their outer split (`best_configs/params_outer_<method>.json`, `['splits'][str(split)]['params']`); all other datasets use the consensus parameters (`params_overall_<method>.json`, `['params']`).
 - Run sequentially or as a SLURM array job; GPU only where it helps (FLAG-X MLP, DGCyTOF).
 
-### Step 8: Follow-up experiments
-Reuse the same splits, curated data and runners; only the task list changes. Candidates from the legacy results (`legacy/results/`), to be confirmed:
-- number of training samples / number of events per sample (training data requirements; determines the reduced/minimal training sets used below),
+### Step 8: Training data requirements
+How the score, fit / predict time and memory depend on the number of training samples × events per sample, under a fixed small budget (4 CPUs or 1 GPU, 1 h per atom). Determines the reduced / minimal training sets used in step 9. Design: `working_notes/training_data_requirements_plan.md`.
+- Script `training_data_requirements.py` (all Py3.5-compatible like `benchmark.py`); methods constant at the top: RF, HGB, MLP, SOM (decided 2026-11-24, `DONE.md`).
+- Atom = method × dataset × outer split × trial × n_samples × n_events. Trial = training sample order + downsampling seed (model seed tied to the trial); the first n samples of a per-trial permutation of the outer training samples (nested, same for all methods); events downsampled per sample on the fly (first n of a fixed stratified per-sample event order, so nested over n_events); test samples predicted in full; counts + resources per atom, no predictions; params as in step 7 (D6).
+- Execution: one SLURM array task per *lane* (method × dataset × fold × trial; arrays `sklearn_cpu`, `flagx_cpu`, `flagx_gpu`, order fold first). The lane worker runs its atoms small → large, each as a child process with a 1 h timeout; a timeout / OOM is the method's cutoff: every atom with at least as many total training events (`n_train_events`) of the same method × dataset, in any fold / trial, is skipped without running (re-applied post hoc in the eval). An atom is only started if it can finish within the lane's job time minus a buffer; unfinished lanes are resubmitted and resume.
+- [x] Design (working note) and implementation: `training_data_requirements.py`, `slurm_scripts/tdr_<array>.sh`, helpers `outer_splits` / `best_config` moved to `validation/core/` (2026-11-17, `DONE.md`). Grid without duplicates of `'all'` and without (`'all'`, `'all'`) (= main benchmark): 600 lanes, 59,524 atoms (grid of 2026-11-18: n_samples ~×1.5 steps per dataset, n_events ×3 steps for all datasets, informed by the legacy results).
+- [ ] Run (after the TODOs below).
+- [x] Method selection (2026-11-24): RF, HGB, MLP (top performers of step 7) + SOM (needed for Workflow 1; `DONE.md`).
+- [x] Cutoff rule and hardware (2026-11-24): cutoff by total training events (online and re-checked post hoc in the eval); no calibration run, no slowdown factors (`DONE.md`).
+- [x] Eval (2026-11-25, `DONE.md`): `training_data_requirements_eval.py` (post-hoc budget, per-sample trial means paired with step 7, bootstrap curves per scope, minimal cells, cross-fitting, `minimal_configs.json`; training class counts per sample for the minority count figure); primary criterion paired non-inferiority δ = 0.02, greedy order; plan `working_notes/training_data_requirements_eval_plan.md`. Tested on a synthetic fixture only.
+- [x] Figures (2026-11-25, `DONE.md`): `plot_training_data_requirements.py` (Δ figures as the focus, minority count figures, legacy-style score figures kept), developed on dummy results; formatting in one final pass.
+- [ ] Run the eval on the real step-8 results; then choose the stability rule (with / without) and the step-9 config (pooled or cross-fitted per fold).
+
+### Step 9: Follow-up experiments
+Reuse the same splits, curated data and runners; only the task list changes. Candidates from the legacy results (`legacy/results/`), to be confirmed (the reduced/minimal training sets come from step 8):
 - local training: FLAG-X SOM and MLP trained on the reduced/minimal training sets in the local (CPU, limited resources) setting of Table 1,
 - scalability (runtime and memory vs data size),
-- robustness to sample order (random sample order trials),
+- robustness to sample order: `sample_order_robustness.py` (implemented 2026-11-25, `DONE.md`; plan `working_notes/sample_order_robustness_plan.md`). 30 new trials per fold with 1 … n_min training samples at the events per sample of the step-8 minimal cell (n_min, ne_min), mirroring the step-8 setup; two arms with own output roots: `random` (random permutations) and `stratified` (round-robin over strata: LT subtype, Imstat lysis, BLAST110 sample_type; Flowcyt only in `random`). New trials from 0 with own seeds; the step-8 trials are not reused (decided 2026-11-25; replaces "continue the trial numbering"). Criterion: the primary criterion of the step-8 eval (paired non-inferiority, δ = 0.02, greedy; legacy criterion only for comparison). Gives the share of passing trials at the minimal cell and the per-trial minimal n_samples. Legacy ran these trials only on LT1 / LT2 (+ binary).
+  - [ ] TODOs in the script: `STABLE` (after the step-8 eval decision), `N_TRIALS` (30 for now), lane time estimate from the step-8 `pred_s` before the run (SLURM `--time` / lane split).
+  - [ ] Run (after the step-8 eval); eval script (share of passing trials with Clopper–Pearson CI, distribution of per-trial n_min, share passing by n; reuse the step-8 eval helpers) and figure,
 - probabilistic predictions / abstention behaviour,
 - channel leave-out,
 - class weighting ablation: methods with a class-weight option (FLAG-X MLP, RF, HGB, LogReg `class_weight='balanced'`; LDA-sklearn uniform `priors`) with and without class weighting; not part of the tuning grids (all tuned without),
 - preprocessing ablation (decided, see D3): rerun a subset (e.g. a few methods × datasets) with the alternative transformations (uniform cut-off 100, R4.m1; arcsinh) and normalizations, on the reduced/minimal training sets from the training data requirements experiment.
 
-### Step 9: Evaluation
+### Step 10: Evaluation
 - Separate env. Reads the stored per-sample counts (step 5; per-cell labels / probabilities where stored, e.g. for calibration and abstention analyses), computes sample-wise scores (precision/recall/F1 etc.; port from `legacy/validation/utils/val_utils.py`), writes score tables. The scores implemented in the wrappers (`score`) are not used.
 - Scoring rule (D8): an abstained cell (-1) counts as a false negative for its true class and as a false positive for no class. The abstention rate is reported per sample alongside the scores.
 - Main comparison on the hard labels only. Predicted probabilities (where stored) are used only for secondary analyses on the methods that provide them (e.g. calibration, abstention behaviour), since not all methods have them (GateMeClass) and they differ in meaning (e.g. DGCyTOF's softmax is from before its reassignment step).
 - Aggregation across folds, datasets and methods; statistical comparison (to be decided at this step).
 
-### Step 10: Figures and tables
+### Step 11: Figures and tables
 - Separate env. Reads only score tables, writes to `figures/`.
 
-### Step 11: Documentation
+### Step 12: Documentation
 - README "Scripts" section: order of scripts, env per script, how to run sequentially and on SLURM.
 
 ---
@@ -122,4 +136,4 @@ One line per decision; reasoning and sources in `DONE.md`.
 | D5 | Config format | **decided:** small shared `config.py` at root, per-script constants otherwise, no registries |
 | D6 | Use of tuned parameters | **decided:** both. Per-fold best for Imstat (nested CV); one consensus set (best mean inner score over all outer splits) for all other datasets |
 | D7 | Compensation | **decided:** with flagx if the FCS file has a spillover matrix (only BLAST110) |
-| D8 | Abstention | **decided:** switched off where it is an option (LDA, GateMeClass, DeepCyTOF); built-in abstention (DGCyTOF, FLAG-X SOM) kept; abstained cells count as FN for their true class, abstention rate reported (step 9) |
+| D8 | Abstention | **decided:** switched off where it is an option (LDA, GateMeClass, DeepCyTOF); built-in abstention (DGCyTOF, FLAG-X SOM) kept; abstained cells count as FN for their true class, abstention rate reported (step 10) |

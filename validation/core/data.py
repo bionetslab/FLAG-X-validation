@@ -18,20 +18,23 @@ import numpy as np
 import config
 
 
-def load_sample(dataset, sample):
+def load_sample(dataset, sample, mmap=False):
     """
     Loads one curated sample.
 
     Args:
         dataset (str): Dataset name, e.g. 'imstat'.
         sample (str): Sample name, e.g. 'sample_001'.
+        mmap (bool): Memory-map the files (np.load mmap_mode='r', read-only) instead of reading them; indexing a
+            subset (X[idx]) then reads only those rows. Used when a sample is downsampled right after loading.
 
     Returns:
         tuple: (X, y), X float32 array of shape (n_events, n_channels), y int32 array of shape (n_events,).
     """
     d = os.path.join(config.DATA_CURATED, dataset)
-    X = np.load(os.path.join(d, sample + '_X.npy'))
-    y = np.load(os.path.join(d, sample + '_y.npy'))
+    mode = 'r' if mmap else None
+    X = np.load(os.path.join(d, sample + '_X.npy'), mmap_mode=mode)
+    y = np.load(os.path.join(d, sample + '_y.npy'), mmap_mode=mode)
     return X, y
 
 
@@ -82,6 +85,13 @@ def load_split(dataset, column, inner=False):
     for r in rows:
         out[r[column]].append(r['sample'])
     return out
+
+
+def outer_splits(dataset):
+    """Outer split indices from the columns of data/splits/<dataset>.csv (split_<i>), the single source of truth."""
+    with open(os.path.join(config.DATA_SPLITS, dataset + '.csv')) as f:
+        header = f.readline().strip().split(',')
+    return sorted(int(c.split('_')[1]) for c in header if c.startswith('split_'))
 
 
 def _read_csv(path):

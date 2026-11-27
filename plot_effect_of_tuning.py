@@ -22,7 +22,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from config import RESULTS, FIGURES, PLOT_METHODS, METHOD_NAMES
+from config import RESULTS, FIGURES, PLOT_METHODS, METHOD_NAMES, PAGE_WIDTH, PLOT_RC
+
+# Final printed size: PAGE_WIDTH wide, font sizes FONT_* (config.py)
+plt.rcParams.update(PLOT_RC)
 
 
 OVERWRITE = True  # If False, existing figures are skipped
@@ -52,20 +55,20 @@ def plot_box(units, title, path):
         n_valid, n = d.notna().sum(), len(d)
         labels.append(METHOD_NAMES[m] + ('' if n_valid == n else '\n({}/{})'.format(n_valid, n)))
 
-    fig, ax = plt.subplots(figsize=(9, 3.6), layout='constrained')
-    ax.axhline(0, color='0.5', linewidth=1, linestyle='--', zorder=0)
+    fig, ax = plt.subplots(figsize=(PAGE_WIDTH, 2.6), layout='constrained')
+    ax.axhline(0, color='0.5', linewidth=0.6, linestyle='--', zorder=0)
     ax.boxplot(data, positions=range(len(data)), widths=0.55, showfliers=False, patch_artist=True,
-               boxprops={'facecolor': BOX_COLOR, 'alpha': 0.35, 'edgecolor': BOX_COLOR},
-               medianprops={'color': BOX_COLOR, 'linewidth': 2},
-               whiskerprops={'color': BOX_COLOR}, capprops={'color': BOX_COLOR})
+               boxprops={'facecolor': BOX_COLOR, 'alpha': 0.35, 'edgecolor': BOX_COLOR, 'linewidth': 0.6},
+               medianprops={'color': BOX_COLOR, 'linewidth': 1.2},
+               whiskerprops={'color': BOX_COLOR, 'linewidth': 0.6}, capprops={'color': BOX_COLOR, 'linewidth': 0.6})
     rng = np.random.default_rng(0)
     for i, d in enumerate(data):
-        ax.scatter(i + rng.uniform(-JITTER, JITTER, len(d)), d, s=12, color=POINT_COLOR, alpha=0.8, zorder=3,
+        ax.scatter(i + rng.uniform(-JITTER, JITTER, len(d)), d, s=5, color=POINT_COLOR, alpha=0.8, zorder=3,
                    linewidths=0)
-    ax.set_xticks(range(len(data)), labels, rotation=45, ha='right', rotation_mode='anchor', fontsize=9)
+    ax.set_xticks(range(len(data)), labels, rotation=45, ha='right', rotation_mode='anchor')
     ax.set_ylabel('Δ macro F1 (best − default)')
-    ax.set_title(title, fontsize=10)
-    ax.grid(axis='y', color='0.9', linewidth=0.8)
+    ax.set_title(title)
+    ax.grid(axis='y', color='0.9', linewidth=0.5)
     ax.set_axisbelow(True)
     for side in ('top', 'right'):
         ax.spines[side].set_visible(False)

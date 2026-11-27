@@ -66,7 +66,39 @@ Outputs (<out> = results/benchmark_eval by default):
                 no score (not predicted: failed / killed / missing atom, or the score is undefined).
     fold_seed_variability.csv   one row per method x dataset x metric: method, dataset, metric, average, mean,
                 fold_sd, seed_sd (formulas: fold_seed_stats; seed_sd empty for deterministic methods with 1 seed),
-                n_folds, n_seeds. NaN propagates from any NaN m.
+                rerun_range (max - min over the seeds of the seed's mean score over all test samples of the dataset,
+                i.e. the n_samples-weighted mean of its fold means: how much the overall score changes when the
+                method is only retrained with another seed; empty for 1 seed), n_folds, n_seeds. NaN propagates from
+                any NaN m.
+    pairwise_deltas.csv   paired differences between all method pairs per dataset x metric (f1 / prec / rec, macro
+                or binary as above), at the test-sample level: per sample the score averaged over the seeds that
+                predicted it (NaN if none did; as in plot_benchmark.py), delta = score(method_a) - score(method_b)
+                over the dataset's test samples (all outer folds) that both methods predicted (incomplete results:
+                the available pairs are used). Columns: dataset, metric, average, method_a, method_b, n_samples
+                (paired samples), n_total (test samples of the dataset), mean_delta, sd_delta (SD of the per-sample
+                deltas, ddof 1), median_delta, q1_delta / q3_delta (quartiles of the per-sample deltas: IQR =
+                q3 - q1), ci_low / ci_high (95 % percentile bootstrap CI of the mean delta: N_BOOT resamples of
+                the paired samples with replacement, seed derived from dataset, metric and the pair). Both orders of
+                each pair are listed (a - b and b - a). All NaN if fewer than 2 paired samples.
+                Tests from the 95 % CI (each one-sided at alpha = 0.025), margin = config.DELTA (as in step 8):
+                superior (a better than b: ci_low > 0), noninferior (a not worse than b by delta or more:
+                ci_low > -delta; non-superiority of a over b = noninferior of the reversed row), equivalent (TOST:
+                -delta < ci_low and ci_high < delta; symmetric in a, b). Empty if the CI is NaN.
+                Each decision is followed by its one-sided bootstrap p-value (boot_p, from the same N_BOOT bootstrap
+                means; no multiplicity correction): p_superior (H0: mean delta <= 0), p_noninferior (H0: mean
+                delta <= -delta), p_equivalent (TOST: the larger of the p-values of H0: <= -delta and H0: >= delta).
+                The decisions correspond to p < 0.025 (up to the percentile interpolation); the two-sided p-value of
+                'a differs from b' is 2 min(p_superior of a - b, p_superior of b - a).
+    resources.csv   runtime and memory, long: one row per manifest atom (dataset x outer split = fold x method x
+                seed), also failed / missing atoms (NaN where not recorded): method, dataset, split, seed, atom_id,
+                atom_status, failure, failure_phase, host, gpu, n_threads, n_train_samples, n_train_events, then the
+                fit (atoms.csv): fit_s, fit_peak_mb, fit_peak_increase_mb, fit_gpu_peak_mb; the prediction, over the
+                predicted test samples of the atom (scores/<dataset>.csv): n_test, n_test_pred (predicted test
+                samples), n_cells_pred (their events), pred_s (sum of the per-sample prediction times),
+                pred_us_per_cell (1e6 pred_s / n_cells_pred), pred_peak_mb / pred_peak_increase_mb /
+                pred_gpu_peak_mb (max over the samples); and the atom: peak_mb (max of fit_peak_mb and pred_peak_mb;
+                the memory to provision, incl. the loaded data), total_s (fit_s + pred_s; NaN unless all test samples
+                were predicted). Times are wall times in s, memory in MB (peak RSS of the process tree).
 Each part is skipped if its outputs exist (OVERWRITE = False); the parts after it then read them.
 """
 
@@ -82,6 +114,7 @@ import pandas as pd
 import config
 from benchmark import atom_paths
 from validation.core.runs import read_manifest
+from validation.core.seeding import derive_seed
 from validation.core.scores import class_scores
 from validation.eval_helpers import ba_stats, cap_hit, failure_type, population_seed_mean, write_csv
 
@@ -346,6 +379,23 @@ def agreement_table(pops):
 METRICS = ['f1', 'prec', 'rec']
 
 
+def sample_metric(scores, metric):
+    """
+    Sample score of every row of a score table: 'macro' (NaN-mean of <metric>_<l>) or 'binary' (<metric>_1, datasets
+    with 2 labels); NaN for unpredicted rows.
+
+    Returns:
+        (pd.Series, str): Scores (index of the table), 'macro' or 'binary'.
+    """
+    labels = [c[3:] for c in scores.columns if c.startswith('f1_')]
+    average = 'binary' if len(labels) == 2 else 'macro'
+    if average == 'binary':
+        sample = scores['{}_1'.format(metric)]
+    else:
+        sample = scores[['{}_{}'.format(metric, l) for l in labels]].mean(axis=1, skipna=True)
+    return sample.where(scores['predicted'].astype(bool)), average
+
+
 def fold_seed_table(dataset, scores):
     """
     Mean score per fold x seed (atom) and metric (columns: module docstring).
@@ -354,15 +404,9 @@ def fold_seed_table(dataset, scores):
         dataset (str): Dataset name.
         scores (pd.DataFrame): Score table of the dataset (Part 2): one row per manifest atom x test sample.
     """
-    labels = [c[3:] for c in scores.columns if c.startswith('f1_')]
-    average = 'binary' if len(labels) == 2 else 'macro'
     rows = []
     for metric in METRICS:
-        if average == 'binary':
-            sample = scores['{}_1'.format(metric)]
-        else:
-            sample = scores[['{}_{}'.format(metric, l) for l in labels]].mean(axis=1, skipna=True)
-        sample = sample.where(scores['predicted'].astype(bool))
+        sample, average = sample_metric(scores, metric)
         g = sample.groupby([scores['method'], scores['split'], scores['seed']], sort=False)
         t = pd.DataFrame({'m': g.mean(), 'n_samples': g.size(), 'n_valid': g.count()}).reset_index()
         t.loc[t['n_valid'] < t['n_samples'], 'm'] = np.nan  # Missingness propagates
@@ -410,9 +454,125 @@ def variability_table(fold_seed):
                                                                      sort=False):
         mat = g.pivot(index='split', columns='seed', values='m').sort_index().sort_index(axis=1)
         mean, sd_fold, sd_seed = fold_seed_stats(mat.to_numpy())
+        # Re-run range: overall mean per seed (all test samples = fold means weighted by their sample numbers)
+        n = g.pivot(index='split', columns='seed', values='n_samples').loc[mat.index, mat.columns]
+        per_seed = (mat * n).sum() / n.sum()
+        if mat.isna().to_numpy().any() or mat.shape[1] < 2:
+            rerun = np.nan
+        else:
+            rerun = float(per_seed.max() - per_seed.min())
         rows.append({'method': method, 'dataset': dataset, 'metric': metric, 'average': average, 'mean': mean,
-                     'fold_sd': sd_fold, 'seed_sd': sd_seed, 'n_folds': mat.shape[0], 'n_seeds': mat.shape[1]})
+                     'fold_sd': sd_fold, 'seed_sd': sd_seed, 'rerun_range': rerun, 'n_folds': mat.shape[0],
+                     'n_seeds': mat.shape[1]})
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Part 7: paired differences between methods
+# ---------------------------------------------------------------------------------------------------------------
+
+N_BOOT = 10000  # Bootstrap resamples for the CI of the mean paired delta
+
+
+def boot_p(boot, c, side):
+    """
+    One-sided bootstrap p-value of H0: mean <= c (side 'le') or mean >= c (side 'ge') from the bootstrap means,
+    (1 + #{boot on the H0 side of c}) / (N_BOOT + 1) (the usual +1 correction: p >= 1 / (N_BOOT + 1), never 0);
+    consistent with the percentile CI: p < 0.025 if and only if c lies outside it on that side (up to the percentile
+    interpolation).
+    """
+    k = np.sum(boot <= c) if side == 'le' else np.sum(boot >= c)
+    return float((1 + k) / (len(boot) + 1.0))
+
+
+def pairwise_table(dataset, scores):
+    """
+    Paired per-sample differences of all method pairs (columns: module docstring).
+
+    Args:
+        dataset (str): Dataset name.
+        scores (pd.DataFrame): Score table of the dataset (Part 2).
+    """
+    rows = []
+    for metric in METRICS:
+        sample, average = sample_metric(scores, metric)
+        g = sample.groupby([scores['method'], scores['split'], scores['sample']])
+        wide = g.mean().unstack('method')  # Seed mean over the seeds that predicted the sample; rows: split x sample
+        methods = [m for m in config.PLOT_METHODS if m in wide.columns] + sorted(set(wide.columns) -
+                                                                                  set(config.PLOT_METHODS))
+        n_total = len(wide)
+        for i, a in enumerate(methods):
+            for b in methods[i + 1:]:
+                d = (wide[a] - wide[b]).to_numpy()
+                d = d[~np.isnan(d)]  # Samples predicted by both methods
+                n = len(d)
+                if n < 2:
+                    st = dict(mean_delta=np.nan, sd_delta=np.nan, median_delta=np.nan, q1_delta=np.nan,
+                              q3_delta=np.nan, ci_low=np.nan, ci_high=np.nan)
+                    p_ab = p_ba = dict(p_superior=np.nan, p_noninferior=np.nan, p_equivalent=np.nan)
+                else:
+                    rng = np.random.default_rng(derive_seed('benchmark_eval', 'pairwise_deltas', dataset, metric,
+                                                            a, b))
+                    boot = d[rng.integers(0, n, size=(N_BOOT, n))].mean(axis=1)
+                    lo, hi = np.percentile(boot, [2.5, 97.5])
+                    q1, med, q3 = np.percentile(d, [25, 50, 75])
+                    st = dict(mean_delta=float(d.mean()), sd_delta=float(d.std(ddof=1)), median_delta=float(med),
+                              q1_delta=float(q1), q3_delta=float(q3), ci_low=float(lo), ci_high=float(hi))
+                    # One-sided p-values for a - b; the reversed row b - a has the bootstrap means -boot
+                    p_eq = max(boot_p(boot, -config.DELTA, 'le'), boot_p(boot, config.DELTA, 'ge'))  # TOST
+                    p_ab = dict(p_superior=boot_p(boot, 0, 'le'), p_noninferior=boot_p(boot, -config.DELTA, 'le'),
+                                p_equivalent=p_eq)
+                    p_ba = dict(p_superior=boot_p(boot, 0, 'ge'), p_noninferior=boot_p(boot, config.DELTA, 'ge'),
+                                p_equivalent=p_eq)
+                base = {'dataset': dataset, 'metric': metric, 'average': average, 'n_samples': n, 'n_total': n_total}
+                rows.append(dict(base, method_a=a, method_b=b, **dict(st, **p_ab)))
+                rows.append(dict(base, method_a=b, method_b=a, mean_delta=-st['mean_delta'], sd_delta=st['sd_delta'],
+                                 median_delta=-st['median_delta'], q1_delta=-st['q3_delta'],
+                                 q3_delta=-st['q1_delta'], ci_low=-st['ci_high'], ci_high=-st['ci_low'], **p_ba))
+    t = pd.DataFrame(rows, columns=['dataset', 'metric', 'average', 'method_a', 'method_b', 'n_samples', 'n_total',
+                                    'mean_delta', 'sd_delta', 'median_delta', 'q1_delta', 'q3_delta', 'ci_low',
+                                    'ci_high', 'p_superior', 'p_noninferior', 'p_equivalent'])
+    # Decisions from the 95 % CI (each one-sided at alpha = 0.025); empty where the CI is NaN
+    valid = t['ci_low'].notna()
+    t['margin'] = config.DELTA
+    t['superior'] = (t['ci_low'] > 0).where(valid)
+    t['noninferior'] = (t['ci_low'] > -config.DELTA).where(valid)
+    t['equivalent'] = ((t['ci_low'] > -config.DELTA) & (t['ci_high'] < config.DELTA)).where(valid)
+    cols = [c for c in t.columns if not c.startswith('p_')]  # Each p-value next to its decision
+    for test in ['superior', 'noninferior', 'equivalent']:
+        cols.insert(cols.index(test) + 1, 'p_' + test)
+    return t[cols]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Part 8: runtime and memory per atom (long)
+# ---------------------------------------------------------------------------------------------------------------
+
+def resource_table(atoms, scores):
+    """
+    Fit and prediction resources per manifest atom (columns: module docstring).
+
+    Args:
+        atoms (pd.DataFrame): Fit table (Part 1).
+        scores (pd.DataFrame): Score tables of all datasets (Part 2), concatenated.
+    """
+    pred = scores[scores['predicted'].astype(bool)]
+    g = pred.groupby('atom_id')
+    p = pd.DataFrame({'n_test_pred': g.size(), 'n_cells_pred': g['n_cells'].sum(),
+                      'pred_s': g['pred_s'].sum(min_count=1), 'pred_peak_mb': g['pred_peak_mb'].max(),
+                      'pred_peak_increase_mb': g['pred_peak_increase_mb'].max(),
+                      'pred_gpu_peak_mb': g['pred_gpu_peak_mb'].max()})
+    cols = ['method', 'dataset', 'split', 'seed', 'atom_id', 'atom_status', 'failure', 'failure_phase', 'host', 'gpu',
+            'n_threads', 'n_train_samples', 'n_train_events', 'fit_s', 'fit_peak_mb', 'fit_peak_increase_mb',
+            'fit_gpu_peak_mb', 'n_test']
+    t = atoms[cols].merge(p, how='left', left_on='atom_id', right_index=True)
+    t['n_test_pred'] = t['n_test_pred'].fillna(0).astype(int)
+    t['pred_us_per_cell'] = 1e6 * t['pred_s'] / t['n_cells_pred']
+    t['peak_mb'] = t[['fit_peak_mb', 'pred_peak_mb']].max(axis=1, skipna=False)
+    t['total_s'] = (t['fit_s'] + t['pred_s']).where(t['n_test_pred'] == t['n_test'])
+    order = cols + ['n_test_pred', 'n_cells_pred', 'pred_s', 'pred_us_per_cell', 'pred_peak_mb',
+                    'pred_peak_increase_mb', 'pred_gpu_peak_mb', 'peak_mb', 'total_s']
+    return t[order]
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -480,6 +640,23 @@ def main(in_dir, out_dir):
     if not done(p_var):
         write_csv(variability_table(fold_seed), p_var)
     print('fold / seed variability:', p_var)
+
+    # --- Part 7: paired differences between methods
+    p_pair = os.path.join(out_dir, 'pairwise_deltas.csv')
+    if not done(p_pair):
+        write_csv(pd.concat([pairwise_table(d, pd.read_csv(os.path.join(out_dir, 'scores', d + '.csv')))
+                             for d in datasets], ignore_index=True), p_pair)
+    print('pairwise deltas:', p_pair)
+
+    # --- Part 8: runtime and memory per atom
+    p_res = os.path.join(out_dir, 'resources.csv')
+    if not done(p_res):
+        scores = pd.concat([pd.read_csv(os.path.join(out_dir, 'scores', d + '.csv'),
+                                        usecols=['atom_id', 'predicted', 'n_cells', 'pred_s', 'pred_peak_mb',
+                                                 'pred_peak_increase_mb', 'pred_gpu_peak_mb'])
+                            for d in datasets], ignore_index=True)
+        write_csv(resource_table(atoms, scores), p_res)
+    print('resources:', p_res)
 
 
 if __name__ == '__main__':
